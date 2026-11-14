@@ -112,6 +112,23 @@ impl Paths {
         self.state_dir.join("ssh")
     }
 
+    /// The generated OpenSSH config for one sandbox.
+    pub fn ssh_config_file(&self, sandbox_id: &str) -> PathBuf {
+        self.ssh_state_dir().join(format!("{sandbox_id}.conf"))
+    }
+
+    /// The pinned host key for one sandbox.
+    pub fn known_hosts_file(&self, sandbox_id: &str) -> PathBuf {
+        self.ssh_state_dir()
+            .join(format!("{sandbox_id}.known_hosts"))
+    }
+
+    /// SSH control sockets. Short and outside the state root because macOS
+    /// limits a socket path to 104 bytes.
+    pub fn control_dir(&self) -> PathBuf {
+        PathBuf::from(format!("/tmp/boatparty-{}", crate::system::uid()))
+    }
+
     /// Where `boatparty skill` writes the bundled skill.
     pub fn skill_dir(&self) -> PathBuf {
         self.state_dir.join("skill").join("boatparty")

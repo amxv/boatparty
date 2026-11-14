@@ -4,7 +4,12 @@ pub mod commands;
 pub mod error;
 pub mod output;
 pub mod paths;
+pub mod pool;
+pub mod project;
 pub mod provider;
+pub mod state;
+pub mod system;
+pub mod transport;
 
 use std::process::ExitCode;
 
@@ -49,5 +54,11 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Login(args) => commands::login::run(&ctx, &args),
         Command::Doctor => commands::doctor::run(&ctx),
         Command::Limits => commands::limits::run(&ctx),
+        Command::Init(args) => commands::init::run(&ctx, &args),
+        Command::Launch => commands::launch::run(&ctx),
+        Command::Board(args) => commands::board::run(&ctx, &args),
+        Command::Status => commands::status::run(&ctx),
+        Command::Dock(args) => commands::dock::run(&ctx, &args),
+        Command::Rm(args) => commands::rm::run(&ctx, &args),
     }
 }

@@ -8,6 +8,7 @@
 
 mod boat;
 pub mod error;
+pub mod sandbox;
 
 use std::fmt;
 use std::str::FromStr;
@@ -15,6 +16,9 @@ use std::str::FromStr;
 pub use error::{
     BillingReason, BusyReason, CapacityReason, ConcurrencyReason, ErrorKind, ProviderError,
     ScopeDenial, StartRefusal, StartWindow,
+};
+pub use sandbox::{
+    CreateSandbox, Deletion, DeletionStatus, Hydration, Resumed, Sandbox, SandboxState, SshAccess,
 };
 
 use crate::account::ApiKey;
@@ -30,6 +34,35 @@ pub trait Provider {
 
     /// Check that the credential is valid and allows everything boatparty does.
     fn check_credential(&self) -> Result<CredentialCheck, ProviderError>;
+
+    /// Every sandbox carrying the label `key=value`.
+    fn list_by_label(&self, key: &str, value: &str) -> Result<Vec<Sandbox>, ProviderError>;
+
+    /// One sandbox. A sandbox that does not exist comes back as
+    /// [`SandboxState::Gone`], not as an error.
+    fn get(&self, id: &str) -> Result<Sandbox, ProviderError>;
+
+    /// Create a sandbox. Safe to repeat with the same idempotency key.
+    fn create(&self, request: &CreateSandbox) -> Result<Sandbox, ProviderError>;
+
+    /// Start a stopped sandbox again with this auto-stop length.
+    fn resume(&self, id: &str, ttl_seconds: u64) -> Result<Resumed, ProviderError>;
+
+    /// Stop a sandbox, keeping its disk. Returns once the stop is accepted.
+    fn stop(&self, id: &str) -> Result<(), ProviderError>;
+
+    /// Set the auto-stop deadline to now plus `ttl_seconds`.
+    fn set_ttl(&self, id: &str, ttl_seconds: u64) -> Result<(), ProviderError>;
+
+    /// Delete a sandbox and its data. Asynchronous: poll [`Provider::deletion`].
+    fn delete(&self, id: &str) -> Result<Deletion, ProviderError>;
+
+    /// The progress of an accepted deletion.
+    fn deletion(&self, operation_id: &str) -> Result<Deletion, ProviderError>;
+
+    /// Authorize an OpenSSH public key on a running sandbox and say how to
+    /// reach it, including the host key to pin.
+    fn authorize_ssh_key(&self, id: &str, public_key: &str) -> Result<SshAccess, ProviderError>;
 }
 
 /// Open the provider described by the account settings with this key.

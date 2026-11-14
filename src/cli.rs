@@ -19,6 +19,18 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Start this workspace's sandbox: create or resume it, then connect.
+    Launch,
+    /// Open a shell in the sandbox's checkout, or run one command there.
+    Board(BoardArgs),
+    /// Stop this workspace's sandbox; its disk is kept.
+    Dock(DockArgs),
+    /// Write boatparty.toml for this Git repository and register the project.
+    Init(InitArgs),
+    /// Show this project's sandboxes.
+    Status,
+    /// Delete a sandbox at the provider and forget it.
+    Rm(RmArgs),
     /// Store the boat API key, read from standard input.
     Login(LoginArgs),
     /// Check that this machine and the stored API key are ready.
@@ -41,4 +53,40 @@ pub struct LoginArgs {
     /// Store the key without asking the provider whether it is valid.
     #[arg(long)]
     pub no_verify: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct InitArgs {
+    /// Project name (lowercase letters, digits and hyphens). Defaults to the
+    /// directory name.
+    #[arg(long)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  boatparty board                 interactive shell in /home/user/<project>\n  \
+                  boatparty board -- uname -a     run one command; exits with its status\n\
+                  Each word after -- is quoted, so `boatparty board -- sh -c 'a | b'` runs exactly that."
+)]
+pub struct BoardArgs {
+    /// The command to run, after `--`. Without one, an interactive shell opens.
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DockArgs {
+    /// The sandbox to stop (name or id); defaults to this workspace's.
+    pub member: Option<String>,
+
+    /// Also wait until the sandbox has stopped.
+    #[arg(long)]
+    pub wait: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RmArgs {
+    /// The sandbox to delete (name or id); defaults to this workspace's.
+    pub member: Option<String>,
 }

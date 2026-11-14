@@ -3,6 +3,7 @@
 //! Created with documented defaults the first time a command needs it.
 //! Unknown keys are an error so a typo never silently changes nothing.
 
+use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -45,6 +46,9 @@ idle_minutes = 5
 heartbeat_minutes = 5
 # How long to wait for a free sandbox before failing, in seconds.
 acquire_wait_seconds = 900
+
+# Projects registered by `boatparty init`, one [projects.<name>] table each,
+# appended below.
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -55,7 +59,15 @@ pub struct AccountConfig {
     pub provider: ProviderSettings,
     #[serde(default)]
     pub defaults: Defaults,
+    /// Projects registered by `boatparty init`, by project name.
+    #[serde(default)]
+    pub projects: BTreeMap<String, ProjectEntry>,
 }
+
+/// One registered project. Per-project limits are added here later.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectEntry {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -142,6 +154,11 @@ impl AccountConfig {
                 return fail(format!("defaults.{name} must be at least 1"));
             }
         }
+        for name in self.projects.keys() {
+            if let Err(message) = crate::project::validate_name(name) {
+                return fail(format!("projects: {message}"));
+            }
+        }
         if self.defaults.heartbeat_minutes >= self.defaults.lease_minutes {
             return fail(format!(
                 "defaults.heartbeat_minutes ({}) must be less than defaults.lease_minutes ({})",
@@ -174,6 +191,38 @@ pub fn load_or_create(paths: &Paths) -> Result<LoadedAccount, AppError> {
         path,
         created,
     })
+}
+
+/// Register a project in `account.toml` by appending an empty
+/// `[projects.<name>]` table, leaving the rest of the file untouched.
+/// Returns false when it was already registered.
+pub fn register_project(paths: &Paths, name: &str) -> Result<bool, AppError> {
+    crate::project::validate_name(name).map_err(AppError::config)?;
+    let loaded = load_or_create(paths)?;
+    if loaded.config.projects.contains_key(name) {
+        return Ok(false);
+    }
+    let path = &loaded.path;
+    let text = fs::read_to_string(path)
+        .map_err(|error| AppError::io(format!("cannot read {}", path.display()), error))?;
+    let separator = if text.ends_with('\n') || text.is_empty() {
+        "\n"
+    } else {
+        "\n\n"
+    };
+    let addition = format!("{separator}[projects.{name}]\n");
+    let mut updated = text.clone();
+    updated.push_str(&addition);
+    // Refuse to write a file that would no longer parse.
+    AccountConfig::parse(&updated, path)?;
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map_err(|error| AppError::io(format!("cannot open {}", path.display()), error))?;
+    file.write_all(addition.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|error| AppError::io(format!("cannot write {}", path.display()), error))?;
+    Ok(true)
 }
 
 /// Write the default file unless another process won the race.
@@ -231,6 +280,38 @@ mod tests {
             error.message()
         );
         assert!(parse("version = 1\nsurprise = true\n").is_err());
+    }
+
+    #[test]
+    fn projects_are_registered_tables() {
+        let config = parse("version = 1\n[projects.app]\n[projects.gg-desktop]\n").unwrap();
+        assert_eq!(
+            config.projects.keys().collect::<Vec<_>>(),
+            ["app", "gg-desktop"]
+        );
+        assert!(parse("version = 1\n[projects.App]\n").is_err());
+        assert!(parse("version = 1\n[projects.app]\nsurprise = 1\n").is_err());
+    }
+
+    #[test]
+    fn registering_appends_and_keeps_comments() {
+        let root = std::env::temp_dir().join(format!(
+            "boatparty-account-test-{}-register",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let home = std::ffi::OsString::from(root.as_os_str());
+        let paths =
+            Paths::resolve(|var| (var == crate::paths::HOME_ENV).then(|| home.clone())).unwrap();
+        assert!(register_project(&paths, "app").unwrap());
+        assert!(!register_project(&paths, "app").unwrap());
+        assert!(register_project(&paths, "other").unwrap());
+        let text = fs::read_to_string(paths.account_file()).unwrap();
+        assert!(text.starts_with(DEFAULT_ACCOUNT_TOML));
+        assert!(text.ends_with("[projects.app]\n\n[projects.other]\n"));
+        let config = AccountConfig::parse(&text, Path::new("account.toml")).unwrap();
+        assert_eq!(config.projects.len(), 2);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
