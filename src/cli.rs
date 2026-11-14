@@ -21,6 +21,15 @@ pub struct Cli {
 pub enum Command {
     /// Start this workspace's sandbox: create or resume it, then connect.
     Launch,
+    /// Sync the working tree to the sandbox's checkout (no command runs).
+    #[command(
+        after_help = "Makes /home/user/<project> on the sandbox identical to this working tree: \
+                      tracked and untracked files minus ignored ones, the same HEAD and branch, \
+                      every local branch and tag, and the default remote branch. Only files \
+                      whose content changed are rewritten there. Ignored files never leave \
+                      this machine, and the local index and working tree are not modified."
+    )]
+    Load,
     /// Open a shell in the sandbox's checkout, or run one command there.
     Board(BoardArgs),
     /// Stop this workspace's sandbox; its disk is kept.

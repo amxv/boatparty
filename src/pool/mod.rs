@@ -19,6 +19,7 @@ use crate::project::Workspace;
 use crate::provider::Provider;
 use crate::state::{Member, Role, State, Store, SyncState};
 use crate::system;
+use crate::transport::ssh::SshTarget;
 
 pub const LABEL_PROJECT: &str = "boatparty.project";
 pub const LABEL_ROLE: &str = "boatparty.role";
@@ -34,6 +35,28 @@ pub fn member_labels(project: &str, role: Role) -> BTreeMap<String, String> {
 /// The checkout directory on every member of a project.
 pub fn remote_checkout(project: &str) -> String {
     format!("/home/user/{project}")
+}
+
+/// This workspace's member and its SSH target, when the member's control
+/// master is alive. Reads the state without the lock and makes no provider
+/// call, so warm commands cost one `ssh -O check`.
+pub fn warm_member(
+    paths: &Paths,
+    project: &str,
+    workspace: &str,
+) -> Result<Option<(Member, SshTarget)>, AppError> {
+    let state = Store::new(paths).load()?;
+    let Some(member) = state
+        .project(project)
+        .and_then(|pool| pool.affinity_member(workspace))
+    else {
+        return Ok(None);
+    };
+    let Some(id) = member.id.as_deref() else {
+        return Ok(None);
+    };
+    let target = SshTarget::for_sandbox(paths, id);
+    Ok(target.master_alive().then(|| (member.clone(), target)))
 }
 
 /// What a command needs to work on one workspace's pool.

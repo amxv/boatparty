@@ -32,12 +32,26 @@ pub fn uid() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
-/// A random version 4 UUID, from the kernel's random source.
-pub fn uuid_v4() -> Result<String, AppError> {
-    let mut bytes = [0u8; 16];
+fn random_bytes<const N: usize>() -> Result<[u8; N], AppError> {
+    let mut bytes = [0u8; N];
     std::fs::File::open("/dev/urandom")
         .and_then(|mut file| file.read_exact(&mut bytes))
         .map_err(|error| AppError::io("cannot read /dev/urandom", error))?;
+    Ok(bytes)
+}
+
+/// `bytes` random bytes as lowercase hex (at most 32 bytes).
+pub fn random_hex(bytes: usize) -> Result<String, AppError> {
+    let random = random_bytes::<32>()?;
+    Ok(random[..bytes.min(32)]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// A random version 4 UUID, from the kernel's random source.
+pub fn uuid_v4() -> Result<String, AppError> {
+    let mut bytes = random_bytes::<16>()?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();

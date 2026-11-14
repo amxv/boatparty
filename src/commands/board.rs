@@ -11,16 +11,15 @@ use super::WorkspaceContext;
 use crate::Context;
 use crate::cli::BoardArgs;
 use crate::error::AppError;
-use crate::pool::remote_checkout;
+use crate::pool::{remote_checkout, warm_member};
 use crate::project::Workspace;
-use crate::state::Store;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     let workspace = Workspace::current()?;
     let project = workspace.load_project()?;
-    let target = match warm_target(ctx, &workspace, project.name())? {
-        Some(target) => target,
+    let target = match warm_member(&ctx.paths, project.name(), &workspace.key())? {
+        Some((_, target)) => target,
         None => {
             let wctx = WorkspaceContext::open(ctx)?;
             wctx.pool(ctx)
@@ -29,24 +28,6 @@ pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
         }
     };
     exec(&target, project.name(), &args.command)
-}
-
-/// The member's SSH target when its control master is already alive.
-fn warm_target(
-    ctx: &Context,
-    workspace: &Workspace,
-    project: &str,
-) -> Result<Option<SshTarget>, AppError> {
-    let state = Store::new(&ctx.paths).load()?;
-    let Some(id) = state
-        .project(project)
-        .and_then(|pool| pool.affinity_member(&workspace.key()))
-        .and_then(|member| member.id.clone())
-    else {
-        return Ok(None);
-    };
-    let target = SshTarget::for_sandbox(&ctx.paths, &id);
-    Ok(target.master_alive().then_some(target))
 }
 
 /// The remote command line: enter the checkout, then run `argv` (quoted

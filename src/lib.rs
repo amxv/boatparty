@@ -7,7 +7,9 @@ pub mod paths;
 pub mod pool;
 pub mod project;
 pub mod provider;
+pub mod runner;
 pub mod state;
+pub mod sync;
 pub mod system;
 pub mod transport;
 
@@ -57,6 +59,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Init(args) => commands::init::run(&ctx, &args),
         Command::Launch => commands::launch::run(&ctx),
         Command::Board(args) => commands::board::run(&ctx, &args),
+        Command::Load => commands::load::run(&ctx),
         Command::Status => commands::status::run(&ctx),
         Command::Dock(args) => commands::dock::run(&ctx, &args),
         Command::Rm(args) => commands::rm::run(&ctx, &args),
