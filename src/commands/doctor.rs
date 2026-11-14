@@ -1,0 +1,376 @@
+//! `boatparty doctor`: is this machine ready, and does the key allow
+//! everything boatparty does? Every failed check prints the command that
+//! fixes it. The key itself is never shown.
+
+use std::env;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+use serde_json::{Value, json};
+
+use crate::Context;
+use crate::account::{self, KeySource, credentials};
+use crate::error::AppError;
+use crate::output::error_document;
+use crate::provider::{self, CredentialCheck, CredentialHelp};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Status {
+    Ok,
+    Fail,
+    Skipped,
+}
+
+impl Status {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Fail => "fail",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Check {
+    name: &'static str,
+    status: Status,
+    detail: String,
+    fix: Option<String>,
+}
+
+impl Check {
+    fn ok(name: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            name,
+            status: Status::Ok,
+            detail: detail.into(),
+            fix: None,
+        }
+    }
+
+    fn fail(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+        Self {
+            name,
+            status: Status::Fail,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+        }
+    }
+
+    fn skipped(name: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            name,
+            status: Status::Skipped,
+            detail: detail.into(),
+            fix: None,
+        }
+    }
+}
+
+pub fn run(ctx: &Context) -> Result<u8, AppError> {
+    let help = provider::credential_help();
+    let mut checks = Vec::new();
+
+    for (tool, fix) in [
+        ("ssh", install_hint("openssh-client")),
+        ("ssh-keygen", install_hint("openssh-client")),
+        ("git", install_hint("git")),
+    ] {
+        checks.push(match find_on_path(tool) {
+            Some(path) => Check::ok(tool, path.display().to_string()),
+            None => Check::fail(tool, format!("{tool} is not on PATH"), fix),
+        });
+    }
+
+    let account = match account::load_or_create(&ctx.paths) {
+        Ok(loaded) => {
+            let created = if loaded.created {
+                " (created with defaults)"
+            } else {
+                ""
+            };
+            checks.push(Check::ok(
+                "account",
+                format!("{}{created}", loaded.path.display()),
+            ));
+            Some(loaded)
+        }
+        Err(error) => {
+            checks.push(Check::fail(
+                "account",
+                error.message(),
+                format!(
+                    "edit {} to fix it, or move it aside so boatparty recreates it",
+                    ctx.paths.account_file().display()
+                ),
+            ));
+            None
+        }
+    };
+
+    let key = match credentials::load(&ctx.paths) {
+        Ok(Some((key, source))) => {
+            checks.push(credential_check(&source));
+            Some(key)
+        }
+        Ok(None) => {
+            checks.push(Check::fail(
+                "credentials",
+                format!(
+                    "no API key: {} does not exist and {} is not set",
+                    ctx.paths.credentials_file().display(),
+                    account::KEY_ENV
+                ),
+                help.create_and_login_command.clone(),
+            ));
+            None
+        }
+        Err(error) => {
+            checks.push(Check::fail(
+                "credentials",
+                error.message(),
+                help.create_and_login_command.clone(),
+            ));
+            None
+        }
+    };
+
+    match (account, key) {
+        (Some(account), Some(key)) => {
+            match provider::connect(account.config.provider.api_url.as_deref(), key) {
+                Ok(provider) => checks.extend(key_checks(provider.check_credential(), &help)),
+                Err(error) => checks.push(Check::fail(
+                    "key",
+                    error.message(),
+                    format!("fix provider.api_url in {}", account.path.display()),
+                )),
+            }
+        }
+        _ => {
+            checks.push(Check::skipped(
+                "key",
+                "needs a readable account file and a key",
+            ));
+            checks.push(Check::skipped("key_scope", "needs a valid key"));
+        }
+    }
+
+    let failed = checks
+        .iter()
+        .filter(|check| check.status == Status::Fail)
+        .count();
+    if ctx.out.is_json() {
+        ctx.out.document(&document(&checks, failed));
+    } else {
+        ctx.out.text(render(&checks).trim_end());
+    }
+    if failed == 0 {
+        Ok(0)
+    } else {
+        if !ctx.out.is_json() {
+            ctx.out.note(format_args!(
+                "{failed} check{} failed",
+                if failed == 1 { "" } else { "s" }
+            ));
+        }
+        Ok(crate::error::EXIT_TOOL_FAILURE)
+    }
+}
+
+fn credential_check(source: &KeySource) -> Check {
+    match source {
+        KeySource::Environment => {
+            Check::ok("credentials", format!("API key from {}", source.describe()))
+        }
+        KeySource::File(path) => match credentials::file_mode(path) {
+            Some(mode) if mode & 0o077 != 0 => Check::fail(
+                "credentials",
+                format!("{} is readable by others (mode {mode:o})", path.display()),
+                format!("chmod 600 {}", shell_quote(path)),
+            ),
+            _ => Check::ok(
+                "credentials",
+                format!("API key in {} (mode 0600)", path.display()),
+            ),
+        },
+    }
+}
+
+fn key_checks(
+    result: Result<CredentialCheck, provider::ProviderError>,
+    help: &CredentialHelp,
+) -> Vec<Check> {
+    let replace = help.create_and_login_command.clone();
+    match result {
+        Ok(CredentialCheck::Complete) => vec![
+            Check::ok("key", "the provider accepts the API key"),
+            Check::ok(
+                "key_scope",
+                format!(
+                    "allows all {} permissions boatparty uses",
+                    help.permissions.len()
+                ),
+            ),
+        ],
+        Ok(CredentialCheck::MissingPermissions(missing)) => vec![
+            Check::ok("key", "the provider accepts the API key"),
+            Check::fail(
+                "key_scope",
+                format!("the key lacks: {}", missing.join(", ")),
+                replace,
+            ),
+        ],
+        Ok(CredentialCheck::RestrictedResources) => vec![
+            Check::ok("key", "the provider accepts the API key"),
+            Check::fail(
+                "key_scope",
+                "the key is limited to particular sandboxes or environments; boatparty creates its own sandboxes",
+                replace,
+            ),
+        ],
+        Ok(CredentialCheck::Invalid) => vec![
+            Check::fail("key", "the provider rejects the API key", replace),
+            Check::skipped("key_scope", "needs a valid key"),
+        ],
+        Ok(CredentialCheck::Expired) => vec![
+            Check::fail("key", "the API key has expired", replace),
+            Check::skipped("key_scope", "needs a valid key"),
+        ],
+        Err(error) => vec![
+            Check::fail(
+                "key",
+                format!("cannot check the key: {error}"),
+                "check the network connection and run `boatparty doctor` again",
+            ),
+            Check::skipped("key_scope", "needs a reachable provider"),
+        ],
+    }
+}
+
+fn document(checks: &[Check], failed: usize) -> Value {
+    let checks: Vec<Value> = checks
+        .iter()
+        .map(|check| {
+            json!({
+                "name": check.name,
+                "status": check.status.as_str(),
+                "detail": check.detail,
+                "fix": check.fix,
+            })
+        })
+        .collect();
+    if failed == 0 {
+        json!({ "ok": true, "checks": checks })
+    } else {
+        let mut document = error_document(&AppError::new(
+            "doctor_failed",
+            format!(
+                "{failed} doctor check{} failed",
+                if failed == 1 { "" } else { "s" }
+            ),
+        ));
+        document["checks"] = Value::Array(checks);
+        document
+    }
+}
+
+fn render(checks: &[Check]) -> String {
+    let mut text = String::new();
+    for check in checks {
+        let label = match check.status {
+            Status::Ok => "ok  ",
+            Status::Fail => "FAIL",
+            Status::Skipped => "skip",
+        };
+        text.push_str(&format!("{label}  {:<12} {}\n", check.name, check.detail));
+        if let Some(fix) = &check.fix {
+            text.push_str(&format!("      {:<12} fix: {fix}\n", ""));
+        }
+    }
+    text
+}
+
+/// The first executable named `name` on `PATH`. Nothing is run.
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    env::split_paths(&path)
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join(name))
+        .find(|candidate| is_executable(candidate))
+}
+
+fn is_executable(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+fn install_hint(debian_package: &str) -> String {
+    if cfg!(target_os = "macos") {
+        match debian_package {
+            "git" => "xcode-select --install   (or: brew install git)".to_string(),
+            _ => "OpenSSH ships with macOS; restore /usr/bin/ssh or run: brew install openssh"
+                .to_string(),
+        }
+    } else {
+        format!("sudo apt-get install {debian_package}   (or your distribution's package)")
+    }
+}
+
+fn shell_quote(path: &Path) -> String {
+    let text = path.display().to_string();
+    if text
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "/._-".contains(c))
+    {
+        text
+    } else {
+        format!("'{}'", text.replace('\'', r"'\''"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_permissions_fail_with_the_create_command() {
+        let help = provider::credential_help();
+        let checks = key_checks(
+            Ok(CredentialCheck::MissingPermissions(vec![
+                "file.read".into(),
+                "file.write".into(),
+            ])),
+            &help,
+        );
+        assert_eq!(checks[0].status, Status::Ok);
+        assert_eq!(checks[1].status, Status::Fail);
+        assert!(checks[1].detail.contains("file.read, file.write"));
+        assert_eq!(
+            checks[1].fix.as_deref(),
+            Some(help.create_and_login_command.as_str())
+        );
+    }
+
+    #[test]
+    fn failed_report_has_the_error_shape() {
+        let checks = vec![
+            Check::ok("ssh", "/usr/bin/ssh"),
+            Check::fail("git", "git is not on PATH", "install git"),
+        ];
+        let document = document(&checks, 1);
+        assert_eq!(document["ok"], false);
+        assert_eq!(document["error"]["code"], "doctor_failed");
+        assert_eq!(document["checks"][1]["status"], "fail");
+        assert_eq!(document["checks"][1]["fix"], "install git");
+        assert_eq!(document["checks"][0]["fix"], Value::Null);
+    }
+
+    #[test]
+    fn shell_quote_only_when_needed() {
+        assert_eq!(shell_quote(Path::new("/a/b.toml")), "/a/b.toml");
+        assert_eq!(shell_quote(Path::new("/a b/c")), "'/a b/c'");
+    }
+}

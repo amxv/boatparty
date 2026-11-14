@@ -1,0 +1,1 @@
+{"ok":false,"type":"sandbox.error","status":429,"code":"limit_reached","message":"You have 100 sandboxes running, the most your plan allows at once.","error":{"code":"limit_reached","message":"You have 100 sandboxes running, the most your plan allows at once.","status":429},"requestId":"req_doc_limit_reached"}

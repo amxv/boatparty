@@ -1,0 +1,67 @@
+[package]
+name = "boatparty"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+description = "Warm boat.dev sandbox pools for any Git project"
+license = "Apache-2.0"
+repository = "https://github.com/amxv/boatparty"
+homepage = "https://github.com/amxv/boatparty#readme"
+readme = "README.md"
+publish = false
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+keywords = ["cli", "rust", "template"]
+categories = ["command-line-utilities"]
+
+[package.metadata.dist]
+dist = true
+
+[[bin]]
+name = "boatparty"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.2.1"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+# Fast local development defaults; use `--profile debugging` when full debug
+# information is actually needed.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.test.package."*"]
+debug = false
+
+[profile.debugging]
+inherits = "dev"
+debug = true
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.dist]
+inherits = "release"

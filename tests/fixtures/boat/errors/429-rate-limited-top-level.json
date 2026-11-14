@@ -1,0 +1,1 @@
+{"ok":false,"type":"sandbox.error","status":429,"code":"rate_limited","message":"You used all 12 starts this minute.","window":"minute","limit":12,"cause":"plan","nextStartAt":"2026-11-15T00:31:41.000Z","retryAfterSeconds":41,"error":{"code":"rate_limited","message":"You used all 12 starts this minute.","status":429},"requestId":"req_doc_rate_limited_minute"}
