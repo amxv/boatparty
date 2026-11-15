@@ -8,7 +8,10 @@ pub mod pool;
 pub mod project;
 pub mod provider;
 pub mod runner;
+pub mod runs;
+pub mod signals;
 pub mod state;
+pub mod stream;
 pub mod sync;
 pub mod system;
 pub mod transport;
@@ -58,10 +61,16 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Limits => commands::limits::run(&ctx),
         Command::Init(args) => commands::init::run(&ctx, &args),
         Command::Launch => commands::launch::run(&ctx),
+        Command::Cheers(args) => commands::cheers::run(&ctx, &args),
         Command::Board(args) => commands::board::run(&ctx, &args),
         Command::Load => commands::load::run(&ctx),
         Command::Status => commands::status::run(&ctx),
         Command::Dock(args) => commands::dock::run(&ctx, &args),
         Command::Rm(args) => commands::rm::run(&ctx, &args),
+        Command::Log(args) => commands::log::run(&ctx, &args),
+        Command::IdleHelper(args) => {
+            pool::lease::idle_helper(&ctx.paths, &args.project, &args.member)?;
+            Ok(0)
+        }
     }
 }

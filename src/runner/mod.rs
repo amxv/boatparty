@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 use crate::error::AppError;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
-pub use trailer::{Trailer, TrailerFilter};
+pub use trailer::{Piece, Trailer, TrailerFilter};
 
 /// The runner script.
 pub const SCRIPT: &str = include_str!("runner.sh");

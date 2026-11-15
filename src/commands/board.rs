@@ -1,8 +1,10 @@
 //! `boatparty board`: a shell, or one command, in the sandbox's checkout.
 //!
 //! When the workspace's member has a live SSH master, nothing but `git` (to
-//! find the workspace) and `ssh` runs: no provider call and no state write,
-//! so scripts can call it once per action.
+//! find the workspace), a local lease write and `ssh` runs before the
+//! command: no provider call, so scripts can call it once per action. The
+//! `session` lease's heartbeat runs in the background, and the idle deadline
+//! is set by a detached helper after the last lease ends.
 
 use std::io::IsTerminal;
 use std::os::unix::process::ExitStatusExt;
@@ -11,23 +13,60 @@ use super::WorkspaceContext;
 use crate::Context;
 use crate::cli::BoardArgs;
 use crate::error::AppError;
+use crate::pool::lease::{self, Heartbeat, LeaseTimes};
 use crate::pool::{remote_checkout, warm_member};
 use crate::project::Workspace;
+use crate::signals::Interrupts;
+use crate::state::{LeaseKind, Store};
+use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     let workspace = Workspace::current()?;
     let project = workspace.load_project()?;
-    let target = match warm_member(&ctx.paths, project.name(), &workspace.key())? {
-        Some((_, target)) => target,
+    let name = project.name();
+    let (member, target) = match warm_member(&ctx.paths, name, &workspace.key())? {
+        Some(warm) => warm,
         None => {
             let wctx = WorkspaceContext::open(ctx)?;
-            wctx.pool(ctx)
-                .bring_up(wctx.bring_up_options(false))?
-                .target
+            let up = wctx.pool(ctx).bring_up(wctx.bring_up_options(false))?;
+            (up.member, up.target)
         }
     };
-    exec(&target, project.name(), &args.command)
+    let account = super::load_account(ctx)?;
+    let times = LeaseTimes::from_defaults(&account.config.defaults);
+    let store = Store::new(&ctx.paths);
+    let label = if args.command.is_empty() {
+        "shell".to_string()
+    } else {
+        args.command.join(" ")
+    };
+    lease::register(&store, name, &member, LeaseKind::Session, &label)?;
+    // SIGINT and SIGTERM reach ssh, which ends; this process then lets go of
+    // its lease before exiting.
+    let interrupts = Interrupts::install()?;
+    let id = member.id.clone().unwrap_or_default();
+    let mut heartbeat = Heartbeat::for_member(&ctx.paths, &id, times);
+    let result = exec(&target, name, &args.command);
+    heartbeat.stop();
+    let released = lease::finish(
+        &store,
+        name,
+        &id,
+        |member| member.last_used_at = system::now_ms(),
+        || {
+            if let Err(error) = lease::spawn_idle_helper(name, &id) {
+                ctx.out.note(format_args!("warning: {error}"));
+            }
+        },
+    );
+    if let Err(error) = released {
+        ctx.out.note(format_args!(
+            "warning: could not release the lease: {error}"
+        ));
+    }
+    let code = result?;
+    Ok(interrupts.exit_status().unwrap_or(code))
 }
 
 /// The remote command line: enter the checkout, then run `argv` (quoted

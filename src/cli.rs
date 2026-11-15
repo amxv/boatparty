@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -30,7 +30,11 @@ pub enum Command {
                       this machine, and the local index and working tree are not modified."
     )]
     Load,
-    /// Open a shell in the sandbox's checkout, or run one command there.
+    /// Sync, run one command in the sandbox's checkout, stream its output, and
+    /// apply its file changes back; exits with the command's status.
+    Cheers(CheersArgs),
+    /// Open a shell in the sandbox's checkout, or run one command there
+    /// without syncing.
     Board(BoardArgs),
     /// Stop this workspace's sandbox; its disk is kept.
     Dock(DockArgs),
@@ -46,6 +50,48 @@ pub enum Command {
     Doctor,
     /// Show the account's start limits, running sandboxes and included VM time.
     Limits,
+    /// List recent runs (`cheers`), oldest first.
+    Log(LogArgs),
+    /// Internal: set a member's idle deadline after its last lease ended.
+    #[command(name = "__idle", hide = true)]
+    IdleHelper(IdleHelperArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(
+    group(ArgGroup::new("what").required(true).args(["sh", "command"])),
+    after_help = "Examples:\n  \
+                  boatparty cheers -- cargo test --locked     each word after -- is quoted\n  \
+                  boatparty cheers --sh 'cargo test 2>&1 | tail -n 20'   one shell line\n\n\
+                  The working tree is synced first (as `boatparty load` does). stdout is passed through \
+                  byte for byte. Files the command changes in the checkout are applied to this working \
+                  tree afterwards; if the same lines changed here meanwhile, nothing is changed and the \
+                  patch is kept under the Git directory.\n\n\
+                  Exit status: the command's own; 125 when boatparty itself failed; 130 or 143 after \
+                  SIGINT or SIGTERM, which also stop the remote command. With --json, stdout carries \
+                  newline-delimited frames: stdout, stderr and event frames, then one result frame."
+)]
+pub struct CheersArgs {
+    /// Run this shell line as given instead of a quoted argument list.
+    #[arg(long, value_name = "LINE")]
+    pub sh: Option<String>,
+
+    /// The command to run, after `--`. Every word is quoted.
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct LogArgs {
+    /// How many runs to show.
+    #[arg(short = 'n', long, default_value_t = 20)]
+    pub limit: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct IdleHelperArgs {
+    pub project: String,
+    pub member: String,
 }
 
 #[derive(Debug, Args)]

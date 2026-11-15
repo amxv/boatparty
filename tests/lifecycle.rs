@@ -414,7 +414,7 @@ fn an_unknown_provider_state_is_an_error_and_is_never_resumed() {
 }
 
 #[test]
-fn board_on_a_warm_member_makes_no_provider_call_and_returns_the_exit_code() {
+fn board_on_a_warm_member_makes_no_synchronous_provider_call_and_returns_the_exit_code() {
     let setup = Setup::new("board");
     setup.init();
     let boat = running_boat(setup.home(), Arc::new(Mutex::new(Vec::new())));
@@ -433,7 +433,32 @@ fn board_on_a_warm_member_makes_no_provider_call_and_returns_the_exit_code() {
         stdout.contains(r"cd /home/user/app && sh -c 'echo it'\''s'"),
         "{stdout}"
     );
-    assert_eq!(boat.requests().len(), before, "board called the provider");
+    // Only the background heartbeat and the detached idle helper talk to the
+    // provider, and only to read the member and move its auto-stop.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline
+        && !boat.requests()[before..]
+            .iter()
+            .any(|request| request.method == "PATCH" && request.body.contains("300"))
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let later = boat.requests()[before..].to_vec();
+    assert!(
+        later
+            .iter()
+            .any(|request| request.method == "PATCH" && request.body.contains("300")),
+        "the idle deadline was never set: {later:?}"
+    );
+    for request in &later {
+        assert_eq!(request.path, format!("/sandboxes/{ID}"), "{request:?}");
+        assert!(
+            matches!(request.method.as_str(), "GET" | "PATCH"),
+            "{request:?}"
+        );
+    }
+    let state = setup.state();
+    assert_eq!(state["projects"]["app"]["members"][0]["leases"], json!([]));
 }
 
 #[test]

@@ -18,6 +18,13 @@ pub enum Trailer {
     NeedFull,
 }
 
+/// Output in order: bytes to print, or an event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Piece {
+    Bytes(Vec<u8>),
+    Event(String),
+}
+
 #[derive(Debug)]
 pub struct TrailerFilter {
     marker: Vec<u8>,
@@ -38,8 +45,34 @@ impl TrailerFilter {
         }
     }
 
-    /// Feed a chunk; returns the bytes that are safe to print now.
+    /// Feed a chunk; returns the bytes that are safe to print now. Events
+    /// are collected for [`TrailerFilter::take_events`].
     pub fn push(&mut self, chunk: &[u8]) -> Vec<u8> {
+        self.step(chunk, false)
+    }
+
+    /// Feed a chunk; returns what is safe to emit now, with each event in
+    /// its place among the bytes.
+    pub fn push_pieces(&mut self, chunk: &[u8]) -> Vec<Piece> {
+        let mut pieces = Vec::new();
+        let mut input = chunk;
+        loop {
+            let before = self.events.len();
+            let bytes = self.step(input, true);
+            if !bytes.is_empty() {
+                pieces.push(Piece::Bytes(bytes));
+            }
+            if self.events.len() == before {
+                return pieces;
+            }
+            if let Some(event) = self.events.pop() {
+                pieces.push(Piece::Event(event));
+            }
+            input = &[];
+        }
+    }
+
+    fn step(&mut self, chunk: &[u8], stop_at_event: bool) -> Vec<u8> {
         if let Some(trailer) = &mut self.trailer {
             trailer.extend_from_slice(chunk);
             return Vec::new();
@@ -63,6 +96,10 @@ impl TrailerFilter {
                     let name = String::from_utf8_lossy(&combined[body..body + end]);
                     self.events.push(name.trim().to_string());
                     combined.drain(..body + end + 1);
+                    if stop_at_event {
+                        self.pending = combined;
+                        return printable;
+                    }
                 }
                 (_, Some(trailer)) => {
                     printable.extend_from_slice(&combined[..trailer]);
@@ -93,6 +130,13 @@ impl TrailerFilter {
     /// Events seen since the last call.
     pub fn take_events(&mut self) -> Vec<String> {
         std::mem::take(&mut self.events)
+    }
+
+    /// Whether the whole trailer line has arrived.
+    pub fn complete(&self) -> bool {
+        self.trailer
+            .as_ref()
+            .is_some_and(|trailer| trailer.contains(&b'\n'))
     }
 
     /// The parsed trailer, once complete.
@@ -172,6 +216,27 @@ mod tests {
                     patch_bytes: 0
                 })
             );
+        }
+    }
+
+    #[test]
+    fn pieces_keep_events_in_their_place_among_the_bytes() {
+        let stream = "before\n\nabc!started\nafter\n\nabc 0 t 0\n";
+        for cut in 0..=stream.len() {
+            let mut filter = TrailerFilter::new("abc");
+            let mut pieces = filter.push_pieces(&stream.as_bytes()[..cut]);
+            pieces.extend(filter.push_pieces(&stream.as_bytes()[cut..]));
+            let mut flat = String::new();
+            for piece in pieces {
+                match piece {
+                    Piece::Bytes(bytes) => flat.push_str(&String::from_utf8(bytes).unwrap()),
+                    Piece::Event(name) => flat.push_str(&format!("<{name}>")),
+                }
+            }
+            flat.push_str(&String::from_utf8(filter.end()).unwrap());
+            assert_eq!(flat, "before\n<started>after\n", "cut {cut}");
+            assert!(filter.take_events().is_empty());
+            assert!(filter.complete());
         }
     }
 

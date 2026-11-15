@@ -7,9 +7,10 @@
 # carries the script text.
 #
 # Invocation: bash runner-<hash>.sh <mode> <project> <args...>
-# Modes: sync.
+# Modes: sync, run, fetch-patch, kill.
 #
 # Results travel on stderr as frames keyed by a per-invocation nonce:
+#   event:                "\n<nonce>!<event>\n" (run emits "started")
 #   trailer, always last: "\n<nonce> <exit-code> <resulting-tree> <patch-bytes>\n"
 #   or, with exit 97:     "\n<nonce> needfull\n"
 # Everything else on stderr, and all of stdout, passes through untouched.
@@ -168,8 +169,115 @@ mode_sync() {
   trailer "$nonce" 0 "$(git -C "$repo" rev-parse "$wip^{tree}")" 0
 }
 
+# Signal the command's whole process group: TERM, then KILL for whatever is
+# still there a few seconds later.
+kill_group() {
+  local pid="$1" _
+  # Right after the start the command may not have made its own session yet;
+  # then the leader itself is signalled, before it can start anything.
+  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || return 0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 -- "-$pid" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  kill -KILL -- "-$pid" 2>/dev/null || true
+}
+
+# Writes the command's changes to the checkout as a patch against the latest
+# sync, under the checkout lock, then prints the trailer. A cancelled command
+# sends nothing back. The trailer is always printed, even when the
+# bookkeeping fails, so the command's exit code is never lost.
+finish() {
+  local nonce="$1" rc="$2" wip="$3" idx base after="-" bytes=0 patch
+  patch="$state/out/$nonce.patch"
+  lock_checkout
+  idx="$(sync_index)"
+  cd "$repo"
+  # Compare with the latest sync, not this command's: if another command
+  # re-synced the checkout meanwhile, those edits are not this command's
+  # changes and must not come back as a patch.
+  if base="$(git rev-parse -q --verify refs/boatparty/wip)"; then
+    if [[ "$base" != "$wip" ]]; then
+      echo "boatparty: note: the checkout was re-synced while this command ran; its result may mix old and new files" >&2
+    fi
+    if stage_all "$idx" && after="$(GIT_INDEX_FILE="$idx" git write-tree)"; then
+      if [[ ! -e "$state/out/$nonce.cancelled" && "$after" != "$(git rev-parse "$base^{tree}")" ]]; then
+        if git diff --binary --full-index "$base" "$after" >"$patch"; then
+          bytes="$(wc -c <"$patch" | tr -d ' ')"
+        else
+          rm -f "$patch"
+          echo "boatparty: could not record the command's file changes" >&2
+        fi
+      fi
+    else
+      after="-"
+      echo "boatparty: could not stage the command's file changes" >&2
+    fi
+  fi
+  unlock_checkout
+  rm -f "$state/out/$nonce.cancelled"
+  trailer "$nonce" "$rc" "$after" "$bytes"
+}
+
+# run <nonce> <with-pack 0|1> <wip> <head> <branch or ""> <refs: send|keep> <command>
+#
+# Syncs like `sync`, then runs the shell line in the checkout in a session of
+# its own with stdin detached, and diffs what it changed.
+#
+# stdin stays open for as long as the client wants the command: end of file
+# (the client closed it, or the client died and its SSH channel closed)
+# terminates the command's process group. On a shared SSH master that is the
+# only sign of a dead client; the session itself survives it.
+mode_run() {
+  local nonce="$1" wip="$3" command="$7" rc=0 pid watcher
+  find "$state/out" -maxdepth 1 -type f -mmin +1440 -delete 2>/dev/null || true
+  receive "$1" "$2" "$3" "$4" "$5" "$6"
+  cd "$repo"
+  # SSH sessions default to a soft limit of 1024 open files, which makes
+  # file-heavy test suites fail with EMFILE.
+  ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+  exec 8<&0
+  printf '\n%s!started\n' "$nonce" >&2
+  # A session of its own, so a cancel can signal the whole process group.
+  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- &
+  pid=$!
+  printf '%s\n' "$pid" >"$state/out/$nonce.pid"
+  (
+    # Read until end of file; nothing is sent after the pack.
+    while IFS= read -r -d '' ignored <&8; do :; done
+    : >"$state/out/$nonce.cancelled"
+    kill_group "$pid"
+  ) </dev/null >/dev/null 2>&1 &
+  watcher=$!
+  exec 8<&-
+  # Quietly: bash would report a job killed by a signal on stderr.
+  { wait "$pid"; } 2>/dev/null || rc=$?
+  kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+  rm -f "$state/out/$nonce.pid"
+  finish "$nonce" "$rc" "$wip"
+  exit "$rc"
+}
+
+# fetch-patch <nonce>: print the patch a run left, then delete it.
+mode_fetch_patch() {
+  local file="$state/out/$1.patch"
+  cat "$file"
+  rm -f "$file"
+}
+
+# kill <nonce>: terminate a running command's process group.
+mode_kill() {
+  local pid
+  pid="$(cat "$state/out/$1.pid" 2>/dev/null || true)"
+  if [[ -n "$pid" ]]; then kill_group "$pid"; fi
+}
+
 case "$mode" in
   sync) mode_sync "$@" ;;
+  run) mode_run "$@" ;;
+  fetch-patch) mode_fetch_patch "$@" ;;
+  kill) mode_kill "$@" ;;
   *)
     echo "boatparty runner: unknown mode $mode" >&2
     exit 2

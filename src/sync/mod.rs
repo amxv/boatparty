@@ -6,7 +6,9 @@
 //! local branch, tag and the default remote branch, travel to the runner as
 //! a thin pack holding only what the sandbox lacks.
 
+pub mod exchange;
 pub mod mirror;
+pub mod pullback;
 pub mod snapshot;
 
 use std::ffi::OsStr;
@@ -16,7 +18,11 @@ use std::process::{Command, Output, Stdio};
 
 use crate::error::AppError;
 
-pub use mirror::{MirrorOutcome, MirrorRequest, mirror};
+pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
+pub use mirror::{
+    MirrorOutcome, MirrorRequest, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
+};
+pub use pullback::{PullBack, apply_pullback};
 pub use snapshot::{Snapshot, snapshot};
 
 /// The sync history mode this phase implements.

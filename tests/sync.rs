@@ -3,7 +3,6 @@
 
 mod common;
 
-use std::cell::Cell;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,91 +10,8 @@ use std::time::{Duration, SystemTime};
 
 use boatparty::runner::{RunnerHost, Trailer, TrailerFilter};
 use boatparty::sync::{self, MirrorOutcome, MirrorRequest, WorktreeInfo};
+use common::runner::{LocalRunner, base_repo, git, write};
 use common::{TempDir, boatparty};
-
-const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/runner/runner.sh");
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
-
-fn write(path: &Path, text: &str) {
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text).unwrap();
-}
-
-/// The runner as a local child, with its checkout and state directories
-/// overridden. Until `install` is called it can pretend to be missing.
-struct LocalRunner {
-    repo: PathBuf,
-    state: PathBuf,
-    missing: Cell<bool>,
-    installs: Cell<u32>,
-}
-
-impl LocalRunner {
-    fn new(root: &Path, name: &str) -> Self {
-        Self {
-            repo: root.join(name),
-            state: root.join(format!("{name}-state")),
-            missing: Cell::new(false),
-            installs: Cell::new(0),
-        }
-    }
-}
-
-impl RunnerHost for LocalRunner {
-    fn command(&self, args: &[String]) -> Command {
-        if self.missing.get() {
-            let mut command = Command::new("sh");
-            command.args(["-c", "echo boatparty-runner-missing >&2; exit 96"]);
-            return command;
-        }
-        let mut command = Command::new("bash");
-        command
-            .arg(SCRIPT)
-            .args(args)
-            .env("BOATPARTY_RUNNER_REPO", &self.repo)
-            .env("BOATPARTY_RUNNER_STATE", &self.state);
-        command
-    }
-
-    fn install(&self) -> Result<(), boatparty::error::AppError> {
-        self.missing.set(false);
-        self.installs.set(self.installs.get() + 1);
-        Ok(())
-    }
-}
-
-/// A local repository with one commit, `origin/main`, and an ignored file.
-fn base_repo(root: &Path) -> PathBuf {
-    let local = root.join("local");
-    fs::create_dir_all(&local).unwrap();
-    git(&local, &["init", "-q", "-b", "main"]);
-    write(&local.join("a.txt"), "one\n");
-    write(&local.join("dir/b.txt"), "two\n");
-    write(&local.join(".gitignore"), "ignored/\n");
-    git(&local, &["add", "-A"]);
-    git(&local, &["commit", "-qm", "base"]);
-    git(&local, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    write(&local.join("ignored/big.bin"), "not synced\n");
-    fs::canonicalize(local).unwrap()
-}
 
 /// What the client keeps between syncs: the member's sync record.
 #[derive(Default)]

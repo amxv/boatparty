@@ -6,6 +6,7 @@
 //! state lock; the lock covers only the record changes around them.
 
 mod bringup;
+pub mod lease;
 pub mod wait;
 
 use std::collections::BTreeMap;

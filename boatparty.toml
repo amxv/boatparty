@@ -1,0 +1,7 @@
+# boatparty project configuration. Check this file in.
+# The project name names this project's sandbox pool and its limits in
+# the per-user account.toml, so keep it stable.
+version = 1
+
+[project]
+name = "boatparty"

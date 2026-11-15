@@ -1,19 +1,17 @@
-//! Sending a snapshot to the runner: the thin pack, streamed from
-//! `git pack-objects` straight into the runner's stdin, the exit-96 install
-//! handshake, and the one `needfull` retry with a pack that assumes nothing.
+//! Sending a snapshot to the runner, alone (`load`) or followed by a command
+//! (`cheers`): the thin pack, streamed from `git pack-objects` straight into
+//! the runner's stdin, the exit-96 install handshake, and the one `needfull`
+//! retry with a pack that assumes nothing.
 
 use std::collections::BTreeSet;
-use std::io::{self, Read, Write};
-use std::os::fd::AsFd;
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Stdio};
-use std::thread::JoinHandle;
+use std::process::Stdio;
 
+use super::exchange::{self, CancelProbe, Exchange, NeverCancel, Sink, Spec};
 use super::{LocalRef, Snapshot, WorktreeInfo, git, refs_text};
 use crate::error::AppError;
-use crate::runner::{
-    EXIT_MISSING, EXIT_NEEDFULL, MISSING_MARKER, RunnerHost, Trailer, TrailerFilter,
-};
+use crate::runner::{EXIT_MISSING, EXIT_NEEDFULL, RunnerHost, Trailer};
 
 /// One sync of a snapshot to a runner.
 pub struct MirrorRequest<'a> {
@@ -48,29 +46,161 @@ pub fn mirror(
     request: &MirrorRequest<'_>,
     log: &mut dyn Write,
 ) -> Result<MirrorOutcome, AppError> {
+    let mut sink = LogSink { log };
+    let session = session(host, request, None, &mut sink, &NeverCancel)?;
+    match session.exchange.trailer {
+        Some(Trailer::Done { tree, .. }) => Ok(MirrorOutcome {
+            tree,
+            pack_bytes: session.pack_bytes,
+            full_retry: session.full_retry,
+            installed: session.installed,
+            known: confirmed(request),
+        }),
+        _ => Err(failed(&session.exchange)),
+    }
+}
+
+/// How a command run through the runner ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnd {
+    /// The runner reported the command's exit code.
+    Done {
+        exit_code: i32,
+        tree: String,
+        patch_bytes: u64,
+    },
+    /// The runner ended without a result; `status` is the exit of the
+    /// connection (`Some(255)` when SSH itself failed).
+    Lost { status: Option<i32> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOutcome {
+    pub end: RunEnd,
+    /// The nonce of the invocation that ran, for `fetch-patch`.
+    pub nonce: String,
+    pub pack_bytes: u64,
+    pub full_retry: bool,
+    pub installed: bool,
+    /// A cancel ended the command.
+    pub cancelled: bool,
+    /// The objects now confirmed present on the sandbox (empty unless the
+    /// sync was confirmed).
+    pub known: Vec<String>,
+}
+
+/// Sync the snapshot and run `command` (one shell line) in the checkout.
+/// stdout, stderr and events go to `sink` as they arrive. The runner keeps
+/// the command alive only while this side holds its stdin, which a cancel
+/// closes.
+pub fn run_command(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
+    let session = session(host, request, Some(command), sink, cancel)?;
+    let exchange = &session.exchange;
+    let end = match &exchange.trailer {
+        Some(Trailer::Done {
+            exit_code,
+            tree,
+            patch_bytes,
+        }) => RunEnd::Done {
+            exit_code: *exit_code,
+            tree: tree.clone(),
+            patch_bytes: *patch_bytes,
+        },
+        Some(Trailer::NeedFull) if !exchange.cancelled => return Err(failed(exchange)),
+        _ if exchange.runner_missing => return Err(failed(exchange)),
+        _ => RunEnd::Lost {
+            status: exchange.status,
+        },
+    };
+    let known = match end {
+        RunEnd::Done { .. } => confirmed(request),
+        RunEnd::Lost { .. } => Vec::new(),
+    };
+    Ok(RunOutcome {
+        end,
+        nonce: session.nonce,
+        pack_bytes: session.pack_bytes,
+        full_retry: session.full_retry,
+        installed: session.installed,
+        cancelled: exchange.cancelled,
+        known,
+    })
+}
+
+/// Print what a run left on the sandbox as a patch, and delete it there.
+pub fn fetch_patch(host: &dyn RunnerHost, project: &str, nonce: &str) -> Result<Vec<u8>, AppError> {
+    let args: Vec<String> = ["fetch-patch", project, nonce].map(String::from).to_vec();
+    let output = host
+        .command(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| AppError::io("cannot start the runner", error))?;
+    if !output.status.success() {
+        return Err(AppError::new(
+            "ssh",
+            format!(
+                "fetching the command's changes failed (exit {}): {}",
+                output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ));
+    }
+    Ok(output.stdout)
+}
+
+struct Session {
+    exchange: Exchange,
+    nonce: String,
+    pack_bytes: u64,
+    full_retry: bool,
+    installed: bool,
+}
+
+/// Invoke the runner until it answers: install it once when it is missing,
+/// and send a full pack once when the thin one assumed too much. Neither
+/// retry can repeat a command, because the runner reports both before the
+/// command starts.
+fn session(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: Option<&str>,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<Session, AppError> {
     let mut installed = false;
     let mut full_retry = false;
     let mut pack_bytes = 0;
     let mut known: Vec<String> = request.known.to_vec();
     let mut send_refs = request.send_refs;
     loop {
-        let exchange = attempt(host, request, &known, send_refs, log)?;
+        let nonce = crate::system::random_hex(8)?;
+        let exchange = attempt(
+            host, request, &nonce, &known, send_refs, command, sink, cancel,
+        )?;
         pack_bytes += exchange.pack_bytes;
+        if exchange.cancelled {
+            return Ok(Session {
+                exchange,
+                nonce,
+                pack_bytes,
+                full_retry,
+                installed,
+            });
+        }
         if exchange.runner_missing && !installed {
             host.install()?;
             installed = true;
             continue;
         }
         match exchange.trailer {
-            Some(Trailer::Done { tree, .. }) => {
-                return Ok(MirrorOutcome {
-                    tree,
-                    pack_bytes,
-                    full_retry,
-                    installed,
-                    known: confirmed(request),
-                });
-            }
             Some(Trailer::NeedFull) if !full_retry => {
                 full_retry = true;
                 known.clear();
@@ -83,8 +213,32 @@ pub fn mirror(
                 )
                 .with_hint("see ~/.boatparty/out/*.pack-error on the sandbox"));
             }
-            None => return Err(failed(&exchange)),
+            _ => {
+                return Ok(Session {
+                    exchange,
+                    nonce,
+                    pack_bytes,
+                    full_retry,
+                    installed,
+                });
+            }
         }
+    }
+}
+
+/// Runner stdout to this process's stderr, runner stderr to the log.
+struct LogSink<'a> {
+    log: &'a mut dyn Write,
+}
+
+impl Sink for LogSink<'_> {
+    fn stdout(&mut self, bytes: &[u8]) {
+        let _ = std::io::stderr().lock().write_all(bytes);
+    }
+
+    fn stderr(&mut self, bytes: &[u8]) {
+        let _ = self.log.write_all(bytes);
+        let _ = self.log.flush();
     }
 }
 
@@ -109,20 +263,16 @@ fn failed(exchange: &Exchange) -> AppError {
             "sync_failed",
             "the runner is still missing on the sandbox after uploading it",
         ),
+        Some(EXIT_NEEDFULL) => AppError::new(
+            "sync_failed",
+            "the sandbox lacked objects the pack assumed it had",
+        ),
         Some(code) => AppError::new(
             "sync_failed",
             format!("the runner exited {code} without reporting a result"),
         ),
         None => AppError::new("sync_failed", "the runner was killed by a signal"),
     }
-}
-
-#[derive(Debug)]
-struct Exchange {
-    status: Option<i32>,
-    trailer: Option<Trailer>,
-    runner_missing: bool,
-    pack_bytes: u64,
 }
 
 /// The pack's rev list: the wanted objects the sandbox lacks, minus what it
@@ -170,21 +320,24 @@ fn existing_objects(root: &Path, shas: &[String]) -> Result<BTreeSet<String>, Ap
         .collect())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attempt(
     host: &dyn RunnerHost,
     request: &MirrorRequest<'_>,
+    nonce: &str,
     known: &[String],
     send_refs: bool,
-    log: &mut dyn Write,
+    command: Option<&str>,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
 ) -> Result<Exchange, AppError> {
     let mut wanted = vec![request.snapshot.wip.clone(), request.info.head.clone()];
     wanted.extend(request.refs.iter().map(|entry| entry.sha.clone()));
     let revs = pack_revs(&request.info.root, &wanted, known)?;
-    let nonce = crate::system::random_hex(8)?;
-    let args: Vec<String> = [
-        "sync",
+    let mut args: Vec<String> = [
+        if command.is_some() { "run" } else { "sync" },
         request.project,
-        &nonce,
+        nonce,
         if revs.is_some() { "1" } else { "0" },
         &request.snapshot.wip,
         &request.info.head,
@@ -193,218 +346,26 @@ fn attempt(
     ]
     .map(String::from)
     .to_vec();
+    if let Some(command) = command {
+        args.push(command.to_string());
+    }
     let mut header = if send_refs {
         refs_text(request.refs).into_bytes()
     } else {
         Vec::new()
     };
     header.push(b'\n');
-
-    let mut pack = match &revs {
-        Some(revs) => Some(spawn_pack_objects(&request.info.root, revs)?),
-        None => None,
-    };
-    // The runner prints nothing on stdout in sync mode; whatever it does
-    // print must not mix with this command's own stdout.
-    let remote_stdout = io::stderr()
-        .as_fd()
-        .try_clone_to_owned()
-        .map_err(|error| AppError::io("cannot duplicate stderr", error))?;
-    let mut command = host.command(&args);
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::from(remote_stdout))
-        .stderr(Stdio::piped());
-    let mut runner = match command.spawn() {
-        Ok(runner) => runner,
-        Err(error) => {
-            if let Some(mut child) = pack {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            return Err(AppError::io("cannot start the runner", error));
-        }
-    };
-    let runner_stdin = runner.stdin.take().expect("stdin is piped");
-    let pack_stdout = pack.as_mut().and_then(|child| child.stdout.take());
-    let writer = spawn_writer(runner_stdin, header, pack_stdout);
-
-    let mut filter = TrailerFilter::new(&nonce);
-    let mut sniffer = MissingSniffer::default();
-    let mut stderr = runner.stderr.take().expect("stderr is piped");
-    let mut buffer = [0u8; 8192];
-    loop {
-        let read = match stderr.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(AppError::io("cannot read the runner's output", error)),
-        };
-        let printable = filter.push(&buffer[..read]);
-        let _ = log.write_all(&sniffer.pass(&printable));
-    }
-    let mut tail = sniffer.pass(&filter.end());
-    tail.extend(sniffer.finish());
-    let _ = log.write_all(&tail);
-    let _ = log.flush();
-
-    let status = runner
-        .wait()
-        .map_err(|error| AppError::io("cannot wait for the runner", error))?;
-    let pack_bytes = writer.join().unwrap_or(0);
-    let trailer = filter.result();
-    let status = status.code();
-    if let Some(mut child) = pack {
-        let pack_status = finish_pack(&mut child);
-        // A runner that stopped reading early (needfull, missing runner)
-        // makes pack-objects fail on a closed pipe; only a pack that the
-        // runner accepted needs to have been built successfully.
-        if let (Err(error), Some(Trailer::Done { .. })) = (pack_status, &trailer) {
-            return Err(error);
-        }
-    }
-    Ok(Exchange {
-        runner_missing: status == Some(EXIT_MISSING) && sniffer.matched,
-        status: if trailer == Some(Trailer::NeedFull) {
-            Some(EXIT_NEEDFULL)
-        } else {
-            status
+    exchange::run(
+        host,
+        Spec {
+            args,
+            nonce,
+            header,
+            revs,
+            root: &request.info.root,
+            hold_stdin: command.is_some(),
         },
-        trailer,
-        pack_bytes,
-    })
-}
-
-fn spawn_pack_objects(root: &Path, revs: &str) -> Result<Child, AppError> {
-    let mut child = std::process::Command::new("git")
-        .args([
-            "pack-objects",
-            "--stdout",
-            "--revs",
-            "--thin",
-            "--delta-base-offset",
-            "-q",
-        ])
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| AppError::io("cannot run git pack-objects", error))?;
-    // pack-objects reads every rev before it writes, so this cannot deadlock.
-    let mut stdin = child.stdin.take().expect("stdin is piped");
-    stdin
-        .write_all(revs.as_bytes())
-        .map_err(|error| AppError::io("cannot write to git pack-objects", error))?;
-    drop(stdin);
-    Ok(child)
-}
-
-fn finish_pack(child: &mut Child) -> Result<(), AppError> {
-    let mut stderr = String::new();
-    if let Some(mut pipe) = child.stderr.take() {
-        let _ = pipe.read_to_string(&mut stderr);
-    }
-    let status = child
-        .wait()
-        .map_err(|error| AppError::io("cannot wait for git pack-objects", error))?;
-    if status.success() {
-        return Ok(());
-    }
-    Err(AppError::new(
-        "sync_failed",
-        format!("git pack-objects failed: {}", stderr.trim()),
-    ))
-}
-
-/// Write the header, then stream the pack, into the runner. Returns the
-/// pack bytes written. A runner that stops reading ends the copy quietly;
-/// its trailer says what happened.
-fn spawn_writer(
-    mut stdin: ChildStdin,
-    header: Vec<u8>,
-    pack: Option<ChildStdout>,
-) -> JoinHandle<u64> {
-    std::thread::spawn(move || {
-        if stdin.write_all(&header).is_err() {
-            return 0;
-        }
-        let Some(mut pack) = pack else {
-            return 0;
-        };
-        let mut written = 0u64;
-        let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            let read = match pack.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(read) => read,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            };
-            if stdin.write_all(&buffer[..read]).is_err() {
-                break;
-            }
-            written += read as u64;
-        }
-        written
-    })
-}
-
-/// Holds back the start of the runner's stderr while it could still be the
-/// missing-runner marker, so that marker is never shown.
-#[derive(Debug, Default)]
-struct MissingSniffer {
-    held: Vec<u8>,
-    decided: bool,
-    matched: bool,
-}
-
-impl MissingSniffer {
-    fn pass(&mut self, bytes: &[u8]) -> Vec<u8> {
-        if self.decided {
-            return bytes.to_vec();
-        }
-        self.held.extend_from_slice(bytes);
-        let marker = format!("{MISSING_MARKER}\n").into_bytes();
-        let n = self.held.len().min(marker.len());
-        if self.held[..n] != marker[..n] {
-            self.decided = true;
-            return std::mem::take(&mut self.held);
-        }
-        if self.held.len() >= marker.len() {
-            self.decided = true;
-            self.matched = true;
-            let rest = self.held.split_off(marker.len());
-            self.held.clear();
-            return rest;
-        }
-        Vec::new()
-    }
-
-    fn finish(&mut self) -> Vec<u8> {
-        self.decided = true;
-        std::mem::take(&mut self.held)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::MissingSniffer;
-
-    #[test]
-    fn the_missing_marker_is_swallowed_and_other_output_is_not() {
-        let mut sniffer = MissingSniffer::default();
-        let mut out = sniffer.pass(b"boatparty-run");
-        out.extend(sniffer.pass(b"ner-missing\n"));
-        out.extend(sniffer.finish());
-        assert!(out.is_empty());
-        assert!(sniffer.matched);
-
-        let mut sniffer = MissingSniffer::default();
-        let mut out = sniffer.pass(b"boat");
-        out.extend(sniffer.pass(b"s ahoy\n"));
-        out.extend(sniffer.finish());
-        assert_eq!(out, b"boats ahoy\n");
-        assert!(!sniffer.matched);
-    }
+        sink,
+        cancel,
+    )
 }

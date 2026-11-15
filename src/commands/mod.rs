@@ -1,10 +1,12 @@
 pub mod board;
+pub mod cheers;
 pub mod dock;
 pub mod doctor;
 pub mod init;
 pub mod launch;
 pub mod limits;
 pub mod load;
+pub mod log;
 pub mod login;
 pub mod rm;
 pub mod status;
