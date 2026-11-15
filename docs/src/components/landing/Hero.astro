@@ -15,32 +15,32 @@ const fleet = [
 ];
 ---
 
-<section class="hero">
-  <div class="hero__sky">
-    <div class="shell hero__copy">
+<section class="bph">
+  <div class="bph__sky">
+    <div class="shell bph__copy">
       <h1 class="rise" style="--i:0">Warm Linux sandboxes for every Git checkout</h1>
-      <p class="hero__lede rise" style="--i:1">
+      <p class="bph__lede rise" style="--i:1">
         boatparty mirrors your working tree to a warm boat.dev sandbox, runs the command with live
         output and its real exit code, and brings the changes back. For you, and for your coding
         agents.
       </p>
-      <div class="hero__cta rise" style="--i:2">
-        <div class="bp-cmd hero__cmd">
+      <div class="bph__cta rise" style="--i:2">
+        <div class="bp-cmd bph__cmd">
           <span class="bp-cmd__prompt" aria-hidden="true">$</span>
           <code>{install}</code>
           <button class="bp-copy" type="button" data-copy={install}>copy</button>
         </div>
-        <a class="hero__docs" href="/docs/getting-started">Get started</a>
+        <a class="bph__docs" href="/docs/getting-started">Get started</a>
       </div>
     </div>
   </div>
 
-  <div class="hero__sea">
+  <div class="bph__sea">
     <PixelSea bands={9} band={28} seed={11} />
-    <div class="hero__fleet">
+    <div class="bph__fleet">
       {fleet.map((boat, index) => (
         <div
-          class:list={["hero__boat", boat.drift && "is-drifting", boat.near && "is-near"]}
+          class:list={["bph__boat", boat.drift && "is-drifting", boat.near && "is-near"]}
           style={`left:${boat.x}%;top:${boat.y}px;--k:${index}`}
         >
           <PixelBoat px={boat.px} />
@@ -51,7 +51,7 @@ const fleet = [
 </section>
 
 <style>
-  .hero {
+  .bph {
     --pb-hull: #ffffff;
     --pb-keel: #929fd3;
     --pb-deck: #e0e3f2;
@@ -64,16 +64,16 @@ const fleet = [
     color: #fff;
   }
 
-  .hero__sky {
+  .bph__sky {
     padding: clamp(3.5rem, 8vw, 6rem) 0 clamp(5rem, 9vw, 7rem);
   }
 
-  .hero__copy {
+  .bph__copy {
     display: grid;
     gap: 1.6rem;
   }
 
-  .hero h1 {
+  .bph h1 {
     max-width: 15ch;
     color: #fff;
     font-size: clamp(2.6rem, 6vw, 4.6rem);
@@ -82,14 +82,14 @@ const fleet = [
     line-height: 1.04;
   }
 
-  .hero__lede {
+  .bph__lede {
     max-width: 38rem;
     color: rgba(255, 255, 255, 0.86);
     font-size: clamp(1.08rem, 1.5vw, 1.22rem);
     line-height: 1.55;
   }
 
-  .hero__cta {
+  .bph__cta {
     display: flex;
     flex-wrap: wrap;
     align-items: stretch;
@@ -97,24 +97,24 @@ const fleet = [
     margin-top: 0.6rem;
   }
 
-  .hero__cmd {
+  .bph__cmd {
     min-width: 0;
     flex: 0 1 37rem;
     background: var(--c-deep);
     color: #fff;
   }
 
-  .hero__cmd .bp-cmd__prompt,
-  .hero__cmd .bp-copy {
+  .bph__cmd .bp-cmd__prompt,
+  .bph__cmd .bp-copy {
     color: rgba(255, 255, 255, 0.55);
   }
 
-  .hero__cmd .bp-copy:hover,
-  .hero__cmd .bp-copy.is-copied {
+  .bph__cmd .bp-copy:hover,
+  .bph__cmd .bp-copy.is-copied {
     color: #fff;
   }
 
-  .hero__docs {
+  .bph__docs {
     display: inline-flex;
     align-items: center;
     padding: 0 1.5rem;
@@ -124,28 +124,28 @@ const fleet = [
     transition: background 0.2s ease;
   }
 
-  .hero__docs:hover {
+  .bph__docs:hover {
     background: #e0e3f2;
   }
 
-  .hero__sea {
+  .bph__sea {
     position: relative;
   }
 
-  .hero__fleet {
+  .bph__fleet {
     position: absolute;
     inset: 0;
     pointer-events: none;
   }
 
-  .hero__boat {
+  .bph__boat {
     position: absolute;
     transform: translateY(-100%);
     animation: hero-bob 2.4s steps(2) infinite;
     animation-delay: calc(var(--k) * -0.45s);
   }
 
-  .hero__boat.is-near {
+  .bph__boat.is-near {
     --pb-hull: var(--c-cobalt);
     --pb-keel: var(--c-deep);
     --pb-deck: #6b7cc4;
@@ -156,7 +156,7 @@ const fleet = [
     --pb-lamp-off: transparent;
   }
 
-  :global(:root[data-theme="dark"]) .hero__boat.is-near {
+  :global(:root[data-theme="dark"]) .bph__boat.is-near {
     --pb-hull: #ffffff;
     --pb-keel: #929fd3;
     --pb-deck: #e0e3f2;
@@ -166,7 +166,7 @@ const fleet = [
     --pb-lamp: #fff6c8;
   }
 
-  .hero__boat.is-drifting {
+  .bph__boat.is-drifting {
     animation:
       hero-bob 2.4s steps(2) infinite,
       hero-drift 70s linear infinite alternate;
@@ -198,11 +198,11 @@ const fleet = [
   }
 
   @media (max-width: 640px) {
-    .hero__fleet > :nth-child(n + 5) {
+    .bph__fleet > :nth-child(n + 5) {
       display: none;
     }
 
-    .hero__docs {
+    .bph__docs {
       justify-content: center;
       width: 100%;
     }

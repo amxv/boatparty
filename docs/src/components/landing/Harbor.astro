@@ -46,7 +46,7 @@ const ladder = [
 
     <div class="bp-reveal">
       <p class="bp-label hb__caption">pool app · max_sandboxes = 8</p>
-      <Scene height={250} seaBands={4} seed={21} class="hb__scene">
+      <Scene height={200} seaBands={4} seed={21} class="hb__scene">
         <ul class="hb__berths">
           {berths.map((berth, index) => (
             <li class="hb__berth" data-state={berth.state} data-for={berth.for} style={`--k:${index}`}>
@@ -107,7 +107,7 @@ const ladder = [
 
   .hb__holder {
     position: absolute;
-    top: 26px;
+    bottom: 118px;
     left: 50%;
     padding: 0.2rem 0.4rem;
     background: var(--c-cobalt);
@@ -189,7 +189,7 @@ const ladder = [
 
   .hb[data-hl] .hb__berth,
   .hb[data-hl] .hb__names li {
-    opacity: 0.4;
+    opacity: 0.55;
   }
 
   .hb[data-hl="s1"] [data-for~="s1"],

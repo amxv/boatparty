@@ -47,8 +47,8 @@ import Scene from "./Scene.astro";
         <p class="bp-label legs__cmd">live output · exit 0</p>
         <h3>Run</h3>
         <p>
-          The command runs in the sandbox's checkout. Its output streams back byte for byte, and
-          <code>cheers</code> exits with the command's own status.
+          The command runs in the sandbox's checkout. Its output streams back byte for byte, and <code>cheers</code>
+          exits with the command's own status.
         </p>
       </article>
 
@@ -103,20 +103,37 @@ import Scene from "./Scene.astro";
 
   .dock {
     position: absolute;
-    top: calc(var(--sea-top) - 52px);
+    top: calc(var(--sea-top) - 44px);
     left: 7%;
+    z-index: 1;
     display: grid;
     justify-items: start;
     gap: 8px;
   }
 
   .dock__pier {
+    position: relative;
     width: 7rem;
     height: 8px;
     background: var(--c-deep);
-    box-shadow:
-      12px 14px 0 -2px var(--c-deep),
-      90px 14px 0 -2px var(--c-deep);
+  }
+
+  .dock__pier::before,
+  .dock__pier::after {
+    position: absolute;
+    top: 8px;
+    width: 6px;
+    height: 44px;
+    background: var(--c-deep);
+    content: "";
+  }
+
+  .dock__pier::before {
+    left: 10px;
+  }
+
+  .dock__pier::after {
+    right: 10px;
   }
 
   .chip {
