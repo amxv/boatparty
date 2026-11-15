@@ -444,7 +444,7 @@ Frames, then the `cheers` result with `kind` `serve` and the server's settings. 
 
 ### board
 
-`boatparty --json board -- COMMAND`: frames, then this result. `board` without a command has no JSON form (error `usage`).
+`boatparty --json board -- COMMAND`: frames, then this result. `board` without a command has no JSON form (error `usage`). `git_identity` and `github_token` say whether the command got the local Git identity and a GitHub token (both false when the runner could not prepare the session, which a stderr frame reports).
 
 <!-- shape: board -->
 ```json
@@ -456,6 +456,8 @@ Frames, then the `cheers` result with `kind` `serve` and the server's settings. 
   "project": "app",
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
   "command": "uname -a",
+  "git_identity": true,
+  "github_token": false,
   "seconds": 0.4
 }
 ```

@@ -43,7 +43,7 @@ Forwards listen on 127.0.0.1 unless you name another address. `--max-minutes` (d
 
 ### board
 
-`boatparty board` opens a login shell in the checkout. `boatparty board -- CMD...` runs one command without syncing and exits with its status; on a warm sandbox it costs one SSH round trip, so scripts can call it often.
+`boatparty board` opens a login shell in the checkout. `boatparty board -- CMD...` runs one command without syncing and exits with its status; on a warm sandbox it costs two SSH round trips over the shared connection and no provider call, so scripts can call it often. The shell or command gets what `cheers` gives a command: your Git identity, the GitHub token when `[run] github_token` is on, and `[run.env]`. No setup or ensure step runs.
 
 ### dock
 

@@ -61,7 +61,7 @@ apply_identity() {
 # Starts the token server and points Git at it. Without a token, nothing.
 serve_token() {
   [[ -n "$cred_token" ]] || return 0
-  local base sock helper _
+  local base sock _
   base="${BOATPARTY_RUNNER_SHM:-/dev/shm}"
   [[ -d "$base" && -w "$base" ]] || base="${TMPDIR:-/tmp}"
   # A Unix socket path is limited to about 100 bytes.
@@ -111,7 +111,14 @@ serve_token() {
     echo "boatparty: the GitHub token server did not start; the command runs without a token" >&2
     return 0
   fi
-  export BOATPARTY_CREDENTIAL_SOCKET="$sock"
+  use_token_socket "$sock"
+}
+
+# Points Git in this shell's environment at the token server listening on
+# socket $1 (see serve_token).
+use_token_socket() {
+  local helper
+  export BOATPARTY_CREDENTIAL_SOCKET="$1"
   # Git runs "<helper> get|store|erase" through the shell.
   helper="!bash $(printf %q "$0") credential $(printf %q "$project") $(printf %q "$cred_url")"
   add_git_config "credential.$cred_url.helper" ""
@@ -162,3 +169,51 @@ mode_credential() {
     print "username=x-access-token\npassword=$token\n";' "$BOATPARTY_CREDENTIAL_SOCKET"
 }
 
+
+# ---------------------------------------------------------------------------
+# Credentials for `boatparty board`, whose shell or command is not a runner
+# invocation of its own kind: the client first opens a `hold`, which serves
+# the token for as long as the client keeps its stdin open, then runs
+# `board`, which joins that server.
+
+# hold <spec>: stdin holds the credentials block, then nothing until the
+# client is done. Loads the spec first, so a missing runner or spec is
+# reported (exit 96) before `board` relies on them. Prints
+# "ready <socket or ->" on stdout once the token is served (or there is
+# none), then waits for end of file on stdin (the client closed it, or died)
+# and stops the server.
+mode_hold() {
+  load_spec "${1:--}"
+  trap stop_token EXIT
+  read_credentials
+  cred_name=""
+  cred_email=""
+  serve_token
+  printf 'ready %s\n' "${BOATPARTY_CREDENTIAL_SOCKET:--}"
+  cat >/dev/null || true
+}
+
+# board <spec> <socket or -> <git name> <git email> [word...]: in the
+# checkout, with the Git identity (either may be empty), [run.env],
+# BOATPARTY=1 and, given a hold's socket, the GitHub token, run the words as
+# one command (builtins included), or a login shell without words. Nothing
+# is synced and no step runs.
+mode_board() {
+  if (($# < 4)); then
+    echo "boatparty runner: usage: board <spec> <socket> <name> <email> [word...]" >&2
+    exit 2
+  fi
+  local sock="$2"
+  load_spec "$1"
+  cred_name="$3"
+  cred_email="$4"
+  shift 4
+  mkdir -p "$repo"
+  cd "$repo"
+  apply_identity
+  apply_env
+  if [[ "$sock" != - && -S "$sock" ]]; then use_token_socket "$sock"; fi
+  ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+  if (($#)); then exec bash -c '"$@"' bash "$@"; fi
+  exec "${SHELL:-/bin/bash}" -l
+}

@@ -75,7 +75,7 @@ Layers merge in order: defaults, each preset, then `boatparty.toml`. Tables merg
 
 ## Credentials for commands
 
-- `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them.
+- `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them. This and `[run] github_token` apply to `cheers`, `cruise`, `pipe` and `board`.
 - `[run] github_token = true` lets git inside commands and steps reach github.com over HTTPS with `BOATPARTY_GITHUB_TOKEN` or `gh auth token`. The token is served from memory for the command's lifetime only and is never written to the sandbox. SSH-style GitHub URLs are rewritten to HTTPS. Go private modules also need `GOPRIVATE` in `[run.env]`, for example `GOPRIVATE = "github.com/your-org/*"`.
 - `[sync] github_token` is separate: it lets the first sync of a sandbox fetch a private repository from GitHub.
 

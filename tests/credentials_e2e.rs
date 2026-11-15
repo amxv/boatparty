@@ -213,3 +213,103 @@ fn identity_and_token_reach_the_command_only_as_configured() {
     let runs = fs::read_to_string(setup.home().join("state/runs.jsonl")).unwrap();
     assert!(runs.contains("\"github_token\":true"), "{runs}");
 }
+
+/// `board --json -- sh -c <line>`: the exit code, the command's stdout, the
+/// result frame and everything printed.
+fn board(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Value, String) {
+    let shm = setup.root.path().join("shm");
+    fs::create_dir_all(&shm).unwrap();
+    let output = setup
+        .cmd(boat)
+        .env("FAKE_SSH_CHECK", "0")
+        .env("BOATPARTY_RUNNER_SHM", &shm)
+        .env_remove("BOATPARTY_GITHUB_TOKEN")
+        .args(["--json", "board", "--", "sh", "-c", line])
+        .output()
+        .unwrap();
+    let stdout = text(&output.stdout);
+    let printed = format!("{stdout}{}", text(&output.stderr));
+    let mut command_out = String::new();
+    let mut result = Value::Null;
+    for frame in stdout.lines() {
+        let frame: Value = serde_json::from_str(frame).unwrap();
+        match frame["type"].as_str() {
+            Some("stdout") => command_out.push_str(frame["data"].as_str().unwrap_or_default()),
+            Some("result") => result = frame,
+            _ => {}
+        }
+    }
+    (
+        output.status.code().unwrap_or(-1),
+        command_out,
+        result,
+        printed,
+    )
+}
+
+#[test]
+fn board_gets_the_identity_the_token_and_the_environment_like_cheers() {
+    let setup = E2e::with_history("cred-board", None);
+    let boat = setup.boat();
+    spies(&setup);
+    let file = setup.repo().join("boatparty.toml");
+    let base = fs::read_to_string(&file).unwrap();
+    git(&setup.repo(), &["config", "user.name", "Ada Lovelace"]);
+    git(&setup.repo(), &["config", "user.email", "ada@example.com"]);
+    setup.launch(&boat);
+
+    // The identity, [run.env] and BOATPARTY=1, in the checkout; no token.
+    fs::write(
+        &file,
+        format!("{base}\n[run.env]\nGREETING = \"hi from $BOATPARTY_TEST_HOME_HINT\"\n"),
+    )
+    .unwrap();
+    let show = "printf '%s|%s|%s|%s|%s\\n' \"$GIT_AUTHOR_NAME\" \"$(git config user.email)\" \
+                \"$BOATPARTY\" \"$GREETING\" \"$(basename \"$PWD\")\"";
+    let (code, out, result, printed) = board(&setup, &boat, &format!("{show}; exit 3"));
+    assert_eq!(code, 3, "{printed}");
+    assert_eq!(
+        out, "Ada Lovelace|ada@example.com|1|hi from |app\n",
+        "{printed}"
+    );
+    assert_eq!(result["git_identity"], true, "{result}");
+    assert_eq!(result["github_token"], false, "{result}");
+    assert_eq!(gh_calls(&setup), 0);
+    let mut outputs = vec![printed];
+
+    // With github_token = true, Git in the command gets the token, and the
+    // server is gone once board returns.
+    set_run(&setup, &base, "github_token = true");
+    let fill = "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill \
+                | sed -n 's/^password=//p' | git hash-object --stdin";
+    let (code, out, result, printed) = board(&setup, &boat, fill);
+    assert_eq!(code, 0, "{printed}");
+    assert_eq!(out.trim(), git_hash(&format!("{TOKEN}\n")), "{printed}");
+    assert_eq!(result["github_token"], true, "{result}");
+    assert_eq!(gh_calls(&setup), 1);
+    outputs.push(printed);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline
+        && files_under(&setup.root.path().join("shm"))
+            .iter()
+            .any(|path| path.to_string_lossy().contains("bpc-"))
+    {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !files_under(&setup.root.path().join("shm"))
+            .iter()
+            .any(|path| path.to_string_lossy().contains("bpc-")),
+        "the token server outlived the board command"
+    );
+
+    let argv = fs::read_to_string(setup.root.path().join("argv.log")).unwrap();
+    assert!(argv.contains(" hold app "), "{argv}");
+    assert!(!argv.contains(TOKEN));
+    for output in &outputs {
+        assert!(!output.contains(TOKEN));
+    }
+    assert_no_token_under(&setup.home());
+    assert_no_token_under(&setup.remote());
+    assert_no_token_under(&setup.root.path().join("shm"));
+}

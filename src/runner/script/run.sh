@@ -214,6 +214,8 @@ case "$mode" in
   pipe) mode_pipe "$@" ;;
   seed) mode_seed "$@" ;;
   credential) mode_credential "$@" ;;
+  hold) mode_hold "$@" ;;
+  board) mode_board "$@" ;;
   maintain) mode_maintain ;;
   fetch-patch) mode_fetch_patch "$@" ;;
   kill) mode_kill "$@" ;;

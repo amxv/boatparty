@@ -12,6 +12,7 @@
 
 pub mod credentials;
 pub mod exchange;
+pub mod hold;
 pub mod mirror;
 pub mod pack;
 pub mod pipe;
@@ -28,6 +29,7 @@ use crate::error::AppError;
 
 pub use credentials::RunCredentials;
 pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
+pub use hold::{Hold, hold};
 pub use mirror::{
     MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
     run_command_with, serve_command_with,

@@ -6,6 +6,10 @@
 //! `session` lease's heartbeat runs in the background, and the idle deadline
 //! is set by a detached helper after the last lease ends.
 //!
+//! The shell or command gets what `cheers` gives a command: the Git
+//! identity, the GitHub token when `[run] github_token` is on, `[run.env]`
+//! and `BOATPARTY=1` (see `sync::hold`). Nothing is synced and no step runs.
+//!
 //! With `--json`, a command's output travels as the frames `cheers` uses
 //! (stdout, stderr, then one result frame); an interactive shell has no
 //! JSON form.
@@ -15,14 +19,69 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
 use std::sync::mpsc;
 
-use super::session::with_session;
+use super::session::{Held, with_session};
 use crate::Context;
 use crate::cli::BoardArgs;
 use crate::error::AppError;
 use crate::pool::remote_checkout;
+use crate::runner::{RunnerHost, RunnerSpec, SshRunner, remote_invocation};
 use crate::stream::Stream;
-use crate::sync::Sink;
+use crate::sync::{self, Hold, RunCredentials, Sink, TokenSource};
 use crate::transport::ssh::{SshTarget, shell_quote};
+
+/// The remote command line for `argv`, and the hold that serves its
+/// credentials (kept until the command ends).
+struct Prepared {
+    line: String,
+    _hold: Option<Hold>,
+    git_identity: bool,
+    github_token: bool,
+}
+
+/// Gather the credentials, start a hold for them and build the `board`
+/// invocation. When the hold cannot start, the command still runs, as a
+/// plain command in the checkout without the credentials or `[run.env]`.
+fn prepare(held: &Held<'_>, argv: &[String], note: &dyn Fn(&str)) -> Prepared {
+    let config = held.config;
+    let token_source = config.run_token_source();
+    // Read only now that the command is about to run; held in memory.
+    let credentials =
+        RunCredentials::gather(&held.workspace.root, config.git_identity(), &token_source);
+    if token_source != TokenSource::None && credentials.github_token.is_none() {
+        note(
+            "[run] github_token is on but no GitHub token was found (set \
+             BOATPARTY_GITHUB_TOKEN or run `gh auth login`); the session runs without one",
+        );
+    }
+    let host = SshRunner {
+        target: held.target.clone(),
+        upload: None,
+        spec: Some(RunnerSpec::new(config.config())),
+        dedicated: None,
+    };
+    match sync::hold(&host, held.project, &credentials) {
+        Ok(hold) => {
+            let args = hold.board_args(held.project, host.spec_hash(), &credentials, argv);
+            Prepared {
+                line: remote_invocation(&args),
+                github_token: hold.socket.is_some(),
+                git_identity: credentials.has_identity(),
+                _hold: Some(hold),
+            }
+        }
+        Err(error) => {
+            note(&format!(
+                "warning: {error}; running without the project's credentials and [run.env]"
+            ));
+            Prepared {
+                line: remote_command(held.project, argv),
+                _hold: None,
+                git_identity: false,
+                github_token: false,
+            }
+        }
+    }
+}
 
 pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     if ctx.out.is_json() {
@@ -33,8 +92,11 @@ pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     } else {
         args.command.join(" ")
     };
+    let out = &ctx.out;
     let ended = with_session(ctx, &label, |held| {
-        exec(held.target, held.project, &args.command)
+        let note = |message: &str| out.note(format_args!("{message}"));
+        let prepared = prepare(held, &args.command, &note);
+        exec(held.target, &prepared.line, args.command.is_empty())
     })?;
     let code = ended.value?;
     Ok(ended.interrupted.unwrap_or(code))
@@ -54,21 +116,36 @@ fn run_json(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     let began = std::time::Instant::now();
     let label = args.command.join(" ");
     let ended = with_session(ctx, &label, |held| {
-        let code = exec_framed(held.target, held.project, &args.command, &mut stream)?;
+        let notes = std::cell::RefCell::new(Vec::new());
+        let note = |message: &str| notes.borrow_mut().push(message.to_string());
+        let prepared = prepare(held, &args.command, &note);
+        for message in notes.into_inner() {
+            stream.note(message);
+        }
+        let code = exec_framed(held.target, &prepared.line, &mut stream)?;
         Ok((
             code,
             held.project.to_string(),
             held.member.name.clone(),
             held.member.id.clone().unwrap_or_default(),
+            prepared.git_identity,
+            prepared.github_token,
         ))
     });
-    let (code, project, member, id) = match ended.and_then(|ended| {
+    let (code, project, member, id, git_identity, github_token) = match ended.and_then(|ended| {
         let value = ended.value?;
         Ok((value, ended.interrupted))
     }) {
         Ok((value, interrupted)) => {
-            let (code, project, member, id) = value;
-            (interrupted.unwrap_or(code), project, member, id)
+            let (code, project, member, id, git_identity, github_token) = value;
+            (
+                interrupted.unwrap_or(code),
+                project,
+                member,
+                id,
+                git_identity,
+                github_token,
+            )
         }
         Err(error) => {
             stream.error(&error);
@@ -82,13 +159,16 @@ fn run_json(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
         "project": project,
         "member": { "name": member, "id": id },
         "command": remote_words(&args.command),
+        "git_identity": git_identity,
+        "github_token": github_token,
         "seconds": (began.elapsed().as_secs_f64() * 1000.0).round() / 1000.0,
     }));
     Ok(code)
 }
 
-/// The remote command line: enter the checkout, then run `argv` (quoted
-/// word by word) or a login shell.
+/// The plain remote command line, used when the runner cannot prepare the
+/// session: enter the checkout, then run `argv` (quoted word by word) or a
+/// login shell.
 pub fn remote_command(project: &str, argv: &[String]) -> String {
     let dir = shell_quote(&remote_checkout(project));
     let prefix = format!("mkdir -p {dir} && cd {dir} && ");
@@ -109,17 +189,12 @@ fn remote_words(argv: &[String]) -> String {
 }
 
 /// Run `argv` with its stdout and stderr framed into `stream`.
-fn exec_framed(
-    target: &SshTarget,
-    project: &str,
-    argv: &[String],
-    stream: &mut Stream,
-) -> Result<u8, AppError> {
+fn exec_framed(target: &SshTarget, line: &str, stream: &mut Stream) -> Result<u8, AppError> {
     let mut child = target
         .ssh()
         .arg("-T")
         .arg(&target.alias)
-        .arg(remote_command(project, argv))
+        .arg(line)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -175,13 +250,13 @@ fn exec_framed(
     Ok(u8::try_from(code.clamp(0, 255)).unwrap_or(255))
 }
 
-fn exec(target: &SshTarget, project: &str, argv: &[String]) -> Result<u8, AppError> {
-    let interactive = argv.is_empty() && std::io::stdin().is_terminal();
+fn exec(target: &SshTarget, line: &str, shell: bool) -> Result<u8, AppError> {
+    let interactive = shell && std::io::stdin().is_terminal();
     let mut command = target.ssh();
     command
         .arg(if interactive { "-t" } else { "-T" })
         .arg(&target.alias)
-        .arg(remote_command(project, argv));
+        .arg(line);
     let status = command
         .status()
         .map_err(|error| AppError::io("cannot run ssh", error))?;
