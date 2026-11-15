@@ -16,9 +16,11 @@ on:
 permissions:
   contents: read
 
+# A production deploy is never cancelled by a later push: that push's run
+# waits, then deploys the newer tree. Pull request checks still supersede.
 concurrency:
   group: docs-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   docs:

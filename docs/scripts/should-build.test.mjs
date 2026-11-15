@@ -161,4 +161,6 @@ test('GitHub Docs workflow triggers only for docs changes on main', () => {
   assert.match(deploy, /cp -R docs\/\.vercel\/output \.vercel\/output/);
   assert.match(deploy, /test -f \.vercel\/output\/config\.json/);
   assert.match(workflow, /github\.repository != 'amxv\/rust-cli-template'/);
+  // A later push must not cancel a production deploy in flight.
+  assert.doesNotMatch(workflow, /cancel-in-progress:\s*true/);
 });
