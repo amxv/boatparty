@@ -74,7 +74,8 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 - `[run] git_identity` (on by default) lets commands commit as the local user.
   `[run] github_token = true` lets git on the sandbox reach private GitHub
   repositories over HTTPS with `gh auth token`, for the command's lifetime
-  only. Both also apply inside `board`, with `[run.env]`. Go private modules
+  only. Both also apply inside `board`, with `[run.env]`. A narrower token
+  can come from `BOATPARTY_GITHUB_TOKEN` or `BOATPARTY_GITHUB_TOKEN_COMMAND`. Go private modules
   also need `GOPRIVATE` in `[run.env]`.
 - `boatparty base build` saves a snapshot with dependencies built, so new
   sandboxes start warm. `boatparty base status` says how stale it is.

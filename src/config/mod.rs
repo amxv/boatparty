@@ -53,7 +53,7 @@ pub const HELP: &str = "boatparty.toml (version = 1). Every key is optional exce
   [sync]      history (\"head\"|\"full\"), copy_back, seed, github_token (true|false)
   [run]       ram_tmp (true|false), script (the script runner for `cheers <name>`, e.g. \"bun run\"), \
 git_identity (true|false: commands commit as the local user.name and user.email), github_token \
-(true|false: git in commands authenticates to github.com over HTTPS with BOATPARTY_GITHUB_TOKEN or \
+(true|false: git in commands authenticates to github.com over HTTPS with BOATPARTY_GITHUB_TOKEN, BOATPARTY_GITHUB_TOKEN_COMMAND or \
 `gh auth token`, served for the command's lifetime only, never stored on the sandbox; a project \
 whose [sandbox] environment has GitHub access can use that instead, but boat then stores the login \
 on the sandbox)

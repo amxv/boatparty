@@ -80,6 +80,17 @@ Layers merge in order: defaults, each preset, then `boatparty.toml`. Tables merg
 - `[run] github_token = true` lets git inside commands and steps reach github.com over HTTPS with `BOATPARTY_GITHUB_TOKEN` or `gh auth token`. The token is served from memory for the command's lifetime only and is never written to the sandbox. SSH-style GitHub URLs are rewritten to HTTPS. Go private modules also need `GOPRIVATE` in `[run.env]`, for example `GOPRIVATE = "github.com/your-org/*"`.
 - `[sync] github_token` is separate: it lets a sync fetch a private repository from GitHub (see Seeding).
 
+### Which GitHub token, and what it can reach
+
+The token comes from `BOATPARTY_GITHUB_TOKEN` when set, else from the first line printed by `BOATPARTY_GITHUB_TOKEN_COMMAND` (a shell command), else from `gh auth token`. Either program runs only when a token is about to be used, and the token stays in boatparty's memory: never an argument list, a file, `state.json`, `runs.jsonl` or a log, here or on the sandbox.
+
+By default that is your `gh` login: a long-lived OAuth token with every scope `gh` was granted (usually `repo`, so every repository you can reach, with write access). While a command runs with `[run] github_token = true`, anything the command runs on the sandbox, dependency build scripts included, can ask the credential helper for it. A seed hands it only to that one `git fetch`. GitHub offers no way to derive a shorter-lived or narrower token from a `gh` login, so to limit what a leaked token could do, give boatparty a different one:
+
+- a fine-grained personal access token with read-only **Contents** access to just the repositories your builds fetch, and a short expiry, in `BOATPARTY_GITHUB_TOKEN`;
+- or a command that mints a short-lived token, for example a GitHub App installation token (one hour, limited to the app's repositories and permissions) from a helper or your secret manager, in `BOATPARTY_GITHUB_TOKEN_COMMAND`.
+
+Leave both `github_token` settings off for projects that only need public repositories.
+
 ## Seeding
 
 With `[sync] seed` on and a GitHub remote, a sandbox fetches pushed commits from GitHub itself, and your machine sends only what GitHub lacks (unpushed commits and uncommitted files). That happens on a sandbox's first sync, and again whenever HEAD moved to pushed commits whose objects the sandbox lacks and those add up to 8 MiB or more (a large pull, or a switch to a distant branch; `BOATPARTY_SEED_WARM_MIN_BYTES` changes the size). Below that, sending the difference is faster than a fetch from GitHub. A sync whose HEAD did not move never looks. A failed fetch falls back to sending everything.

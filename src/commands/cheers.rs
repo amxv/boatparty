@@ -206,7 +206,9 @@ impl Cheers<'_> {
                  BOATPARTY_GITHUB_TOKEN or run `gh auth login`); the command runs without one",
             );
         }
-        if let (Some(token), TokenSource::Gh) = (&credentials.github_token, &seed.token) {
+        if let Some(token) = &credentials.github_token
+            && seed.token.is_fetched()
+        {
             // One `gh auth token` serves the seed too.
             seed.token = TokenSource::Fixed(token.clone());
         }

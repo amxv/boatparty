@@ -28,6 +28,9 @@ use crate::runner::{EXIT_MISSING, MISSING_MARKER, RunnerHost};
 pub const ALLOW_FILE_ENV: &str = "BOATPARTY_SEED_ALLOW_FILE";
 /// The token used instead of `gh auth token`.
 pub const TOKEN_ENV: &str = "BOATPARTY_GITHUB_TOKEN";
+/// A shell command that prints a GitHub token, used when
+/// [`TOKEN_ENV`] is not set, instead of `gh auth token`.
+pub const TOKEN_COMMAND_ENV: &str = "BOATPARTY_GITHUB_TOKEN_COMMAND";
 /// Seed only when HEAD's files add up to at least this many bytes.
 pub const MIN_BYTES_ENV: &str = "BOATPARTY_SEED_MIN_BYTES";
 /// How long the sandbox's fetch may take, in seconds.
@@ -71,19 +74,38 @@ pub enum TokenSource {
     Fixed(Secret),
     /// `gh auth token`, run only when a seed is attempted.
     Gh,
+    /// A shell command that prints a token (`BOATPARTY_GITHUB_TOKEN_COMMAND`),
+    /// run like `gh`: only when a token is needed, its answer kept in memory.
+    /// It lets a short-lived token (a GitHub App installation token, a
+    /// secret manager's) replace the long-lived `gh` login.
+    Command(String),
 }
 
 impl TokenSource {
-    /// `BOATPARTY_GITHUB_TOKEN` when set, else `gh auth token`; `None` when
+    /// `BOATPARTY_GITHUB_TOKEN` when set, else
+    /// `BOATPARTY_GITHUB_TOKEN_COMMAND`, else `gh auth token`; `None` when
     /// the project does not want a token. Nothing is read or run here.
     pub fn from_env(wanted: bool) -> Self {
-        match std::env::var(TOKEN_ENV) {
-            _ if !wanted => Self::None,
-            Ok(value) if !value.trim().is_empty() => {
-                Self::Fixed(Secret::new(value.trim().to_string()))
-            }
-            _ => Self::Gh,
+        let set = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        if !wanted {
+            Self::None
+        } else if let Some(token) = set(TOKEN_ENV) {
+            Self::Fixed(Secret::new(token))
+        } else if let Some(command) = set(TOKEN_COMMAND_ENV) {
+            Self::Command(command)
+        } else {
+            Self::Gh
         }
+    }
+
+    /// Whether the token comes from a program run on demand.
+    pub fn is_fetched(&self) -> bool {
+        matches!(self, Self::Gh | Self::Command(_))
     }
 
     /// The token itself: `gh` runs only here, and its answer stays in memory.
@@ -92,7 +114,16 @@ impl TokenSource {
         match self {
             Self::None => None,
             Self::Fixed(secret) => Some(secret.clone()),
-            Self::Gh => gh_token(),
+            Self::Gh => {
+                let mut gh = Command::new("gh");
+                gh.args(["auth", "token", "--hostname", "github.com"]);
+                read_token(gh)
+            }
+            Self::Command(line) => {
+                let mut sh = Command::new("sh");
+                sh.args(["-c", line]);
+                read_token(sh)
+            }
         }
     }
 }
@@ -433,7 +464,7 @@ pub fn missing_bytes(root: &Path, commits: &[String], known: &[String]) -> Optio
 pub fn token(source: &TokenSource, url: &str) -> Option<Secret> {
     match source {
         // A file:// URL only exists when tests allow it.
-        TokenSource::Gh
+        TokenSource::Gh | TokenSource::Command(_)
             if !url.starts_with("https://github.com/") && !url.starts_with("file://") =>
         {
             None
@@ -442,9 +473,9 @@ pub fn token(source: &TokenSource, url: &str) -> Option<Secret> {
     }
 }
 
-fn gh_token() -> Option<Secret> {
-    let mut child = Command::new("gh")
-        .args(["auth", "token", "--hostname", "github.com"])
+/// The first line `program` prints, as a token, if it exits 0 within 10 s.
+fn read_token(mut program: Command) -> Option<Secret> {
+    let mut child = program
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -460,7 +491,7 @@ fn gh_token() -> Option<Secret> {
         return None;
     }
     let text = reader.join().ok()?;
-    let token = text.trim();
+    let token = text.lines().next().unwrap_or_default().trim();
     let usable = !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic());
     usable.then(|| Secret::new(token.to_string()))
 }
@@ -639,6 +670,25 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_token_command_runs_only_on_fetch_and_its_first_line_is_the_token() {
+        let source = TokenSource::Command("printf 'ghs_short\\nignored\\n'".to_string());
+        assert!(source.is_fetched());
+        assert_eq!(source.fetch().unwrap().expose(), "ghs_short");
+        assert_eq!(TokenSource::Command("exit 3".to_string()).fetch(), None);
+        assert_eq!(
+            TokenSource::Command("echo 'two words'".to_string()).fetch(),
+            None
+        );
+        assert_eq!(
+            token(
+                &TokenSource::Command("echo t".to_string()),
+                "https://gitlab.com/a/b.git"
+            ),
+            None
+        );
+    }
 
     #[test]
     fn github_remotes_normalize_to_https_without_credentials() {

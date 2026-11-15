@@ -202,7 +202,9 @@ fn sequence(
         project.git_identity(),
         &project.run_token_source(),
     );
-    if let (Some(token), TokenSource::Gh) = (&credentials.github_token, &seed.token) {
+    if let Some(token) = &credentials.github_token
+        && seed.token.is_fetched()
+    {
         seed.token = TokenSource::Fixed(token.clone());
     }
     let request = MirrorRequest {
