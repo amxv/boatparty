@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use super::wait::{self, Deadline};
-use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, new_member, remote_checkout};
+use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, new_member};
 use crate::base::{self, BaseRecord};
 use crate::error::AppError;
 use crate::paths::Paths;
@@ -386,14 +386,8 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
             ));
         }
     }
-    let (target, reconnected) = ensure_connected(
-        pool.paths,
-        pool.provider,
-        pool.out,
-        &pool.project,
-        &sandbox.id,
-        started,
-    )?;
+    let (target, reconnected) =
+        ensure_connected(pool.paths, pool.provider, pool.out, &sandbox.id, started)?;
     let member = pool.modify(&member, |member| {
         member.last_used_at = system::now_ms();
     })?;
@@ -614,7 +608,6 @@ pub fn ensure_connected(
     paths: &Paths,
     provider: &dyn Provider,
     out: crate::output::Output,
-    project: &str,
     id: &str,
     force: bool,
 ) -> Result<(SshTarget, bool), AppError> {
@@ -629,7 +622,9 @@ pub fn ensure_connected(
     // The old master, if any, talks to the previous machine.
     target.close_master();
     ssh::write_target(paths, &target, &access)?;
-    let remote = format!("mkdir -p {}", shell_quote(&remote_checkout(project)));
+    // Proves the connection; the runner makes the checkout itself, wherever
+    // the project's remote_path puts it.
+    let remote = format!("mkdir -p {}", shell_quote(crate::runner::REMOTE_STATE_DIR));
     let mut last = String::new();
     for attempt in 0..CONNECT_ATTEMPTS {
         let (code, stderr) = target.run_quiet(&remote)?;

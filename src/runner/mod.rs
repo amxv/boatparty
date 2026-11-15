@@ -67,11 +67,21 @@ pub fn remote_script_path() -> String {
 }
 
 /// The remote shell command that runs the runner by path, or reports that
-/// this version is missing.
+/// this version is missing. The checkout is the runner's default,
+/// `/home/user/<project>`.
 pub fn remote_invocation(args: &[String]) -> String {
+    remote_invocation_in(None, args)
+}
+
+/// [`remote_invocation`] for a project whose checkout is `checkout`
+/// (`[sandbox] remote_path`), passed to the runner in its environment.
+pub fn remote_invocation_in(checkout: Option<&str>, args: &[String]) -> String {
     let quoted: Vec<String> = args.iter().map(|arg| shell_quote(arg)).collect();
+    let env = checkout
+        .map(|dir| format!("BOATPARTY_RUNNER_REPO={} ", shell_quote(dir)))
+        .unwrap_or_default();
     format!(
-        "f={}; if [ -f \"$f\" ]; then exec bash \"$f\" {}; else echo {MISSING_MARKER} >&2; exit {EXIT_MISSING}; fi",
+        "f={}; if [ -f \"$f\" ]; then {env}exec bash \"$f\" {}; else echo {MISSING_MARKER} >&2; exit {EXIT_MISSING}; fi",
         shell_quote(&remote_script_path()),
         quoted.join(" ")
     )
@@ -187,7 +197,10 @@ impl RunnerHost for SshRunner {
         command
             .arg("-T")
             .arg(&self.target.alias)
-            .arg(remote_invocation(args));
+            .arg(remote_invocation_in(
+                self.spec.as_ref().and_then(RunnerSpec::checkout),
+                args,
+            ));
         command
     }
 
@@ -338,6 +351,11 @@ mod tests {
         assert!(line.starts_with(&format!("f={}; ", remote_script_path())));
         assert!(line.contains("exec bash \"$f\" sync app ''"));
         assert!(line.contains("echo boatparty-runner-missing >&2; exit 96"));
+        let moved = remote_invocation_in(Some("/home/user/code/app"), &["sync".into()]);
+        assert!(
+            moved.contains("then BOATPARTY_RUNNER_REPO=/home/user/code/app exec bash \"$f\" sync;"),
+            "{moved}"
+        );
         assert!(
             !line.contains("set -euo"),
             "the script text is never inlined"

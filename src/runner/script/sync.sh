@@ -192,7 +192,7 @@ maybe_maintain() {
   loose="$(git -C "$repo" count-objects 2>/dev/null | awk '{ print $1 }')"
   if [[ "$packs" -gt "${BOATPARTY_RUNNER_MAX_PACKS:-8}" || "${loose:-0}" -gt "${BOATPARTY_RUNNER_MAX_LOOSE:-2000}" ]] ||
     prune_due; then
-    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash "$0" maintain "$project" \
+    BOATPARTY_RUNNER_REPO="$repo" perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash "$0" maintain "$project" \
       </dev/null >/dev/null 2>&1 9>&- &
   fi
   return 0

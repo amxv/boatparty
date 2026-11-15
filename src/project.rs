@@ -72,7 +72,6 @@ impl Workspace {
         let project = ProjectConfig {
             resolved: config::load(&self.root, paths)?,
         };
-        project.require_supported()?;
         Ok(project)
     }
 }
@@ -146,19 +145,15 @@ impl ProjectConfig {
         self.config().sync.copy_back
     }
 
-    /// Settings that are stored but that this version cannot honor yet.
-    fn require_supported(&self) -> Result<(), AppError> {
-        let remote = &self.config().sandbox.remote_path;
-        let default = config::default_remote_path(self.name());
-        if remote.trim_end_matches('/') != default {
-            return Err(AppError::config(format!(
-                "{}: sandbox.remote_path = {remote:?} is not supported yet; the checkout is \
-                 always {default}",
-                self.resolved.file.display()
-            ))
-            .with_hint("remove sandbox.remote_path"));
+    /// The checkout on the sandbox: `[sandbox] remote_path`, by default
+    /// `/home/user/<project>`.
+    pub fn remote_checkout(&self) -> String {
+        let path = self.config().sandbox.remote_path.trim_end_matches('/');
+        if path.is_empty() {
+            config::default_remote_path(self.name())
+        } else {
+            path.to_string()
         }
-        Ok(())
     }
 
     /// The shell line `cheers <name> [args...]` runs: the `[commands]`
@@ -365,7 +360,7 @@ mod tests {
         assert_eq!(minimal.environment(), None);
         assert!(minimal.copy_back());
         assert!(minimal.seed_config().enabled);
-        assert!(minimal.require_supported().is_ok());
+        assert_eq!(minimal.remote_checkout(), "/home/user/app");
         assert!(minimal.config().setup.is_empty() && minimal.config().ensure.is_empty());
         let own = ProjectConfig::parse(include_str!("../boatparty.toml"), path).unwrap();
         assert_eq!(own.name(), "boatparty");
@@ -404,6 +399,6 @@ mod tests {
             path,
         )
         .unwrap();
-        assert!(custom.require_supported().is_err());
+        assert_eq!(custom.remote_checkout(), "/home/user/x");
     }
 }

@@ -34,6 +34,10 @@ pub const NO_SPEC: &str = "-";
 pub struct RunnerSpec {
     text: String,
     hash: String,
+    /// The project's checkout on the sandbox (`[sandbox] remote_path`).
+    /// Not part of the text: every invocation names it (see
+    /// [`super::remote_invocation_in`]), including those without a spec.
+    checkout: Option<String>,
 }
 
 impl RunnerSpec {
@@ -89,13 +93,25 @@ impl RunnerSpec {
             ensure.iter().map(|s| s.check.clone().unwrap_or_default()),
         );
         array(&mut out, "bp_ensure_runs", ensure.iter().map(|s| &s.run));
-        Self::from_text(out)
+        let mut spec = Self::from_text(out);
+        let checkout = config.sandbox.remote_path.trim_end_matches('/');
+        spec.checkout = (!checkout.is_empty()).then(|| checkout.to_string());
+        spec
     }
 
-    /// A spec with this exact text (tests).
+    /// A spec with this exact text and no checkout (tests).
     pub fn from_text(text: String) -> Self {
         let hash = content_hash(text.as_bytes());
-        Self { text, hash }
+        Self {
+            text,
+            hash,
+            checkout: None,
+        }
+    }
+
+    /// The project's checkout on the sandbox, when known.
+    pub fn checkout(&self) -> Option<&str> {
+        self.checkout.as_deref()
     }
 
     pub fn text(&self) -> &str {

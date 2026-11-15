@@ -342,7 +342,7 @@ fn launch_records_the_pending_member_before_creating_it() {
     assert!(config.contains("HostName 203.0.113.10") && config.contains("Port 22001"));
     assert!(config.contains("StrictHostKeyChecking yes"));
     let log = std::fs::read_to_string(setup.ssh_log()).unwrap();
-    assert!(log.contains("mkdir -p /home/user/app"), "{log}");
+    assert!(log.contains("mkdir -p /home/user/.boatparty"), "{log}");
 }
 
 #[test]

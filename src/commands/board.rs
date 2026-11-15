@@ -23,8 +23,7 @@ use super::session::{Held, with_session};
 use crate::Context;
 use crate::cli::BoardArgs;
 use crate::error::AppError;
-use crate::pool::remote_checkout;
-use crate::runner::{RunnerHost, RunnerSpec, SshRunner, remote_invocation};
+use crate::runner::{RunnerHost, RunnerSpec, SshRunner, remote_invocation_in};
 use crate::stream::Stream;
 use crate::sync::{self, Hold, RunCredentials, Sink, TokenSource};
 use crate::transport::ssh::{SshTarget, shell_quote};
@@ -63,7 +62,7 @@ fn prepare(held: &Held<'_>, argv: &[String], note: &dyn Fn(&str)) -> Prepared {
         Ok(hold) => {
             let args = hold.board_args(held.project, host.spec_hash(), &credentials, argv);
             Prepared {
-                line: remote_invocation(&args),
+                line: remote_invocation_in(Some(&config.remote_checkout()), &args),
                 github_token: hold.socket.is_some(),
                 git_identity: credentials.has_identity(),
                 _hold: Some(hold),
@@ -74,7 +73,7 @@ fn prepare(held: &Held<'_>, argv: &[String], note: &dyn Fn(&str)) -> Prepared {
                 "warning: {error}; running without the project's credentials and [run.env]"
             ));
             Prepared {
-                line: remote_command(held.project, argv),
+                line: remote_command(&config.remote_checkout(), argv),
                 _hold: None,
                 git_identity: false,
                 github_token: false,
@@ -169,8 +168,8 @@ fn run_json(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
 /// The plain remote command line, used when the runner cannot prepare the
 /// session: enter the checkout, then run `argv` (quoted word by word) or a
 /// login shell.
-pub fn remote_command(project: &str, argv: &[String]) -> String {
-    let dir = shell_quote(&remote_checkout(project));
+pub fn remote_command(checkout: &str, argv: &[String]) -> String {
+    let dir = shell_quote(checkout);
     let prefix = format!("mkdir -p {dir} && cd {dir} && ");
     if argv.is_empty() {
         format!("{prefix}exec \"${{SHELL:-/bin/bash}}\" -l")
@@ -275,16 +274,16 @@ mod tests {
     #[test]
     fn commands_run_in_the_checkout_with_every_word_quoted() {
         assert_eq!(
-            remote_command("app", &["uname".into(), "-a".into()]),
+            remote_command("/home/user/app", &["uname".into(), "-a".into()]),
             "mkdir -p /home/user/app && cd /home/user/app && uname -a"
         );
         assert_eq!(
             remote_command(
-                "app",
+                "/home/user/app",
                 &["sh".into(), "-c".into(), "echo $HOME; exit 3".into()]
             ),
             "mkdir -p /home/user/app && cd /home/user/app && sh -c 'echo $HOME; exit 3'"
         );
-        assert!(remote_command("app", &[]).ends_with("exec \"${SHELL:-/bin/bash}\" -l"));
+        assert!(remote_command("/home/user/app", &[]).ends_with("exec \"${SHELL:-/bin/bash}\" -l"));
     }
 }

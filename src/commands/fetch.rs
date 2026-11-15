@@ -20,7 +20,6 @@ use super::session::with_session;
 use crate::Context;
 use crate::cli::FetchArgs;
 use crate::error::AppError;
-use crate::pool::remote_checkout;
 use crate::provider::Provider;
 use crate::runner::REMOTE_STATE_DIR;
 use crate::system;
@@ -37,7 +36,7 @@ pub fn run(ctx: &Context, args: &FetchArgs) -> Result<u8, AppError> {
     let dest = args.dest.clone().unwrap_or_else(|| PathBuf::from("."));
     let label = format!("fetch {}", args.path);
     let ended = with_session(ctx, &label, |held| {
-        let remote = remote_path(held.project, &args.path);
+        let remote = remote_path(&held.config.remote_checkout(), &args.path);
         let signed = held.member.id.clone().and_then(|sandbox_id| {
             Some(Signed {
                 provider: super::open_provider(ctx).ok()?,
@@ -92,11 +91,11 @@ pub fn run(ctx: &Context, args: &FetchArgs) -> Result<u8, AppError> {
 }
 
 /// The absolute path on the sandbox: relative paths are under the checkout.
-pub fn remote_path(project: &str, path: &str) -> String {
+pub fn remote_path(checkout: &str, path: &str) -> String {
     if path.starts_with('/') {
         path.to_string()
     } else {
-        format!("{}/{path}", remote_checkout(project))
+        format!("{checkout}/{path}")
     }
 }
 
@@ -373,10 +372,13 @@ mod tests {
     #[test]
     fn relative_paths_resolve_under_the_checkout() {
         assert_eq!(
-            remote_path("app", "target/release/app"),
+            remote_path("/home/user/app", "target/release/app"),
             "/home/user/app/target/release/app"
         );
-        assert_eq!(remote_path("app", "/tmp/out.bin"), "/tmp/out.bin");
+        assert_eq!(
+            remote_path("/home/user/app", "/tmp/out.bin"),
+            "/tmp/out.bin"
+        );
     }
 
     #[test]

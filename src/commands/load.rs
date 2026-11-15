@@ -187,6 +187,10 @@ fn report(
     seconds: f64,
 ) {
     let (project, info) = (local.project, local.info);
+    let checkout = local
+        .spec
+        .checkout()
+        .map_or_else(|| remote_checkout(project), str::to_string);
     let id = member.id.clone().unwrap_or_default();
     if ctx.out.is_json() {
         ctx.out.document(&json!({
@@ -194,7 +198,7 @@ fn report(
             "project": project,
             "workspace": workspace.key(),
             "member": { "name": member.name, "id": id },
-            "checkout": remote_checkout(project),
+            "checkout": checkout,
             "head": info.head,
             "branch": info.branch,
             "wip": local.snapshot.wip,
@@ -230,7 +234,7 @@ fn report(
     ctx.out.text(format_args!(
         "loaded {at} into {} ({id}) {}: sent {}{route}, {seconds:.1}s",
         member.name,
-        remote_checkout(project),
+        checkout,
         size(outcome.pack_bytes),
     ));
     if let Some(reason) = &outcome.upload_fallback {

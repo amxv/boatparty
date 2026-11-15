@@ -48,8 +48,8 @@ pub const HELP: &str = "boatparty.toml (version = 1). Every key is optional exce
 [project] name; an unknown key is an error.
 
   [project]   name, presets = [\"rust\", ...] (applied in order; this file wins)
-  [sandbox]   machine (small|default|large|xlarge), remote_path (/home/user/<name>; other values \
-are not supported yet), environment (a boat environment for new sandboxes; unset = no account secrets)
+  [sandbox]   machine (small|default|large|xlarge), remote_path (the checkout; default \
+/home/user/<name>, any directory under /home/user except ~/.boatparty and ~/.cache), environment (a boat environment for new sandboxes; unset = no account secrets)
   [sync]      history (\"head\"|\"full\"), copy_back, seed, github_token (true|false)
   [run]       ram_tmp (true|false), script (the script runner for `cheers <name>`, e.g. \"bun run\"), \
 git_identity (true|false: commands commit as the local user.name and user.email), github_token \

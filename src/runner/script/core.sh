@@ -54,7 +54,11 @@ if [[ -z "$mode" || -z "$project" ]]; then
 fi
 shift 2
 
+# The checkout: /home/user/<project>, or the project's [sandbox] remote_path,
+# which the client passes as BOATPARTY_RUNNER_REPO. Not passed on to
+# commands; a detached `maintain` gets it explicitly.
 repo="${BOATPARTY_RUNNER_REPO:-/home/user/$project}"
+unset BOATPARTY_RUNNER_REPO
 state="${BOATPARTY_RUNNER_STATE:-/home/user/.boatparty}"
 mkdir -p "$state/out" "$state/in"
 

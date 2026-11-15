@@ -23,7 +23,7 @@ pub enum Command {
     Launch,
     /// Sync the working tree to the sandbox's checkout (no command runs).
     #[command(
-        after_help = "Makes /home/user/<project> on the sandbox identical to this working tree: \
+        after_help = "Makes the sandbox's checkout (/home/user/<project>, or [sandbox] remote_path) identical to this working tree: \
                       tracked and untracked files minus ignored ones, the same HEAD and branch. \
                       With the default `[sync] history = \"head\"` in boatparty.toml only HEAD's \
                       commit travels (the sandbox's `git log` shows one commit); with \"full\" \
@@ -231,7 +231,7 @@ fn parse_minutes(value: &str) -> Result<f64, String> {
     after_help = "Examples:\n  \
                   printf '%s\\n' \"$UPLOAD_URL\" | boatparty pipe -- bash scripts/upload.sh\n  \
                   boatparty pipe --sh 'cat > ~/.config/app/token && chmod 600 ~/.config/app/token' < token.txt\n\n\
-                  Runs the command in the sandbox's checkout (/home/user/<project>) with this \
+                  Runs the command in the sandbox's checkout (/home/user/<project>, or [sandbox] remote_path) with this \
                   process's standard input as its standard input, byte for byte. Nothing is synced \
                   first and no setup or ensure step runs; the project's credentials ([run] \
                   git_identity and github_token) and [run.env] apply as for `cheers`. The input is \
@@ -408,7 +408,7 @@ pub struct InitArgs {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Examples:\n  boatparty board                 interactive shell in /home/user/<project>\n  \
+    after_help = "Examples:\n  boatparty board                 interactive shell in the checkout\n  \
                   boatparty board -- uname -a     run one command; exits with its status\n\
                   Each word after -- is quoted, so `boatparty board -- sh -c 'a | b'` runs exactly that."
 )]
@@ -423,7 +423,7 @@ pub struct BoardArgs {
                   boatparty fetch target/release/app            into the current directory\n  \
                   boatparty fetch target/release/app /tmp/app-linux   under a new name\n  \
                   boatparty fetch /tmp/report out/              an absolute path, into out/\n\n\
-                  A relative PATH is resolved in the sandbox's checkout (/home/user/<project>). \
+                  A relative PATH is resolved in the sandbox's checkout (/home/user/<project>, or [sandbox] remote_path). \
                   Nothing is synced first. When DEST is an existing directory the copy keeps its \
                   name inside it; otherwise DEST is the copy's new name. An existing file is \
                   replaced; an existing directory is never overwritten. Symbolic links are followed.")]

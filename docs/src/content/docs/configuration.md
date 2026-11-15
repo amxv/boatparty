@@ -17,6 +17,7 @@ presets = ["rust"]           # applied in order; this file wins
 
 [sandbox]
 machine = "default"          # small, default, large, xlarge (at most the project's max_machine)
+# remote_path = "/home/user/code/app"  # the checkout; default /home/user/<name>, must be under /home/user
 # environment = "ci"         # a boat environment for new sandboxes; unset: no account secrets
 
 [sync]
