@@ -360,8 +360,19 @@ fn the_command_gets_a_private_ram_tmpdir_that_is_removed_afterwards() {
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     let mut lines = run.stdout.lines();
     let tmp = lines.next().unwrap();
+    // Compared canonically: on macOS /var is a link to /private/var.
+    let scratch = Path::new(tmp);
+    assert_eq!(
+        fs::canonicalize(scratch.parent().unwrap()).unwrap(),
+        fs::canonicalize(&shm).unwrap(),
+        "{tmp}"
+    );
     assert!(
-        tmp.starts_with(&format!("{}/boatparty-", shm.display())),
+        scratch
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("boatparty-"),
         "{tmp}"
     );
     assert_eq!(lines.next(), Some("scratch"));
