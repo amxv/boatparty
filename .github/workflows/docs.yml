@@ -1,7 +1,9 @@
 name: Docs
 
-# Production docs deploys from main only. The docs check on every branch is
-# the `docs` job in ci.yml.
+# Production docs deploys from main; a same-repository pull request that
+# changes docs/ gets a Preview deployment with its URL commented on the PR.
+# Nothing else calls Vercel: its Git integration is disconnected. The docs
+# check on every branch is the `docs` job in ci.yml.
 on:
   push:
     branches: [main]
@@ -15,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 # A production deploy is never cancelled by a later push: that push's run
 # waits, then deploys the newer tree. Pull request checks still supersede.
@@ -55,10 +58,12 @@ jobs:
 
       - name: Build static output for project-scoped Vercel deployment
         if: >-
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-          github.ref == 'refs/heads/main' &&
           github.repository != 'amxv/rust-cli-template' &&
-          vars.VERCEL_PROJECT_ID != ''
+          vars.VERCEL_PROJECT_ID != '' &&
+          (((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+            github.ref == 'refs/heads/main') ||
+           (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository))
         run: |
           set -euo pipefail
           bun run build
@@ -95,3 +100,49 @@ jobs:
           cp -R docs/.vercel/output .vercel/output
           test -f .vercel/output/config.json
           npx --yes vercel@latest deploy --prebuilt --prod --yes --non-interactive
+
+      - name: Deploy docs preview to Vercel
+        id: preview
+        # Same-repository pull requests only: forks get no secrets.
+        working-directory: .
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.repository != 'amxv/rust-cli-template' &&
+          vars.VERCEL_PROJECT_ID != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$VERCEL_TOKEN" && test -n "$VERCEL_ORG_ID" && test -n "$VERCEL_PROJECT_ID"
+          test -f docs/.vercel/output/config.json
+          mkdir -p .vercel
+          printf '{"orgId":"%s","projectId":"%s"}\n' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
+          cp -R docs/.vercel/output .vercel/output
+          # v65+ prints multi-line JSON; take only the URL.
+          deployment="$(npx --yes vercel@latest deploy --json --prebuilt --yes --non-interactive)"
+          url="$(printf '%s\n' "$deployment" | jq -er '.deployment.url')"
+          printf 'url=%s\n' "$url" >> "$GITHUB_OUTPUT"
+          printf 'Docs preview: %s\n' "$url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment the preview URL on the pull request
+        if: github.event_name == 'pull_request' && steps.preview.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        with:
+          script: |
+            const marker = '<!-- boatparty-docs-preview -->';
+            const url = process.env.PREVIEW_URL.startsWith('http') ? process.env.PREVIEW_URL : `https://${process.env.PREVIEW_URL}`;
+            const body = `${marker}\nDocs preview: ${url}`;
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number, per_page: 100 });
+            const previous = comments.find((c) => c.user?.type === 'Bot' && c.body?.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

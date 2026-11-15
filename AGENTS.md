@@ -56,12 +56,14 @@ The checks use the boatparty binary in `$BOATPARTY`, else `boatparty` on `PATH`.
 
 Keep all web tooling in `docs/`: package metadata, Bun dependencies, Astro config, generated Astro state, and Vercel config.
 
-The `.github/workflows/docs.yml` job is triggered by `docs/**` changes to
-`main` and calls Vercel CLI for production deployments only on those pushes.
-Other pushes create no Vercel deployment and use no deployment quota. Keep the
-Vercel GitHub connection and Root Directory `docs`, but preserve
-`git.deploymentEnabled: false` and the absence of `ignoreCommand` in
-`docs/vercel.json` to avoid duplicate, quota-consuming Git deployments. Before
+The `.github/workflows/docs.yml` job, on a GitHub-hosted runner, is triggered
+by `docs/**` changes: pushes to `main` deploy production, and same-repository
+pull requests get a Preview deployment whose URL is commented on the PR. A
+later push never cancels a production deploy in flight. Other pushes create no
+Vercel deployment and use no deployment quota. The Vercel project's Git
+integration is disconnected (keep it that way, with Root Directory `docs`), and
+`docs/vercel.json` keeps `git.deploymentEnabled: false` and no `ignoreCommand`:
+an ignored build still creates a counted deployment. Before
 the first deployment, store a project-scoped `VERCEL_TOKEN` as a GitHub
 Actions **secret** and the Vercel IDs (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`) as
 Actions **variables**; until `VERCEL_PROJECT_ID` exists the deploy steps are
