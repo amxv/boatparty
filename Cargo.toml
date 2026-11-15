@@ -10,11 +10,8 @@ homepage = "https://github.com/amxv/boatparty#readme"
 readme = "README.md"
 publish = false
 include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
-keywords = ["cli", "rust", "template"]
+keywords = ["cli", "sandbox", "boat", "remote-build", "git"]
 categories = ["command-line-utilities"]
-
-[package.metadata.dist]
-dist = true
 
 [[bin]]
 name = "boatparty"
@@ -63,6 +60,3 @@ strip = true
 lto = "thin"
 codegen-units = 1
 panic = "abort"
-
-[profile.dist]
-inherits = "release"

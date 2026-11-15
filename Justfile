@@ -4,15 +4,6 @@ set positional-arguments
 default:
     @just --list
 
-bootstrap *args:
-    python3 scripts/bootstrap.py "$@"
-
-bootstrap-clean:
-    python3 scripts/cleanup.py
-
-vercel-provision:
-    node scripts/provision-vercel.mjs
-
 fmt:
     cargo fmt --all
 
@@ -53,16 +44,22 @@ docs-build:
 docs-test:
     cd docs && bun run test:vercel
 
-dist-plan:
-    dist plan
+# Build this tree's macOS binary and run the tests on a one-shot NoMac Mac (output in target/nomac/).
+build-macos *args:
+    scripts/build-macos.sh "$@"
 
-dist-generate:
-    dist generate
+# Install the latest (or --version vX.Y.Z) release into ~/.local/bin.
+install *args:
+    scripts/install.sh "$@"
+
+# Build and package every release target without publishing (needs release.yml on main).
+release-dry-run:
+    gh workflow run release.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
 
 release-tag version:
     #!/usr/bin/env bash
     set -euo pipefail
-    actual="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+    actual="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
     if [[ "$actual" != "{{ version }}" ]]; then
       echo "Cargo.toml version is $actual, not {{ version }}" >&2
       exit 1

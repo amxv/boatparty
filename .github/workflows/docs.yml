@@ -1,5 +1,7 @@
 name: Docs
 
+# Production docs deploys from main only. The docs check on every branch is
+# the `docs` job in ci.yml.
 on:
   push:
     branches: [main]
@@ -20,7 +22,9 @@ concurrency:
 
 jobs:
   docs:
-    runs-on: ubuntu-latest
+    # A fresh boat.dev sandbox per job, deleted when the job ends.
+    runs-on: boat
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: docs
@@ -51,14 +55,16 @@ jobs:
         if: >-
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           github.ref == 'refs/heads/main' &&
-          github.repository != 'amxv/rust-cli-template'
+          github.repository != 'amxv/rust-cli-template' &&
+          vars.VERCEL_PROJECT_ID != ''
         run: |
           set -euo pipefail
           bun run build
           node scripts/prepare-prebuilt.mjs
 
       # Only docs/** pushes reach this workflow. Vercel Git auto-deploys are
-      # disabled so Rust-only pushes consume no deployment quota.
+      # disabled so Rust-only pushes consume no deployment quota. Deployment is
+      # skipped until the Vercel project variables and token secret exist.
       - name: Deploy production docs to Vercel
         # Vercel's Root Directory is docs/. Running from docs/ would resolve
         # that to docs/docs, so the deploy runs from the repository root.
@@ -66,7 +72,8 @@ jobs:
         if: >-
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           github.ref == 'refs/heads/main' &&
-          github.repository != 'amxv/rust-cli-template'
+          github.repository != 'amxv/rust-cli-template' &&
+          vars.VERCEL_PROJECT_ID != ''
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
@@ -74,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$VERCEL_TOKEN" || -z "$VERCEL_ORG_ID" || -z "$VERCEL_PROJECT_ID" ]]; then
-            echo 'Run just vercel-provision after linking docs/ to Vercel to configure the token secret and project variables.' >&2
+            echo 'Set the VERCEL_TOKEN secret and the VERCEL_ORG_ID and VERCEL_PROJECT_ID variables to deploy the docs.' >&2
             exit 1
           fi
           # Project-scoped tokens can fail broad CLI project-settings queries.
