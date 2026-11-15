@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install pinned, checksum-verified zig and cargo-zigbuild on an x86_64 Linux
-# host (a boat sandbox or CI runner) for cross-compiling release binaries.
+# host (a CI runner) for cross-compiling release binaries.
 #
 # Usage: scripts/release/install-zigbuild.sh [PREFIX]
 #   PREFIX defaults to ~/.boatparty-tools. Prints the bin directory to add to

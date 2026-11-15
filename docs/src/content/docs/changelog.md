@@ -8,6 +8,10 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## 0.1.4 - 2026-11-15
+
+- A member whose file restore is stuck is no longer deleted when no replacement can start today (the day's start window is full): it keeps serving commands, with one note, and is replaced at the first start that can be made.
+
 ## 0.1.3 - 2026-11-15
 
 First published release: warm boat.dev sandbox pools for any Git project. (Tags `v0.1.0` to `v0.1.2` were cut but never published: their macOS builds exposed test portability bugs, timing races and an unsigned x86_64 binary, all fixed here.)
