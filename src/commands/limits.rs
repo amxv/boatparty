@@ -21,6 +21,7 @@ use crate::system;
 pub fn run(ctx: &Context, args: &LimitsArgs) -> Result<u8, AppError> {
     match &args.action {
         Some(LimitsAction::Set(target)) => set(ctx, target),
+        Some(LimitsAction::Starts) => super::ledger::run(ctx),
         None => show(ctx),
     }
 }

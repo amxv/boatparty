@@ -341,6 +341,11 @@ pub enum LimitsAction {
     /// Change limits in account.toml, keeping its comments and layout.
     #[command(subcommand)]
     Set(LimitsTarget),
+    /// boatparty's own starts in the rolling minute, hour and day windows,
+    /// per project, beside the account's totals from the provider (the gap
+    /// is starts made elsewhere, such as CI or other tools); each start's
+    /// time; and when the windows free up over the coming hours.
+    Starts,
 }
 
 #[derive(Debug, Subcommand)]

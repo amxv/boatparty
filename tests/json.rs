@@ -304,6 +304,7 @@ fn every_subcommand_prints_its_documented_json() {
     go("preset show", &["preset", "show", "rust"]);
     go("preset eject", &["preset", "eject", "go"]);
     go("limits", &["limits"]);
+    go("limits starts", &["limits", "starts"]);
     go(
         "limits set",
         &["limits", "set", "project", "app", "max_sandboxes=3"],
@@ -408,6 +409,7 @@ fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
         &["login", "--key-stdin"],
         &["doctor"],
         &["limits"],
+        &["limits", "starts"],
         &["limits", "set", "account", "max_running=2"],
         &["log"],
         &["skill"],

@@ -119,6 +119,33 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
 }
 ```
 
+### limits starts
+
+`boatparty limits starts`: boatparty's start ledger (every create and new-machine resume it made from this machine in the last 24 hours) beside the account's figures from the provider. Per window (`minute`, `hour`, `day`): `boatparty` and its split by project, `account` (`null` when the provider gave no figure), `outside_boatparty` (account starts boatparty did not make, such as CI or other tools; `null` without a figure) and `next_frees_at` (when boatparty's oldest start in the window leaves it). `starts` lists each start, oldest first (`in_flight` while its answer is pending). `frees_by_hour` covers the next 24 hours: how many of boatparty's starts leave the day window by each `until`. `provider_window_full` is the provider's full window and when it frees, if any.
+
+<!-- shape: limits starts -->
+```json
+{
+  "ok": true,
+  "now": "2026-11-15T12:00:00Z",
+  "windows": [
+    {
+      "window": "day",
+      "boatparty": 40,
+      "projects": { "app": 31, "web": 9 },
+      "account": { "limit": 200, "used": 120, "remaining": 80 },
+      "outside_boatparty": 80,
+      "next_frees_at": "2026-11-15T12:20:00Z"
+    }
+  ],
+  "starts": [ { "at": "2026-11-14T12:20:00Z", "project": "app", "in_flight": false } ],
+  "frees_by_hour": [ { "until": "2026-11-15T13:00:00Z", "frees": 3 } ],
+  "provider_window_full": { "window": "day", "frees_at": "2026-11-15T13:35:21.676Z" },
+  "extra_starts": true,
+  "next_start_dollars": 0.03
+}
+```
+
 ### limits set
 
 `boatparty limits set account KEY=VALUE...` or `limits set project NAME KEY=VALUE...`. `table` is the account.toml table changed (`account`, `defaults` or `projects.NAME`); `new` is `null` when an empty value removed the key. `project` is `null` for `account`.
