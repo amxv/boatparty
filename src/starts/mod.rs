@@ -148,6 +148,26 @@ impl StartGate<'_> {
     }
 
     /// Wait until a start is admitted and reserve it. Returns its id.
+    /// Whether a start would be refused for the rest of the day (the day
+    /// window, the project's or the account's, is full), from fresh provider
+    /// figures. Reserves nothing. `Some` holds the error a start would get.
+    pub fn refused_today(&self) -> Option<AppError> {
+        refresh(self.store, self.provider);
+        let state = self.store.load().ok()?;
+        let now = system::now_ms();
+        let cache = LimitsCache::read(&state);
+        match admission::admit(
+            &state.starts,
+            self.project,
+            &self.budget,
+            cache.as_ref(),
+            now,
+        ) {
+            Admission::Refuse { limit, frees_in_ms } => Some(self.day_error(limit, frees_in_ms)),
+            Admission::Admit | Admission::Wait { .. } => None,
+        }
+    }
+
     fn reserve(&self, what: &str, mut force_refresh: bool) -> Result<String, AppError> {
         let id = system::random_hex(8)?;
         let pid = std::process::id();

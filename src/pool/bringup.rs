@@ -265,12 +265,25 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
 
     if let (Some(broken), Some(id)) = (member.broken.clone(), member.id.clone()) {
         let me = std::process::id();
-        if member.live_leases().any(|lease| lease.pid != me) {
+        let refused = if member.live_leases().any(|lease| lease.pid != me) {
             pool.out.note(format_args!(
                 "{} is broken ({}) but still in use; it is replaced once that ends",
                 member.name, broken.reason
             ));
+            true
+        } else if let Some(error) = pool.start_gate().refused_today() {
+            // Deleting it now would leave this workspace with nothing.
+            pool.out.note(format_args!(
+                "{} is broken ({}), but a replacement cannot start today ({}); using it as it is",
+                member.name,
+                broken.reason,
+                error.message()
+            ));
+            true
         } else {
+            false
+        };
+        if !refused {
             pool.out.note(format_args!(
                 "{} ({id}) is broken: {}; deleting it and creating a new sandbox in its place",
                 member.name, broken.reason

@@ -809,6 +809,30 @@ fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_sta
     assert_eq!(status["members"][0]["broken"], broken);
     assert!(deletes(&boat).is_empty());
 
+    // With today's starts used up, it is kept and used as it is: deleting
+    // it would leave the workspace with nothing.
+    let account = setup.home().join("config/account.toml");
+    let before = std::fs::read_to_string(&account).unwrap();
+    std::fs::write(
+        &account,
+        before.replace("[projects.app]\n", "[projects.app]\nstarts_per_day = 1\n"),
+    )
+    .unwrap();
+    let state_file = setup.home().join("state/state.json");
+    let mut state = setup.state();
+    state["starts"] = json!([{"at": now_ms() - 60_000, "project": "app", "done_at": now_ms()}]);
+    std::fs::write(&state_file, state.to_string()).unwrap();
+    let output = setup.cmd(&boat, &repo).arg("launch").output().unwrap();
+    let stderr = text(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("cannot start today"), "{stderr}");
+    assert!(deletes(&boat).is_empty());
+    assert_eq!(
+        setup.state()["projects"]["app"]["members"][0]["id"],
+        "bx_old"
+    );
+    std::fs::write(&account, before).unwrap();
+
     // The next start deletes it and creates a new sandbox under the same name.
     let output = setup.cmd(&boat, &repo).arg("launch").output().unwrap();
     let stderr = text(&output.stderr);
