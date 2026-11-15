@@ -8,6 +8,11 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## 0.1.5 - 2026-11-15
+
+- boatparty now uses boat's extra (paid) starts when the account has them on: once the included starts are used up it starts anyway and says so on stderr with the price, instead of refusing. `[account] paid_starts = false` (or `boatparty limits set account paid_starts=false`) turns that off. `boatparty limits` shows whether the next start is paid.
+- `boatparty limits starts` shows boatparty's own start ledger: starts per rolling minute, hour and day, per project, next to boat's account totals (the gap is starts made elsewhere, such as CI or other tools), each start's time, and when the windows free up over the coming hours.
+
 ## 0.1.4 - 2026-11-15
 
 - A member whose file restore is stuck is no longer deleted when no replacement can start today (the day's start window is full): it keeps serving commands, with one note, and is replaced at the first start that can be made.
