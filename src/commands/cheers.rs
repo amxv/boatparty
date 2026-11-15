@@ -23,7 +23,7 @@ use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
 use crate::pool::{LeaseRequest, warm_member};
 use crate::project::Workspace;
-use crate::runner::SshRunner;
+use crate::runner::{RunnerSpec, SshRunner};
 use crate::runs;
 use crate::signals::Interrupts;
 use crate::state::{LeaseKind, Member, Store, SyncState};
@@ -127,6 +127,9 @@ struct Ran {
     digest: String,
     retried: bool,
     prep_seconds: Option<f64>,
+    /// A setup or ensure step that failed, so the command did not run
+    /// (`ensure.<name>`).
+    failed_step: Option<String>,
 }
 
 impl Cheers<'_> {
@@ -139,6 +142,7 @@ impl Cheers<'_> {
             self.line = project.named_command(command, args)?;
         }
         self.copy_back = project.copy_back();
+        let spec = RunnerSpec::new(project.config());
         let name = project.name().to_string();
         let history = project.history();
         let seed = project.seed_config();
@@ -160,14 +164,12 @@ impl Cheers<'_> {
             &info,
             history,
             &seed,
+            &spec,
             &mut conn,
             times,
             &interrupts,
             &mut heartbeat,
         );
-        if let Some(mut heartbeat) = heartbeat.take() {
-            heartbeat.stop();
-        }
         self.record["member"] = json!(conn.member.name);
         self.record["sandbox"] = json!(conn.id());
         self.record["warm"] = json!(conn.warm);
@@ -178,6 +180,10 @@ impl Cheers<'_> {
             Ok(ran) => self.conclude(stream, &info, &name, &conn, ran, cancelled),
             Err(_) => (None, json!({"status": "none"})),
         };
+        // Only now: bringing a large change back can outlast the deadline.
+        if let Some(mut heartbeat) = heartbeat.take() {
+            heartbeat.stop();
+        }
         let id = conn.id();
         let last_run = json!({
             "at": runs::rfc3339(self.at),
@@ -225,6 +231,7 @@ impl Cheers<'_> {
         self.record["seed_route"] = json!(ran.outcome.seed.route.as_str());
         self.record["seed_fallback"] = json!(ran.outcome.seed.fallback);
         self.record["copy_back"] = copy_back["status"].clone();
+        self.record["failed_step"] = json!(ran.failed_step);
         self.report(
             stream,
             &conn,
@@ -246,6 +253,7 @@ impl Cheers<'_> {
         info: &WorktreeInfo,
         history: History,
         seed: &SeedConfig,
+        spec: &RunnerSpec,
         conn: &mut Conn,
         times: LeaseTimes,
         interrupts: &Interrupts,
@@ -266,7 +274,7 @@ impl Cheers<'_> {
                 history,
                 seed: Some(seed),
             };
-            let host = super::runner_host(self.ctx, &conn.target, &conn.member);
+            let host = super::runner_host(self.ctx, &conn.target, &conn.member, spec.clone());
             let mut sink = StartWatch {
                 stream: &mut *stream,
                 paths: &self.ctx.paths,
@@ -274,11 +282,13 @@ impl Cheers<'_> {
                 times,
                 heartbeat: &mut *heartbeat,
                 started: None,
+                failed_step: None,
             };
             let outcome = sync::run_command(&host, &request, &self.line, &mut sink, interrupts)?;
             let prep_seconds = sink
                 .started
                 .map(|at| round(at.duration_since(self.began).as_secs_f64()));
+            let failed_step = sink.failed_step.take();
             match outcome.end {
                 RunEnd::Done { .. } => {
                     return Ok(Ran {
@@ -286,6 +296,7 @@ impl Cheers<'_> {
                         digest,
                         retried,
                         prep_seconds,
+                        failed_step,
                     });
                 }
                 RunEnd::Lost { .. } if outcome.cancelled => {
@@ -294,6 +305,7 @@ impl Cheers<'_> {
                         digest,
                         retried,
                         prep_seconds,
+                        failed_step,
                     });
                 }
                 RunEnd::Lost { status: Some(255) }
@@ -412,6 +424,7 @@ impl Cheers<'_> {
                 "seed_seconds": ran.outcome.seed.seconds(),
                 "full_retry": ran.outcome.full_retry,
                 "runner_installed": ran.outcome.installed,
+                "failed_step": ran.failed_step,
                 "copy_back": copy_back,
             }));
             return;
@@ -440,6 +453,11 @@ impl Cheers<'_> {
                 "signed upload failed ({reason}), pack sent over SSH"
             ));
         }
+        if let Some(step) = &ran.failed_step {
+            notes.push(format!(
+                "the {step} step failed, so the command did not run"
+            ));
+        }
         let what = match status {
             Some(code) if !cancelled => format!("exit {code}"),
             Some(code) => format!("cancelled (command exit {code})"),
@@ -463,6 +481,7 @@ struct StartWatch<'a> {
     times: LeaseTimes,
     heartbeat: &'a mut Option<Heartbeat>,
     started: Option<Instant>,
+    failed_step: Option<String>,
 }
 
 impl Sink for StartWatch<'_> {
@@ -479,11 +498,16 @@ impl Sink for StartWatch<'_> {
     }
 
     fn event(&mut self, name: &str) {
+        // Steps (dependency installs) can take longer than the auto-stop
+        // deadline, so the heartbeat starts with them.
+        if (name == "started" || name == "preparing") && self.heartbeat.is_none() {
+            *self.heartbeat = Some(Heartbeat::for_member(self.paths, &self.id, self.times));
+        }
         if name == "started" && self.started.is_none() {
             self.started = Some(Instant::now());
-            if self.heartbeat.is_none() {
-                *self.heartbeat = Some(Heartbeat::for_member(self.paths, &self.id, self.times));
-            }
+        }
+        if let Some(step) = name.strip_prefix("failed-step ") {
+            self.failed_step = Some(step.to_string());
         }
         self.stream.event(name);
     }

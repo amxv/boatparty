@@ -4,8 +4,10 @@
 //! content hash, so a sandbox always runs the matching version and no
 //! command line carries the script text. An invocation whose version is
 //! missing prints [`MISSING_MARKER`] on stderr and exits [`EXIT_MISSING`];
-//! the client uploads the script and retries once.
+//! the client uploads the script and retries once. The same holds for the
+//! project's [`RunnerSpec`], which `sync` and `run` name.
 
+pub mod spec;
 pub mod trailer;
 
 use std::path::Path;
@@ -15,6 +17,7 @@ use crate::error::AppError;
 use crate::provider::Provider;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
+pub use spec::{NO_SPEC, RunnerSpec};
 pub use trailer::{Piece, Trailer, TrailerFilter};
 
 /// The runner script.
@@ -69,8 +72,15 @@ pub trait RunnerHost {
     /// up its standard streams.
     fn command(&self, args: &[String]) -> Command;
 
-    /// Install this version of the runner, after an exit 96.
+    /// Install this version of the runner, and the spec when there is one,
+    /// after an exit 96.
     fn install(&self) -> Result<(), AppError>;
+
+    /// The hash of the project's spec that `sync` and `run` name; `None`
+    /// when this host applies no project settings.
+    fn spec_hash(&self) -> Option<String> {
+        None
+    }
 
     /// The pack size above which [`RunnerHost::upload`] is used instead of
     /// the runner's stdin; `None` when this host has no other route.
@@ -114,6 +124,8 @@ pub struct SshRunner {
     pub target: SshTarget,
     /// The provider's bulk upload for large packs, when available.
     pub upload: Option<SignedUpload>,
+    /// The project's settings, named in `sync` and `run`.
+    pub spec: Option<RunnerSpec>,
 }
 
 /// Large packs through the provider's signed upload route.
@@ -129,6 +141,7 @@ impl SshRunner {
         Self {
             target,
             upload: None,
+            spec: None,
         }
     }
 }
@@ -145,6 +158,10 @@ impl RunnerHost for SshRunner {
 
     fn upload_threshold(&self) -> Option<u64> {
         self.upload.as_ref().map(|upload| upload.threshold)
+    }
+
+    fn spec_hash(&self) -> Option<String> {
+        self.spec.as_ref().map(|spec| spec.hash().to_string())
     }
 
     fn upload(&self, name: &str, file: &Path) -> Result<(), AppError> {
@@ -168,10 +185,29 @@ impl RunnerHost for SshRunner {
     }
 
     fn install(&self) -> Result<(), AppError> {
-        let path = shell_quote(&remote_script_path());
+        self.put(&remote_script_path(), SCRIPT.as_bytes(), "the runner")?;
+        if let Some(spec) = &self.spec {
+            self.put(
+                &spec.remote_path(),
+                spec.text().as_bytes(),
+                "the project's spec",
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl SshRunner {
+    /// Write a file on the sandbox atomically.
+    fn put(&self, path: &str, bytes: &[u8], what: &str) -> Result<(), AppError> {
+        let dir = Path::new(path)
+            .parent()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_else(|| REMOTE_STATE_DIR.to_string());
+        let path = shell_quote(path);
         let remote = format!(
-            "mkdir -p {dir}/bin && cat > {path}.$$.tmp && mv {path}.$$.tmp {path}",
-            dir = shell_quote(REMOTE_STATE_DIR),
+            "mkdir -p {dir} && cat > {path}.$$.tmp && mv {path}.$$.tmp {path}",
+            dir = shell_quote(&dir),
         );
         let mut child = self
             .target
@@ -183,7 +219,7 @@ impl RunnerHost for SshRunner {
             .spawn()
             .map_err(|error| AppError::io("cannot run ssh", error))?;
         let mut stdin = child.stdin.take().expect("stdin is piped");
-        let written = std::io::Write::write_all(&mut stdin, SCRIPT.as_bytes());
+        let written = std::io::Write::write_all(&mut stdin, bytes);
         drop(stdin);
         let output = child
             .wait_with_output()
@@ -192,7 +228,7 @@ impl RunnerHost for SshRunner {
             return Err(AppError::new(
                 "ssh",
                 format!(
-                    "uploading the runner to {} failed (exit {}): {}",
+                    "uploading {what} to {} failed (exit {}): {}",
                     self.target.alias,
                     output.status.code().unwrap_or(-1),
                     String::from_utf8_lossy(&output.stderr).trim()

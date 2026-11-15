@@ -69,6 +69,7 @@ pub const ENSURE: &[Field] = &[
 pub const BUILD: &[Field] = &[
     field("output_dirs", Kind::StrList),
     field("floor_mtimes", Kind::Bool),
+    field("cache_dirs", Kind::StrList),
 ];
 
 pub const BASE: &[Field] = &[

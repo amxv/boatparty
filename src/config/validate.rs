@@ -61,6 +61,9 @@ pub fn check(config: &Config, origins: &BTreeMap<String, Origin>) -> Result<(), 
         relative_path(dir, true)
             .map_err(|message| format!("{}: {message}", at("build.output_dirs")))?;
     }
+    for name in &config.build.cache_dirs {
+        cache_name(name).map_err(|message| format!("{}: {message}", at("build.cache_dirs")))?;
+    }
     for file in &config.base.stale_inputs {
         relative_path(file, false)
             .map_err(|message| format!("{}: {message}", at("base.stale_inputs")))?;
@@ -109,6 +112,16 @@ fn remote_path(path: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// A directory name matched at any depth, globs allowed.
+fn cache_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+        return Err(format!(
+            "{name:?} must be a directory name (no '/'), such as \"incremental\""
+        ));
+    }
+    no_control(name, false)
 }
 
 fn environment_name(name: &str) -> Result<(), String> {

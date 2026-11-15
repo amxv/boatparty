@@ -346,6 +346,7 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
             "main".into(),
             "keep".into(),
             "full".into(),
+            "-".into(),
             command,
         ])
         .stdin(Stdio::piped())

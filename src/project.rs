@@ -358,6 +358,8 @@ mod tests {
         assert!(minimal.config().setup.is_empty() && minimal.config().ensure.is_empty());
         let own = ProjectConfig::parse(include_str!("../boatparty.toml"), path).unwrap();
         assert_eq!(own.name(), "boatparty");
+        assert_eq!(own.config().project.presets, ["rust"]);
+        assert_eq!(own.config().build.output_dirs, ["target"]);
     }
 
     #[test]

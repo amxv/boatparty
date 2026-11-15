@@ -1,0 +1,11 @@
+{
+  "name": "fixture",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ms": "^2.1.3"
+  }
+}

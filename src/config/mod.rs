@@ -12,8 +12,9 @@
 //!
 //! Step meaning, fixed here for the runner (Phase 10) and the base build
 //! (Phase 11):
-//! - a `setup` step runs after every create or resume of a sandbox, unless
-//!   its `check` succeeds;
+//! - a `setup` step runs after every create or resume of a sandbox (before
+//!   the first command of each boot of its machine; a resume that reclaims
+//!   the kept machine keeps its effects), unless its `check` succeeds;
 //! - an `ensure` step runs before a command when its key (the content of
 //!   `key_files` plus the output of `key_command`) changed since it last
 //!   succeeded, or when its `check` fails.
@@ -58,15 +59,17 @@ extends the value from earlier layers instead of replacing it
   [[ensure]]  name, dir, key_files, key_command, check, run: runs before a command when its key \
 (the content of key_files, relative to dir, plus key_command's output) changed since it last \
 succeeded, or when check fails
-  [build]     output_dirs (relative, globs allowed), floor_mtimes (true|false)
+  [build]     output_dirs (relative, globs allowed), floor_mtimes (true|false), cache_dirs \
+(directory names under output_dirs holding a compiler's own caches: not floored, dropped when a \
+restore left a file in them unreadable)
   [base]      warm, stale_inputs, ref (used by `base build`)
   [commands]  NAME = \"shell line\": `boatparty cheers NAME [args...]`
 
 A preset has the same shape without [project]. Layers apply in order: defaults, each preset, \
 boatparty.toml. Tables merge by key; other values (lists too) are replaced. Steps merge by name: \
 a later step with a known name replaces only the keys it sets, a new name is appended, and \
-`enabled = false` switches a step off. This version stores [run] ram_tmp and env, the steps, \
-[build] and [base]; the runner applies them in a later version.";
+`enabled = false` switches a step off. The runner applies [run], the steps and [build] on the \
+sandbox; [base] is stored for `base build`.";
 
 /// Where a value of the effective configuration came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,6 +186,11 @@ pub struct EnsureStep {
 pub struct Build {
     pub output_dirs: Vec<String>,
     pub floor_mtimes: bool,
+    /// Names of directories under the output directories that hold a
+    /// compiler's own content-addressed caches: never floored, and dropped
+    /// when a restore left a file in them unreadable.
+    #[serde(default)]
+    pub cache_dirs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -379,7 +387,7 @@ fn defaults(project: &str) -> Table {
         "[sandbox]\nremote_path = {remote}\n\
          [sync]\nhistory = \"head\"\ncopy_back = true\nseed = true\ngithub_token = true\n\
          [run]\nram_tmp = true\n\
-         [build]\noutput_dirs = []\nfloor_mtimes = true\n",
+         [build]\noutput_dirs = []\nfloor_mtimes = true\ncache_dirs = []\n",
         remote = Value::String(default_remote_path(project))
     );
     toml::from_str(&text).expect("the defaults parse")

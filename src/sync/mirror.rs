@@ -12,7 +12,7 @@ use super::pack::{self, Built, Revs};
 use super::seed::{self, SeedConfig, SeedReport, SeedRoute};
 use super::{History, LocalRef, Snapshot, WorktreeInfo, refs_text};
 use crate::error::AppError;
-use crate::runner::{EXIT_MISSING, EXIT_NEEDFULL, RunnerHost, Trailer};
+use crate::runner::{EXIT_MISSING, EXIT_NEEDFULL, NO_SPEC, RunnerHost, Trailer};
 
 /// One sync of a snapshot to a runner.
 pub struct MirrorRequest<'a> {
@@ -209,7 +209,8 @@ struct Session {
     seed: SeedReport,
 }
 
-/// Invoke the runner until it answers: install it once when it is missing,
+/// Invoke the runner until it answers: install it (and the project's spec)
+/// once when either is missing,
 /// and send a full pack once when the thin one assumed too much. Neither
 /// retry can repeat a command, because the runner reports both before the
 /// command starts.
@@ -399,7 +400,7 @@ fn failed(exchange: &Exchange) -> AppError {
         ),
         Some(EXIT_MISSING) if exchange.runner_missing => AppError::new(
             "sync_failed",
-            "the runner is still missing on the sandbox after uploading it",
+            "the runner or the project's spec is still missing on the sandbox after uploading them",
         ),
         Some(EXIT_NEEDFULL) => AppError::new(
             "sync_failed",
@@ -447,6 +448,7 @@ fn attempt(
         }
     };
     let send_refs = want.send_refs;
+    let spec = host.spec_hash().unwrap_or_else(|| NO_SPEC.to_string());
     let mut args: Vec<String> = [
         if command.is_some() { "run" } else { "sync" },
         request.project,
@@ -457,6 +459,7 @@ fn attempt(
         request.info.branch.as_deref().unwrap_or(""),
         if send_refs { "send" } else { "keep" },
         request.history.as_str(),
+        &spec,
     ]
     .map(String::from)
     .to_vec();

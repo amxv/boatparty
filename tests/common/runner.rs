@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use boatparty::runner::RunnerHost;
+use boatparty::runner::{RunnerHost, RunnerSpec};
 
 pub const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/runner/runner.sh");
 
@@ -50,6 +50,9 @@ pub struct LocalRunner {
     pub env: RefCell<Vec<(String, String)>>,
     /// The arguments of every runner process started.
     pub spawned: RefCell<Vec<Vec<String>>>,
+    /// The project's spec, named in `sync` and `run` and written into the
+    /// state directory by `install`.
+    pub spec: RefCell<Option<RunnerSpec>>,
 }
 
 impl LocalRunner {
@@ -64,6 +67,7 @@ impl LocalRunner {
             fail_uploads: Cell::new(false),
             env: RefCell::new(Vec::new()),
             spawned: RefCell::new(Vec::new()),
+            spec: RefCell::new(None),
         }
     }
 }
@@ -82,7 +86,10 @@ impl RunnerHost for LocalRunner {
             .args(args)
             .env("BOATPARTY_RUNNER_REPO", &self.repo)
             .env("BOATPARTY_RUNNER_STATE", &self.state)
-            .env("BOATPARTY_RUNNER_SEED_FILE", "1");
+            .env("BOATPARTY_RUNNER_SEED_FILE", "1")
+            // The machine's own answers would depend on where tests run.
+            .env("BOATPARTY_RUNNER_HYDRATING", "0")
+            .env("BOATPARTY_RUNNER_BOOT_ID", "test-boot");
         for (name, value) in self.env.borrow().iter() {
             command.env(name, value);
         }
@@ -92,7 +99,19 @@ impl RunnerHost for LocalRunner {
     fn install(&self) -> Result<(), boatparty::error::AppError> {
         self.missing.set(false);
         self.installs.set(self.installs.get() + 1);
+        if let Some(spec) = self.spec.borrow().as_ref() {
+            let dir = self.state.join("specs");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join(format!("{}.sh", spec.hash())), spec.text()).unwrap();
+        }
         Ok(())
+    }
+
+    fn spec_hash(&self) -> Option<String> {
+        self.spec
+            .borrow()
+            .as_ref()
+            .map(|spec| spec.hash().to_string())
     }
 
     fn upload_threshold(&self) -> Option<u64> {

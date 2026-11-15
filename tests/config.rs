@@ -91,6 +91,41 @@ fn init_turns_each_fixture_stack_into_the_expected_file() {
     }
 }
 
+/// The live-test projects (tests/fixtures/stacks): `init` picks the stack's
+/// preset and a test command, and the runner spec made from the written file
+/// carries the preset's dependency step and [run.env].
+#[test]
+fn init_on_each_stack_fixture_gives_a_runnable_spec() {
+    let stacks = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/stacks");
+    for (stack, test, step) in [
+        ("rust", "cargo test --locked", "cargo-fetch"),
+        ("node", "npm test", "npm-install"),
+        ("python", ".venv/bin/python -m pytest", "python-deps"),
+        ("go", "go test ./...", "go-mod-download"),
+    ] {
+        let root = TempDir::new(&format!("stack-{stack}"));
+        let repo = root.path().join("app");
+        copy_dir(&stacks.join(stack), &repo);
+        git(&repo, &["init", "-q"]);
+        let home = root.path().join("home");
+        boatparty(&home)
+            .current_dir(&repo)
+            .args(["init", "--name", "app"])
+            .assert()
+            .success();
+        let text = fs::read_to_string(repo.join("boatparty.toml")).unwrap();
+        let project =
+            boatparty::project::ProjectConfig::parse(&text, Path::new("boatparty.toml")).unwrap();
+        assert_eq!(project.config().project.presets, [stack], "{stack}");
+        assert_eq!(project.config().commands["test"], test, "{stack}");
+        let spec = boatparty::runner::RunnerSpec::new(project.config());
+        assert!(spec.text().contains(&format!("'{step}'")), "{stack}");
+        if stack != "node" {
+            assert!(!project.config().run.env.is_empty(), "{stack}");
+        }
+    }
+}
+
 #[test]
 fn init_without_a_known_stack_writes_an_empty_presets_list() {
     let root = TempDir::new("init-none");

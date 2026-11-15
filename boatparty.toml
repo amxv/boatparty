@@ -5,6 +5,10 @@ version = 1
 
 [project]
 name = "boatparty"
+# rust: CARGO_HOME and the cargo PATH, the toolchain from
+# rust-toolchain.toml and the crates in Cargo.lock installed once, and
+# target/ build outputs kept fresh across restores.
+presets = ["rust"]
 
 # `boatparty cheers <name> [args...]` runs one of these in the sandbox's
 # checkout with the arguments appended.

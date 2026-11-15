@@ -37,6 +37,11 @@ run = "if [ -f Cargo.lock ]; then cargo fetch --locked; fi"
 # Cargo rebuild.
 output_dirs = ["target"]
 floor_mtimes = true
+# rustc's incremental caches are content-addressed, so they are not floored.
+# A lazy restore has left files in them listed but impossible to open, and
+# rustc then fails instead of rebuilding; the runner drops such a crate's
+# cache (rustc rebuilds it).
+cache_dirs = ["incremental"]
 
 [base]
 # Build everything the usual commands build, so a new sandbox made from the

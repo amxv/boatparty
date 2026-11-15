@@ -16,6 +16,7 @@ use crate::error::AppError;
 use crate::pool::lease;
 use crate::pool::{LeaseRequest, remote_checkout, warm_member};
 use crate::project::Workspace;
+use crate::runner::RunnerSpec;
 use crate::state::{LeaseKind, Member, Store, SyncState};
 use crate::sync::pack::usable_known;
 use crate::sync::{
@@ -37,6 +38,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let snapshot = sync::snapshot(&info)?;
     let (refs, digest) = sync::mirrored_refs(&info, history)?;
     let seed = project.seed_config();
+    let spec = RunnerSpec::new(project.config());
 
     // A `session` lease keeps the member from being handed to another
     // workspace or stopped while the sync runs.
@@ -61,6 +63,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         digest: &digest,
         history,
         seed: &seed,
+        spec: &spec,
     };
     let send = |member: &Member, target: &SshTarget| send(ctx, &local, member, target);
     let outcome = match send(&member, &target) {
@@ -115,6 +118,8 @@ struct Local<'a> {
     digest: &'a str,
     history: History,
     seed: &'a SeedConfig,
+    /// Named by the sync; a bare load applies none of it.
+    spec: &'a RunnerSpec,
 }
 
 fn bring_up(ctx: &Context) -> Result<(Member, SshTarget), AppError> {
@@ -142,7 +147,7 @@ fn send(
         history: local.history,
         seed: Some(local.seed),
     };
-    let host = super::runner_host(ctx, target, member);
+    let host = super::runner_host(ctx, target, member, local.spec.clone());
     sync::mirror(&host, &request, &mut std::io::stderr())
 }
 
