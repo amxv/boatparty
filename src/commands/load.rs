@@ -2,7 +2,7 @@
 //! tree.
 //!
 //! When the workspace's member has a live SSH master no provider call is
-//! made. A warm connection that turns out to be stale (the member stopped
+//! made before the sync. A `session` lease is held while it runs. A warm connection that turns out to be stale (the member stopped
 //! behind a lingering master) is replaced once by a full bring-up; a sync is
 //! idempotent, so repeating it is safe.
 
@@ -13,9 +13,10 @@ use serde_json::json;
 use super::WorkspaceContext;
 use crate::Context;
 use crate::error::AppError;
-use crate::pool::{remote_checkout, warm_member};
+use crate::pool::lease;
+use crate::pool::{LeaseRequest, remote_checkout, warm_member};
 use crate::project::Workspace;
-use crate::state::{Member, Store, SyncState};
+use crate::state::{LeaseKind, Member, Store, SyncState};
 use crate::sync::pack::usable_known;
 use crate::sync::{
     self, History, LocalRef, MirrorOutcome, MirrorRequest, PackRoute, SeedConfig, SeedRoute,
@@ -37,9 +38,17 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let (refs, digest) = sync::mirrored_refs(&info, history)?;
     let seed = project.seed_config();
 
-    let (mut member, mut target, warm) = match warm_member(&ctx.paths, name, &workspace.key())? {
-        Some((member, target)) => (member, target, true),
-        None => {
+    // A `session` lease keeps the member from being handed to another
+    // workspace or stopped while the sync runs.
+    let store = Store::new(&ctx.paths);
+    let key = workspace.key();
+    let (mut member, mut target, warm) = match warm_member(&ctx.paths, name, &key)? {
+        Some((member, target))
+            if lease::register(&store, name, &key, &member, LeaseKind::Session, "load")? =>
+        {
+            (member, target, true)
+        }
+        _ => {
             let (member, target) = bring_up(ctx)?;
             (member, target, false)
         }
@@ -61,11 +70,36 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
                 member.name
             ));
             target.close_master();
-            (member, target) = bring_up(ctx)?;
-            send(&member, &target)?
+            match bring_up(ctx) {
+                Ok(up) => {
+                    (member, target) = up;
+                    send(&member, &target)
+                }
+                Err(error) => Err(error),
+            }
         }
-        result => result?,
+        result => result,
     };
+    // As after any command: the last leaver hands the auto-stop deadline to
+    // the detached idle helper, so the caller makes no provider call.
+    let id = member.id.clone().unwrap_or_default();
+    let released = lease::finish(
+        &store,
+        name,
+        &id,
+        |_| {},
+        || {
+            if let Err(error) = lease::spawn_idle_helper(name, &id) {
+                ctx.out.note(format_args!("warning: {error}"));
+            }
+        },
+    );
+    if let Err(error) = released {
+        ctx.out.note(format_args!(
+            "warning: could not release the lease: {error}"
+        ));
+    }
+    let outcome = outcome?;
     let member = record(ctx, &local, &member, &outcome)?;
     let seconds = started.elapsed().as_secs_f64();
     report(ctx, &local, &workspace, &member, &outcome, seconds);
@@ -85,7 +119,10 @@ struct Local<'a> {
 
 fn bring_up(ctx: &Context) -> Result<(Member, SshTarget), AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
-    let up = wctx.pool(ctx).bring_up(wctx.bring_up_options(false))?;
+    let up = wctx.pool(ctx).bring_up(
+        wctx.bring_up_options(false),
+        Some(&LeaseRequest::new(LeaseKind::Session, "load")),
+    )?;
     Ok((up.member, up.target))
 }
 

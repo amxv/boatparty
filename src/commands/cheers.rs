@@ -21,7 +21,7 @@ use crate::Context;
 use crate::cli::CheersArgs;
 use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
-use crate::pool::warm_member;
+use crate::pool::{LeaseRequest, warm_member};
 use crate::project::Workspace;
 use crate::runner::SshRunner;
 use crate::runs;
@@ -128,8 +128,7 @@ impl Cheers<'_> {
         self.record["project"] = json!(name);
         self.record["workspace"] = json!(workspace.key());
 
-        let mut conn = connect(ctx, &name, &workspace)?;
-        lease::register(&store, &name, &conn.member, LeaseKind::Run, &self.line)?;
+        let mut conn = connect(ctx, &store, &name, &workspace, &self.line)?;
         let interrupts = Interrupts::install()?;
         let mut heartbeat = None;
         let ran = self.drive(
@@ -139,7 +138,6 @@ impl Cheers<'_> {
             history,
             &seed,
             &mut conn,
-            &store,
             times,
             &interrupts,
             &mut heartbeat,
@@ -226,7 +224,6 @@ impl Cheers<'_> {
         history: History,
         seed: &SeedConfig,
         conn: &mut Conn,
-        store: &Store,
         times: LeaseTimes,
         interrupts: &Interrupts,
         heartbeat: &mut Option<Heartbeat>,
@@ -288,9 +285,8 @@ impl Cheers<'_> {
                     }
                     conn.target.close_master();
                     let warm = conn.warm;
-                    *conn = bring_up(self.ctx)?;
+                    *conn = bring_up(self.ctx, &self.line)?;
                     conn.warm = warm;
-                    lease::register(store, name, &conn.member, LeaseKind::Run, &self.line)?;
                     retried = true;
                 }
                 RunEnd::Lost { status } => return Err(lost(status, &conn.member.name)),
@@ -466,8 +462,20 @@ impl Sink for StartWatch<'_> {
     }
 }
 
-fn connect(ctx: &Context, name: &str, workspace: &Workspace) -> Result<Conn, AppError> {
-    if let Some((member, target)) = warm_member(&ctx.paths, name, &workspace.key())? {
+/// This workspace's member with this process's `run` lease on it: through a
+/// live master with no provider call when the member is still this
+/// workspace's, else by acquiring and bringing it up.
+fn connect(
+    ctx: &Context,
+    store: &Store,
+    name: &str,
+    workspace: &Workspace,
+    line: &str,
+) -> Result<Conn, AppError> {
+    let key = workspace.key();
+    if let Some((member, target)) = warm_member(&ctx.paths, name, &key)?
+        && lease::register(store, name, &key, &member, LeaseKind::Run, line)?
+    {
         return Ok(Conn {
             member,
             target,
@@ -475,12 +483,15 @@ fn connect(ctx: &Context, name: &str, workspace: &Workspace) -> Result<Conn, App
             started_member: false,
         });
     }
-    bring_up(ctx)
+    bring_up(ctx, line)
 }
 
-fn bring_up(ctx: &Context) -> Result<Conn, AppError> {
+fn bring_up(ctx: &Context, line: &str) -> Result<Conn, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
-    let up = wctx.pool(ctx).bring_up(wctx.bring_up_options(false))?;
+    let up = wctx.pool(ctx).bring_up(
+        wctx.bring_up_options(false),
+        Some(&LeaseRequest::new(LeaseKind::Run, line)),
+    )?;
     Ok(Conn {
         member: up.member,
         target: up.target,

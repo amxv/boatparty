@@ -381,6 +381,7 @@ fn doctor_passes_with_tools_and_a_complete_key() {
             ("credentials", "ok"),
             ("key", "ok"),
             ("key_scope", "ok"),
+            ("pools", "ok"),
         ]
     );
     // One validity call plus one probe per other action; none touch a real sandbox.

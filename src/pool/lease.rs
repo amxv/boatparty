@@ -52,25 +52,27 @@ impl LeaseTimes {
 }
 
 /// Add this process's lease to the member (matched by its create key),
-/// dropping leases whose process is gone.
+/// dropping leases whose process is gone, but only while the member still
+/// belongs to `workspace`. Returns false, changing nothing, when the record
+/// is gone or now belongs elsewhere: the caller then acquires again.
 pub fn register(
     store: &Store,
     project: &str,
+    workspace: &str,
     member: &Member,
     kind: LeaseKind,
     label: &str,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
     let pid = std::process::id();
     let label: String = label.chars().take(120).collect();
     store.update(|state| {
         let pool = state.project_mut(project);
-        let slot = match pool.find_mut_by_key(&member.create_key) {
-            Some(slot) => slot,
-            None => {
-                pool.members.push(member.clone());
-                pool.members.last_mut().expect("just pushed")
-            }
+        let Some(slot) = pool.find_mut_by_key(&member.create_key) else {
+            return Ok(false);
         };
+        if slot.affinity.as_deref() != Some(workspace) {
+            return Ok(false);
+        }
         slot.leases
             .retain(|lease| lease.pid != pid && system::pid_alive(lease.pid));
         slot.leases.push(Lease {
@@ -78,9 +80,10 @@ pub fn register(
             kind,
             label,
             started_at: system::now_ms(),
+            workspace: Some(workspace.to_string()),
         });
         slot.last_used_at = system::now_ms();
-        Ok(())
+        Ok(true)
     })
 }
 
@@ -332,7 +335,9 @@ mod tests {
         // Another live process (a child) holds a lease too.
         let mut other = Command::new("sleep").arg("30").spawn().unwrap();
         let other_pid = other.id();
-        register(&store, "app", &member, LeaseKind::Run, "cargo test").unwrap();
+        assert!(register(&store, "app", "/w", &member, LeaseKind::Run, "cargo test").unwrap());
+        // A workspace the member does not belong to gets no lease.
+        assert!(!register(&store, "app", "/v", &member, LeaseKind::Run, "x").unwrap());
         store
             .update(|state| {
                 state.project_mut("app").members[0].leases.push(Lease {
@@ -340,6 +345,7 @@ mod tests {
                     kind: LeaseKind::Serve,
                     label: "dev".into(),
                     started_at: 0,
+                    workspace: Some("/w".into()),
                 });
                 Ok(())
             })
@@ -353,7 +359,7 @@ mod tests {
 
         let _ = other.kill();
         let _ = other.wait();
-        register(&store, "app", &member, LeaseKind::Run, "cargo test").unwrap();
+        assert!(register(&store, "app", "/w", &member, LeaseKind::Run, "cargo test").unwrap());
         let last = finish(
             &store,
             "app",

@@ -140,7 +140,18 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     match (account, key) {
         (Some(account), Some(key)) => {
             match provider::connect(account.config.provider.api_url.as_deref(), key) {
-                Ok(provider) => checks.extend(key_checks(provider.check_credential(), &help)),
+                Ok(provider) => {
+                    let key_checks = key_checks(provider.check_credential(), &help);
+                    let usable = key_checks
+                        .first()
+                        .is_some_and(|check| check.status == Status::Ok);
+                    checks.extend(key_checks);
+                    checks.push(if usable {
+                        pool_check(ctx, provider.as_ref(), &account.config)
+                    } else {
+                        Check::skipped("pools", "needs a valid key")
+                    });
+                }
                 Err(error) => checks.push(Check::fail(
                     "key",
                     error.message(),
@@ -154,6 +165,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
                 "needs a readable account file and a key",
             ));
             checks.push(Check::skipped("key_scope", "needs a valid key"));
+            checks.push(Check::skipped("pools", "needs a valid key"));
         }
     }
 
@@ -177,6 +189,60 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         }
         Ok(crate::error::EXIT_TOOL_FAILURE)
     }
+}
+
+/// Reconcile every project's records with the provider's labelled
+/// sandboxes (as `boatparty pool --refresh` does).
+fn pool_check(
+    ctx: &Context,
+    provider: &dyn provider::Provider,
+    config: &account::config::AccountConfig,
+) -> Check {
+    let state = match crate::state::Store::new(&ctx.paths).load() {
+        Ok(state) => state,
+        Err(error) => {
+            return Check::fail(
+                "pools",
+                error.message(),
+                "move the state file aside; `boatparty pool --refresh` rebuilds the records",
+            );
+        }
+    };
+    let mut names: std::collections::BTreeSet<String> = config.projects.keys().cloned().collect();
+    names.extend(state.projects.keys().cloned());
+    if names.is_empty() {
+        return Check::ok("pools", "no projects yet");
+    }
+    let (mut adopted, mut dropped, mut expired, mut freed) = (0, 0, 0, 0);
+    let mut errors = Vec::new();
+    for name in &names {
+        match crate::pool::reconcile::reconcile(&ctx.paths, provider, ctx.out, name) {
+            Ok((changes, _)) => {
+                adopted += changes.adopted.len();
+                dropped += changes.dropped.len();
+                expired += changes.expired.len();
+                freed += changes.freed.len();
+                errors.extend(changes.errors);
+            }
+            Err(error) => errors.push(format!("{name}: {error}")),
+        }
+    }
+    if !errors.is_empty() {
+        return Check::fail(
+            "pools",
+            errors.join("; "),
+            "check the network connection and run `boatparty pool --refresh`",
+        );
+    }
+    Check::ok(
+        "pools",
+        format!(
+            "{} project{} matched with the provider: {adopted} adopted, {dropped} dropped as gone, \
+             {expired} deleted with expired data, {freed} freed from missing workspaces",
+            names.len(),
+            if names.len() == 1 { "" } else { "s" }
+        ),
+    )
 }
 
 fn credential_check(source: &KeySource) -> Check {

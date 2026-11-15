@@ -1,26 +1,38 @@
 //! A project's pool of sandboxes: which member serves a workspace, and
 //! bringing that member up.
 //!
-//! Acquisition in this phase: the workspace's affinity member, else a new
-//! member. Every provider call and every `ssh` process runs outside the
-//! state lock; the lock covers only the record changes around them.
+//! Acquisition follows [`policy`]: the workspace's affinity member, a free
+//! member, a new member below the cap, an idle member of another workspace,
+//! or a bounded wait. Every provider call and every `ssh` process runs
+//! outside the state lock; the lock covers only the record changes around
+//! them.
 
+pub mod acquire;
 mod bringup;
 pub mod lease;
+pub mod policy;
+pub mod reconcile;
+pub mod remove;
 pub mod wait;
 
 use std::collections::BTreeMap;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
+pub use acquire::LeaseRequest;
 pub use bringup::{BringUp, Up, ensure_connected};
 
+use crate::account::config::AccountConfig;
 use crate::error::AppError;
 use crate::output::Output;
 use crate::paths::Paths;
 use crate::project::Workspace;
-use crate::provider::Provider;
+use crate::provider::{Provider, SandboxState};
 use crate::state::{Member, Role, State, Store, SyncState};
 use crate::system;
 use crate::transport::ssh::SshTarget;
+use acquire::{Facts, How, Outcome, Request};
+use policy::{Limits, Reassign};
 
 pub const LABEL_PROJECT: &str = "boatparty.project";
 pub const LABEL_ROLE: &str = "boatparty.role";
@@ -60,6 +72,43 @@ pub fn warm_member(
     Ok(target.master_alive().then(|| (member.clone(), target)))
 }
 
+/// A project's pool limits, from `account.toml`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolLimits {
+    pub max_sandboxes: u32,
+    pub steal_after_minutes: u32,
+    pub acquire_wait: Duration,
+}
+
+impl PoolLimits {
+    /// `[defaults]`, with the project's own `max_sandboxes` when it sets one.
+    pub fn for_project(config: &AccountConfig, project: &str) -> Self {
+        let defaults = &config.defaults;
+        Self {
+            max_sandboxes: config
+                .projects
+                .get(project)
+                .and_then(|entry| entry.max_sandboxes)
+                .unwrap_or(defaults.max_sandboxes),
+            steal_after_minutes: defaults.steal_after_minutes,
+            acquire_wait: Duration::from_secs(u64::from(defaults.acquire_wait_seconds)),
+        }
+    }
+
+    pub fn policy(&self) -> Limits {
+        Limits {
+            max_sandboxes: self.max_sandboxes,
+            steal_after_ms: u64::from(self.steal_after_minutes) * 60_000,
+        }
+    }
+}
+
+/// Whether a workspace's directory exists. A missing one only ever frees
+/// its member; nothing is deleted because of it.
+pub fn workspace_exists(workspace: &str) -> bool {
+    Path::new(workspace).is_dir()
+}
+
 /// What a command needs to work on one workspace's pool.
 pub struct Pool<'a> {
     pub paths: &'a Paths,
@@ -68,6 +117,7 @@ pub struct Pool<'a> {
     pub out: Output,
     pub project: String,
     pub workspace: Workspace,
+    pub limits: PoolLimits,
 }
 
 impl<'a> Pool<'a> {
@@ -77,6 +127,7 @@ impl<'a> Pool<'a> {
         out: Output,
         project: String,
         workspace: Workspace,
+        limits: PoolLimits,
     ) -> Self {
         Self {
             paths,
@@ -85,25 +136,136 @@ impl<'a> Pool<'a> {
             out,
             project,
             workspace,
+            limits,
         }
     }
 
-    /// This workspace's member, creating a pending record when there is none.
-    /// The record exists before any provider call is made for it.
-    pub fn acquire(&self) -> Result<(Member, bool), AppError> {
-        let key = system::uuid_v4()?;
+    /// A member for this workspace, by the acquisition order, with `lease`
+    /// taken in the same write. A new member's pending record exists before
+    /// any provider call is made for it. Waits up to `acquire_wait` when
+    /// every member is in use at the cap. Returns the member and whether it
+    /// is a record this call just created.
+    pub fn acquire(&self, lease: Option<&LeaseRequest>) -> Result<(Member, bool), AppError> {
         let workspace = self.workspace.key();
-        let project = self.project.clone();
-        self.store.update(|state| {
-            let pool = state.project_mut(&project);
-            if let Some(member) = pool.affinity_member(&workspace) {
-                return Ok((member.clone(), false));
+        let deadline = Instant::now() + self.limits.acquire_wait;
+        let mut running: Option<BTreeMap<String, bool>> = None;
+        let mut announced = false;
+        loop {
+            if running.is_none() && self.needs_running(&workspace)? {
+                running = Some(self.running_members());
             }
-            let now = system::now_ms();
-            let member = new_member(pool.next_member_name(&project), key, Some(workspace), now);
-            pool.members.push(member.clone());
-            Ok((member, true))
-        })
+            let empty = BTreeMap::new();
+            let facts = Facts {
+                running: running.as_ref().unwrap_or(&empty),
+                exists: &workspace_exists,
+            };
+            let key = system::uuid_v4()?;
+            let request = Request {
+                project: &self.project,
+                workspace: &workspace,
+                limits: self.limits.policy(),
+                lease,
+                pid: std::process::id(),
+                new_key: &key,
+                now: system::now_ms(),
+            };
+            let outcome = self
+                .store
+                .update(|state| Ok(acquire::acquire(state, &request, &facts)))?;
+            match outcome {
+                Outcome::Acquired { member, how } => {
+                    self.announce(&member, &how);
+                    return Ok((*member, how == How::Created));
+                }
+                Outcome::Wait { members } => {
+                    if Instant::now() >= deadline {
+                        return Err(self.exhausted(members));
+                    }
+                    if !announced {
+                        announced = true;
+                        self.out.note(format_args!(
+                            "all {members} sandboxes of project {} are in use (max_sandboxes = {}); \
+                             waiting up to {}s for one to become free",
+                            self.project,
+                            self.limits.max_sandboxes,
+                            self.limits.acquire_wait.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(
+                        wait::poll_interval()
+                            .saturating_mul(2)
+                            .min(deadline.saturating_duration_since(Instant::now()))
+                            .max(Duration::from_millis(1)),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Whether the choice may depend on which members run: this workspace
+    /// has no member yet and the pool has members with a sandbox.
+    fn needs_running(&self, workspace: &str) -> Result<bool, AppError> {
+        let state = self.store.load()?;
+        Ok(state.project(&self.project).is_some_and(|pool| {
+            pool.affinity_member(workspace).is_none()
+                && pool
+                    .members
+                    .iter()
+                    .any(|member| member.role == Role::Pool && member.id.is_some())
+        }))
+    }
+
+    /// Which members run, from one provider listing. Empty when the listing
+    /// fails: running is only a preference.
+    fn running_members(&self) -> BTreeMap<String, bool> {
+        self.provider
+            .list_by_label(LABEL_PROJECT, &self.project)
+            .map(|listed| {
+                listed
+                    .into_iter()
+                    .map(|sandbox| (sandbox.id, sandbox.state == SandboxState::Running))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn announce(&self, member: &Member, how: &How) {
+        match how {
+            How::Affinity | How::Created => {}
+            How::Free => self
+                .out
+                .note(format_args!("using the free sandbox {}", member.name)),
+            How::Reassigned { from, why } => self.out.note(format_args!(
+                "taking over {} from {from} ({})",
+                member.name,
+                match why {
+                    Reassign::WorkspaceGone => "that workspace no longer exists".to_string(),
+                    Reassign::Idle => format!(
+                        "unused for more than {} minutes",
+                        self.limits.steal_after_minutes
+                    ),
+                }
+            )),
+        }
+    }
+
+    fn exhausted(&self, members: usize) -> AppError {
+        AppError::new(
+            "pool_exhausted",
+            format!(
+                "no sandbox of project {} became free within {}s: all {members} are in use and \
+                 max_sandboxes is {}",
+                self.project,
+                self.limits.acquire_wait.as_secs(),
+                self.limits.max_sandboxes
+            ),
+        )
+        .with_hint(format!(
+            "raise the limit with `max_sandboxes = N` under [projects.{}] (or [defaults]) in \
+             account.toml, or run `boatparty release` in a workspace that no longer needs its \
+             sandbox; `boatparty pool` shows who holds them",
+            self.project
+        ))
     }
 
     /// A member of this project by name or id, or this workspace's member.
@@ -112,7 +274,8 @@ impl<'a> Pool<'a> {
         resolve_in(&state, &self.project, &self.workspace.key(), key)
     }
 
-    /// Refuse when a live process holds a lease on the member.
+    /// Refuse when a live process holds a lease on the member or is
+    /// bringing it up.
     pub fn refuse_if_leased(&self, member: &Member, action: &str) -> Result<(), AppError> {
         let state = self.store.load()?;
         let current = state
@@ -123,10 +286,15 @@ impl<'a> Pool<'a> {
                     .find(|other| other.create_key == member.create_key)
             })
             .unwrap_or(member);
-        let live: Vec<String> = current
+        let mut live: Vec<String> = current
             .live_leases()
             .map(|lease| format!("pid {} ({})", lease.pid, lease.label))
             .collect();
+        if let Some(claim) = &current.bringing_up
+            && current.bring_up_claimed_by_other()
+        {
+            live.push(format!("pid {} (starting it)", claim.pid));
+        }
         if live.is_empty() {
             return Ok(());
         }
@@ -174,8 +342,11 @@ impl<'a> Pool<'a> {
         })
     }
 
-    pub fn bring_up(&self, options: BringUp) -> Result<Up, AppError> {
-        bringup::bring_up(self, options)
+    /// Acquire this workspace's member (taking `lease` with it) and bring it
+    /// up. One process brings a member up; others wait and then reuse its
+    /// connection.
+    pub fn bring_up(&self, options: BringUp, lease: Option<&LeaseRequest>) -> Result<Up, AppError> {
+        bringup::bring_up(self, options, lease)
     }
 }
 

@@ -106,6 +106,18 @@ impl Member {
     pub fn has_live_lease(&self) -> bool {
         self.live_leases().next().is_some()
     }
+
+    /// Another live process is bringing this member up.
+    pub fn bring_up_claimed_by_other(&self) -> bool {
+        self.bringing_up
+            .as_ref()
+            .is_some_and(|claim| claim.pid != std::process::id() && system::pid_alive(claim.pid))
+    }
+
+    /// In use: a live lease, or a live process bringing it up.
+    pub fn busy(&self) -> bool {
+        self.has_live_lease() || self.bring_up_claimed_by_other()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +136,10 @@ pub struct Lease {
     pub label: String,
     #[serde(default)]
     pub started_at: u64,
+    /// The workspace the holder works for (added in Phase 7; older records
+    /// have none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,6 +296,7 @@ mod tests {
             kind: LeaseKind::Session,
             label: String::new(),
             started_at: 0,
+            workspace: None,
         });
         assert!(!member.has_live_lease());
         member.leases.push(Lease {
@@ -287,6 +304,7 @@ mod tests {
             kind: LeaseKind::Run,
             label: String::new(),
             started_at: 0,
+            workspace: None,
         });
         assert!(member.has_live_lease());
     }

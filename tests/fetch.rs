@@ -36,7 +36,7 @@ fn text(bytes: &[u8]) -> String {
 fn fetch_copies_files_and_directories_by_relative_or_absolute_path() {
     let setup = E2e::new("fetch-paths");
     let boat = setup.boat();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     let checkout = setup.remote().join("app");
     write(
         &checkout.join("target/release/app"),
@@ -208,7 +208,7 @@ fn leftover_archives(setup: &E2e) -> Vec<String> {
 fn a_large_fetch_comes_back_by_signed_download_and_falls_back_to_ssh() {
     let setup = E2e::new("fetch-signed");
     let boat = setup.boat();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     let payload = noise(3);
     write(&setup.remote().join("app/target/big.txt"), &payload);
     let dest = setup.root.path().join("big-copy.txt");
@@ -271,7 +271,7 @@ fn a_large_fetch_comes_back_by_signed_download_and_falls_back_to_ssh() {
 fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_leaking_it() {
     let setup = E2e::with_history("upload-e2e", None);
     let boat = setup.boat();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     for n in 0..3 {
         write(&setup.repo().join("history.txt"), &format!("{n}\n"));
         git(&setup.repo(), &["add", "-A"]);
@@ -352,7 +352,8 @@ fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_le
 fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
     let setup = E2e::new("upload-refused");
     let boat = setup.boat_with_uploads(500);
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
+    let before = setup.patches();
     write(&setup.repo().join("payload.txt"), &noise(1));
     let output = setup
         .cmd(&boat)
@@ -375,7 +376,9 @@ fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
         noise(1)
     );
 
-    // Small packs never ask the provider for anything.
+    // Small packs never ask the provider for anything: the only calls are
+    // the detached idle helper's, after the load ended.
+    assert!(setup.wait_patches(before), "the load set no idle deadline");
     let _ = fs::remove_file(setup.events());
     write(&setup.repo().join("small.txt"), "small\n");
     let output = setup
@@ -386,12 +389,18 @@ fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(json_doc(&output.stdout)["pack_route"], "ssh");
-    assert!(
-        !setup
-            .event_lines()
-            .iter()
-            .any(|line| line.starts_with("provider")),
-        "{:#?}",
-        setup.event_lines()
-    );
+    assert!(setup.wait_patches(0), "the load set no idle deadline");
+    for line in setup
+        .event_lines()
+        .iter()
+        .filter(|line| line.starts_with("provider"))
+    {
+        assert!(
+            line.starts_with(&format!("provider GET /sandboxes/{ID} "))
+                || line.starts_with(&format!(
+                    "provider PATCH /sandboxes/{ID} {{\"ttlSeconds\":300}}"
+                )),
+            "{line}"
+        );
+    }
 }

@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use super::wait::{self, Deadline};
-use super::{LABEL_PROJECT, Pool, member_labels, remote_checkout};
+use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, remote_checkout};
 use crate::error::AppError;
 use crate::paths::Paths;
 use crate::provider::{
@@ -47,14 +47,105 @@ pub struct Up {
     pub reconnected: bool,
 }
 
-pub fn bring_up(pool: &Pool<'_>, options: BringUp) -> Result<Up, AppError> {
-    let (member, fresh) = pool.acquire()?;
-    let member = pool.modify(&member, |member| {
-        member.bringing_up = Some(BringingUp {
-            pid: std::process::id(),
-            started_at: system::now_ms(),
+pub fn bring_up(
+    pool: &Pool<'_>,
+    options: BringUp,
+    lease: Option<&LeaseRequest>,
+) -> Result<Up, AppError> {
+    let result = bring_up_inner(pool, options, lease);
+    if result.is_err() && lease.is_some() {
+        // Let go of the lease taken with the member; the caller has nothing to run.
+        let pid = std::process::id();
+        let project = pool.project.clone();
+        let _ = pool.store.update(|state| {
+            for member in &mut state.project_mut(&project).members {
+                member.leases.retain(|lease| lease.pid != pid);
+            }
+            Ok(())
         });
-    })?;
+    }
+    result
+}
+
+/// The single-flight claim on a member's bring-up.
+enum Claim {
+    Mine(Member),
+    /// Another live process is bringing it up.
+    Theirs(Member),
+    /// The record went away meanwhile.
+    Lost,
+}
+
+fn bring_up_inner(
+    pool: &Pool<'_>,
+    options: BringUp,
+    lease: Option<&LeaseRequest>,
+) -> Result<Up, AppError> {
+    let deadline = Deadline::after(START_TIMEOUT);
+    let project = pool.project.clone();
+    let mut announced = false;
+    loop {
+        let (member, fresh) = pool.acquire(lease)?;
+        let claim = pool.store.update(|state| {
+            let Some(slot) = state
+                .project_mut(&project)
+                .find_mut_by_key(&member.create_key)
+            else {
+                return Ok(Claim::Lost);
+            };
+            if slot.bring_up_claimed_by_other() {
+                return Ok(Claim::Theirs(slot.clone()));
+            }
+            slot.bringing_up = Some(BringingUp {
+                pid: std::process::id(),
+                started_at: system::now_ms(),
+            });
+            Ok(Claim::Mine(slot.clone()))
+        })?;
+        match claim {
+            Claim::Mine(member) => return claimed(pool, member, fresh, options),
+            Claim::Lost => continue,
+            Claim::Theirs(member) => {
+                if !announced {
+                    announced = true;
+                    pool.out.note(format_args!(
+                        "another boatparty process is starting {}; waiting for it",
+                        member.name
+                    ));
+                }
+                // Wait for that claim to end, then acquire again: the member
+                // is then up and its connection is reused.
+                loop {
+                    let state = pool.store.load()?;
+                    let still = state
+                        .project(&project)
+                        .and_then(|pool| {
+                            pool.members
+                                .iter()
+                                .find(|other| other.create_key == member.create_key)
+                        })
+                        .is_some_and(Member::bring_up_claimed_by_other);
+                    if !still {
+                        break;
+                    }
+                    if !deadline.tick() {
+                        return Err(AppError::new(
+                            "start_timeout",
+                            format!(
+                                "{} was still being started by another process after {} minutes",
+                                member.name,
+                                START_TIMEOUT.as_secs() / 60
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Bring up a member this process holds the claim on, then clear the claim.
+fn claimed(pool: &Pool<'_>, member: Member, fresh: bool, options: BringUp) -> Result<Up, AppError> {
     let result = run(pool, member.clone(), fresh, options);
     // Clear the claim whatever happened; the record may have been replaced.
     let key = match &result {

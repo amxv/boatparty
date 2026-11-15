@@ -165,7 +165,7 @@ fn a_fresh_member_is_seeded_with_a_gh_token_that_never_leaks() {
             .env("BOATPARTY_RUNNER_SEED_FILE", "1")
             .env_remove("BOATPARTY_GITHUB_TOKEN");
     };
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     write(&setup.repo().join("local.txt"), "unpushed\n");
     git(&setup.repo(), &["add", "-A"]);
     git(&setup.repo(), &["commit", "-qm", "unpushed"]);

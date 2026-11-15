@@ -9,6 +9,8 @@ pub mod limits;
 pub mod load;
 pub mod log;
 pub mod login;
+pub mod pin;
+pub mod pool;
 pub mod rm;
 mod session;
 pub mod status;
@@ -110,6 +112,7 @@ impl WorkspaceContext {
             ctx.out,
             self.project.name().to_string(),
             self.workspace.clone(),
+            crate::pool::PoolLimits::for_project(&self.account.config, self.project.name()),
         )
     }
 

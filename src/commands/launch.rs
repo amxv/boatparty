@@ -6,11 +6,20 @@ use super::WorkspaceContext;
 use super::status::member_json;
 use crate::Context;
 use crate::error::AppError;
+use crate::pool::lease;
 
 pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let pool = wctx.pool(ctx);
-    let mut up = pool.bring_up(wctx.bring_up_options(true))?;
+    let mut up = pool.bring_up(wctx.bring_up_options(true), None)?;
+    // launch holds no lease: like the last command to finish, it leaves the
+    // idle deadline to the detached helper (which respects live leases and
+    // an unfinished hydration), so an unused member stops after idle_minutes.
+    if let Some(id) = up.member.id.as_deref()
+        && let Err(error) = lease::spawn_idle_helper(&pool.project, id)
+    {
+        ctx.out.note(format_args!("warning: {error}"));
+    }
     // Read it once more so the reported auto-stop includes this launch's change.
     if let Ok(latest) = wctx.provider.get(&up.sandbox.id)
         && latest.state == up.sandbox.state

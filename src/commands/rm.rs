@@ -12,11 +12,9 @@ use crate::Context;
 use crate::cli::RmArgs;
 use crate::error::AppError;
 use crate::pool::LABEL_PROJECT;
-use crate::pool::wait::{self, Deadline};
-use crate::provider::{DeletionStatus, ErrorKind, SandboxState};
-use crate::transport::ssh::SshTarget;
-
-const DELETE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+use crate::pool::remove::delete_sandbox;
+use crate::pool::wait;
+use crate::provider::SandboxState;
 
 pub fn run(ctx: &Context, args: &RmArgs) -> Result<u8, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
@@ -39,48 +37,10 @@ pub fn run(ctx: &Context, args: &RmArgs) -> Result<u8, AppError> {
         .map(|sandbox| sandbox.id),
     };
 
-    let mut deletion = None;
-    if let Some(id) = &id {
-        let target = SshTarget::for_sandbox(&ctx.paths, id);
-        target.close_master();
-        match wait::retry(Duration::from_secs(60), wait::transient, || {
-            provider.delete(id)
-        }) {
-            Ok(accepted) => {
-                ctx.out
-                    .note(format_args!("deleting {} ({id})", member.name));
-                let deadline = Deadline::after(DELETE_TIMEOUT);
-                let mut current = accepted;
-                while current.status != DeletionStatus::Completed {
-                    if !deadline.tick() {
-                        return Err(AppError::new(
-                            "deletion_timeout",
-                            format!(
-                                "the provider accepted the deletion of {} ({id}) but it is still \
-                                 {} after {} minutes",
-                                member.name,
-                                current.status.as_str(),
-                                DELETE_TIMEOUT.as_secs() / 60
-                            ),
-                        )
-                        .with_hint("run `boatparty rm` again later to finish"));
-                    }
-                    current = wait::retry(Duration::from_secs(60), wait::transient, || {
-                        provider.deletion(&current.operation_id)
-                    })?;
-                }
-                deletion = Some(current);
-            }
-            Err(error) if matches!(error.kind(), ErrorKind::NotFound) => {
-                ctx.out.note(format_args!(
-                    "{} ({id}) was already gone at the provider",
-                    member.name
-                ));
-            }
-            Err(error) => return Err(error.into()),
-        }
-        target.remove_files();
-    }
+    let deletion = match &id {
+        Some(id) => delete_sandbox(&ctx.paths, provider, ctx.out, &member.name, id)?,
+        None => None,
+    };
     pool.forget(&member)?;
 
     if ctx.out.is_json() {

@@ -10,7 +10,7 @@ use super::WorkspaceContext;
 use crate::Context;
 use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
-use crate::pool::warm_member;
+use crate::pool::{LeaseRequest, warm_member};
 use crate::project::Workspace;
 use crate::signals::Interrupts;
 use crate::state::{LeaseKind, Member, Store};
@@ -41,18 +41,10 @@ pub(crate) fn with_session<T>(
     let workspace = Workspace::current()?;
     let project = workspace.load_project()?;
     let name = project.name();
-    let (member, target) = match warm_member(&ctx.paths, name, &workspace.key())? {
-        Some(warm) => warm,
-        None => {
-            let wctx = WorkspaceContext::open(ctx)?;
-            let up = wctx.pool(ctx).bring_up(wctx.bring_up_options(false))?;
-            (up.member, up.target)
-        }
-    };
+    let store = Store::new(&ctx.paths);
+    let (member, target) = connect(ctx, &store, name, &workspace, LeaseKind::Session, label)?;
     let account = super::load_account(ctx)?;
     let times = LeaseTimes::from_defaults(&account.config.defaults);
-    let store = Store::new(&ctx.paths);
-    lease::register(&store, name, &member, LeaseKind::Session, label)?;
     // SIGINT and SIGTERM reach the child processes, which end; this process
     // then lets go of its lease before exiting.
     let interrupts = Interrupts::install()?;
@@ -84,4 +76,29 @@ pub(crate) fn with_session<T>(
         value: result,
         interrupted: interrupts.exit_status(),
     })
+}
+
+/// This workspace's member with a lease of `kind` held on it: through a
+/// live SSH master with no provider call when possible, else by acquiring
+/// and bringing it up (which takes the lease in the same state write).
+pub(crate) fn connect(
+    ctx: &Context,
+    store: &Store,
+    project: &str,
+    workspace: &Workspace,
+    kind: LeaseKind,
+    label: &str,
+) -> Result<(Member, SshTarget), AppError> {
+    let key = workspace.key();
+    if let Some((member, target)) = warm_member(&ctx.paths, project, &key)?
+        && lease::register(store, project, &key, &member, kind, label)?
+    {
+        return Ok((member, target));
+    }
+    let wctx = WorkspaceContext::open(ctx)?;
+    let up = wctx.pool(ctx).bring_up(
+        wctx.bring_up_options(false),
+        Some(&LeaseRequest::new(kind, label)),
+    )?;
+    Ok((up.member, up.target))
 }

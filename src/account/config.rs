@@ -38,17 +38,19 @@ machine = "default"
 max_sandboxes = 8
 # An idle sandbox may be handed to another workspace after this many minutes.
 steal_after_minutes = 30
-# While a command uses a sandbox, keep its auto-stop this many minutes ahead.
-lease_minutes = 15
+# While a command uses a sandbox, keep its auto-stop this many minutes ahead
+# (so a client that dies leaves at most about this long of billing).
+lease_minutes = 5
 # After the last command ends, the sandbox stops after this many minutes.
 idle_minutes = 5
 # How often, in minutes, a running command pushes the auto-stop forward.
-heartbeat_minutes = 5
+# Must be less than lease_minutes.
+heartbeat_minutes = 2
 # How long to wait for a free sandbox before failing, in seconds.
 acquire_wait_seconds = 900
 
 # Projects registered by `boatparty init`, one [projects.<name>] table each,
-# appended below.
+# appended below. A project's table may set its own `max_sandboxes`.
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -64,10 +66,15 @@ pub struct AccountConfig {
     pub projects: BTreeMap<String, ProjectEntry>,
 }
 
-/// One registered project. Per-project limits are added here later.
+/// One registered project and its own limits. Phase 8 adds the rest.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectEntry {}
+pub struct ProjectEntry {
+    /// The most sandboxes this project's pool may own, instead of
+    /// `defaults.max_sandboxes`.
+    #[serde(default)]
+    pub max_sandboxes: Option<u32>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,9 +116,9 @@ impl Default for Defaults {
             machine: MachineSize::Default.as_str().to_string(),
             max_sandboxes: 8,
             steal_after_minutes: 30,
-            lease_minutes: 15,
+            lease_minutes: 5,
             idle_minutes: 5,
-            heartbeat_minutes: 5,
+            heartbeat_minutes: 2,
             acquire_wait_seconds: 900,
         }
     }
@@ -154,9 +161,12 @@ impl AccountConfig {
                 return fail(format!("defaults.{name} must be at least 1"));
             }
         }
-        for name in self.projects.keys() {
+        for (name, entry) in &self.projects {
             if let Err(message) = crate::project::validate_name(name) {
                 return fail(format!("projects: {message}"));
+            }
+            if entry.max_sandboxes == Some(0) {
+                return fail(format!("projects.{name}.max_sandboxes must be at least 1"));
             }
         }
         if self.defaults.heartbeat_minutes >= self.defaults.lease_minutes {
@@ -269,6 +279,10 @@ mod tests {
         let config = parse("version = 1\n").unwrap();
         assert_eq!(config.defaults, Defaults::default());
         assert_eq!(config.provider.api_url, None);
+        // A live command's deadline is never more than five minutes ahead.
+        assert_eq!(config.defaults.lease_minutes, 5);
+        assert_eq!(config.defaults.heartbeat_minutes, 2);
+        assert_eq!(config.defaults.idle_minutes, 5);
     }
 
     #[test]
@@ -291,6 +305,9 @@ mod tests {
         );
         assert!(parse("version = 1\n[projects.App]\n").is_err());
         assert!(parse("version = 1\n[projects.app]\nsurprise = 1\n").is_err());
+        let config = parse("version = 1\n[projects.app]\nmax_sandboxes = 2\n").unwrap();
+        assert_eq!(config.projects["app"].max_sandboxes, Some(2));
+        assert!(parse("version = 1\n[projects.app]\nmax_sandboxes = 0\n").is_err());
     }
 
     #[test]
@@ -323,5 +340,7 @@ mod tests {
         assert!(
             parse("version = 1\n[defaults]\nheartbeat_minutes = 15\nlease_minutes = 15\n").is_err()
         );
+        // The heartbeat must stay below the default five-minute lease.
+        assert!(parse("version = 1\n[defaults]\nheartbeat_minutes = 5\n").is_err());
     }
 }

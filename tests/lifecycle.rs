@@ -97,6 +97,31 @@ impl Setup {
             .args(["init"])
             .assert()
             .success();
+        // A lease shorter than the idle length, so the idle deadline (300 s)
+        // is told apart from a lease deadline (240 s).
+        let account = self.home().join("config/account.toml");
+        let text = std::fs::read_to_string(&account).unwrap();
+        std::fs::write(
+            &account,
+            text.replace("lease_minutes = 5", "lease_minutes = 4"),
+        )
+        .unwrap();
+    }
+
+    /// Wait (up to 10 s) for an idle deadline (`ttlSeconds` 300) among the
+    /// requests from index `from`: the detached idle helper's.
+    fn wait_idle(boat: &FakeBoat, from: usize) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if boat.requests()[from.min(boat.requests().len())..]
+                .iter()
+                .any(|request| request.method == "PATCH" && request.body.contains("300"))
+            {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        false
     }
 
     fn state(&self) -> Value {
@@ -282,6 +307,10 @@ fn launch_records_the_pending_member_before_creating_it() {
     assert_eq!(body["type"], "default");
     assert_eq!(body["labels"]["boatparty.project"], "app");
     assert_eq!(body["labels"]["boatparty.role"], "pool");
+    // Created with the lease length, then left at the idle length by the
+    // detached helper, since launch holds no lease.
+    assert_eq!(body["ttlSeconds"], 240);
+    assert!(Setup::wait_idle(&boat, 0), "launch set no idle deadline");
     assert!(body.get("env").is_none() && body.get("environment").is_none());
     let key = header(creates[0], "idempotency-key").expect("Idempotency-Key sent");
 
@@ -419,6 +448,8 @@ fn board_on_a_warm_member_makes_no_synchronous_provider_call_and_returns_the_exi
     setup.init();
     let boat = running_boat(setup.home(), Arc::new(Mutex::new(Vec::new())));
     setup.cmd(&boat).arg("launch").assert().success();
+    // launch leaves the idle deadline to its helper too; let it finish.
+    assert!(Setup::wait_idle(&boat, 0), "launch set no idle deadline");
     let before = boat.requests().len();
     let output = setup
         .cmd(&boat)
@@ -699,7 +730,7 @@ fn launch_resumes_a_stopped_member_and_pins_the_new_host_key() {
         .unwrap();
     assert_eq!(
         serde_json::from_str::<Value>(&resume.body).unwrap()["ttlSeconds"],
-        900
+        240
     );
     let known =
         std::fs::read_to_string(setup.home().join(format!("state/ssh/{ID}.known_hosts"))).unwrap();

@@ -33,8 +33,20 @@ impl SshTarget {
         }
     }
 
-    /// `ssh` with this target's config, before any options or the alias.
+    /// `ssh` with this target's config that goes through the control master
+    /// and never falls back to a connection of its own, before any options
+    /// or the alias. When the master is gone, or dies because the sandbox
+    /// stopped behind it, ssh exits 255 at once instead of dialing the old
+    /// address (the caller's 255 rule then brings the member up again).
     pub fn ssh(&self) -> Command {
+        let mut command = self.ssh_connect();
+        command.args(NO_FALLBACK);
+        command
+    }
+
+    /// `ssh` with this target's config that opens the control master itself
+    /// when there is none. Only connecting (after a bring-up) uses it.
+    pub fn ssh_connect(&self) -> Command {
         let mut command = Command::new("ssh");
         command.arg("-F").arg(&self.config);
         command
@@ -45,7 +57,7 @@ impl SshTarget {
         if !self.config.exists() {
             return false;
         }
-        self.ssh()
+        self.ssh_connect()
             .args(["-O", "check", &self.alias])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -60,7 +72,7 @@ impl SshTarget {
             return;
         }
         let _ = self
-            .ssh()
+            .ssh_connect()
             .args(["-O", "exit", &self.alias])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -72,7 +84,7 @@ impl SshTarget {
     /// exit status and stderr.
     pub fn run_quiet(&self, remote: &str) -> Result<(i32, String), AppError> {
         let output = self
-            .ssh()
+            .ssh_connect()
             .args(["-T", &self.alias, remote])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -92,7 +104,15 @@ impl SshTarget {
     }
 }
 
-/// The OpenSSH config for one sandbox.
+/// Options for commands that must use the existing control master. A mux
+/// client whose master is missing or fails connects by itself; the
+/// `ProxyCommand` makes that fallback fail at once (exit 255) instead of
+/// dialing an address the sandbox may no longer have.
+pub const NO_FALLBACK: [&str; 4] = ["-o", "ControlMaster=no", "-o", "ProxyCommand=false"];
+
+/// The OpenSSH config for one sandbox. Keepalives every 5 s, 3 missed:
+/// a master whose sandbox stopped exits within about 15 to 20 s instead of
+/// a minute, so it stops looking alive.
 pub fn render_config(
     target: &SshTarget,
     access: &SshAccess,
@@ -120,7 +140,7 @@ pub fn render_config(
         "  ControlMaster auto".to_string(),
         format!("  ControlPath {}/%C", control_dir.display()),
         "  ControlPersist 60m".to_string(),
-        "  ServerAliveInterval 20".to_string(),
+        "  ServerAliveInterval 5".to_string(),
         "  ServerAliveCountMax 3".to_string(),
         "  ConnectTimeout 15".to_string(),
         "  Compression no".to_string(),
@@ -315,6 +335,8 @@ mod tests {
             "ControlMaster auto",
             "ControlPath /tmp/boatparty-501/%C",
             "ControlPersist 60m",
+            "ServerAliveInterval 5",
+            "ServerAliveCountMax 3",
         ] {
             assert!(lines.contains(&expected), "missing {expected:?} in\n{text}");
         }
@@ -340,6 +362,33 @@ mod tests {
             target.known_hosts,
             PathBuf::from("/home/u/bp/state/ssh/bx_23456789.known_hosts")
         );
+    }
+
+    #[test]
+    fn commands_use_the_master_without_falling_back_and_only_connect_opens_one() {
+        let target = target();
+        let args: Vec<String> = target
+            .ssh()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "-F",
+                "/state/ssh/bx_23456789.conf",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ProxyCommand=false"
+            ]
+        );
+        let connect: Vec<String> = target
+            .ssh_connect()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(connect, ["-F", "/state/ssh/bx_23456789.conf"]);
     }
 
     #[test]

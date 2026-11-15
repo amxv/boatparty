@@ -43,6 +43,15 @@ impl E2e {
             .args(["init", "--name", "app"])
             .assert()
             .success();
+        // A lease shorter than the idle length, so the idle deadline (300 s)
+        // is told apart from a heartbeat (240 s).
+        let account = setup.home().join("config/account.toml");
+        let text = fs::read_to_string(&account).unwrap();
+        fs::write(
+            &account,
+            text.replace("lease_minutes = 5", "lease_minutes = 4"),
+        )
+        .unwrap();
         if let Some(history) = history {
             let file = setup.repo().join("boatparty.toml");
             let mut text = fs::read_to_string(&file).unwrap();
@@ -217,6 +226,35 @@ impl E2e {
         // The fake's own origin, for the URLs it signs.
         *base.lock().unwrap() = boat.url().trim_end_matches("/api/v1").to_string();
         boat
+    }
+
+    /// How many TTL changes the fake has seen.
+    pub fn patches(&self) -> usize {
+        self.event_lines()
+            .iter()
+            .filter(|line| line.starts_with("provider PATCH"))
+            .count()
+    }
+
+    /// Wait (up to 10 s) until more than `before` TTL changes were seen: the
+    /// detached idle helper's, after a command that ended.
+    pub fn wait_patches(&self, before: usize) -> bool {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            if self.patches() > before {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        false
+    }
+
+    /// `launch`, then wait for the idle helper it starts to set the idle
+    /// deadline, so its provider calls do not mix with the next command's.
+    pub fn launch(&self, boat: &FakeBoat) {
+        let before = self.patches();
+        self.cmd(boat).arg("launch").assert().success();
+        assert!(self.wait_patches(before), "launch set no idle deadline");
     }
 
     pub fn event_lines(&self) -> Vec<String> {

@@ -408,7 +408,7 @@ use common::e2e::{E2e, ID};
 fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_back() {
     let setup = E2e::new("cheers-warm");
     let boat = setup.boat();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     let _ = fs::remove_file(setup.events());
 
     let output = setup
@@ -483,7 +483,7 @@ fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_ba
 fn cheers_json_streams_frames_and_ends_with_one_result() {
     let setup = E2e::new("cheers-json");
     let boat = setup.boat();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.launch(&boat);
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")

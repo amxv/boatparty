@@ -48,6 +48,17 @@ pub enum Command {
     Init(InitArgs),
     /// Show this project's sandboxes.
     Status,
+    /// Show every project's sandboxes: state, workspace, leases, last use.
+    Pool(PoolArgs),
+    /// Let go of this workspace's sandbox so another workspace may use it.
+    #[command(
+        after_help = "The sandbox keeps running or stays stopped; only the record that ties it to \
+                      this workspace is dropped. Refused while a command uses it. The next command \
+                      in this workspace takes a free sandbox, or the same one if it is still free."
+    )]
+    Release,
+    /// Pin a free sandbox of this project to this workspace.
+    Assign(AssignArgs),
     /// Delete a sandbox at the provider and forget it.
     Rm(RmArgs),
     /// Store the boat API key, read from standard input.
@@ -151,6 +162,71 @@ pub struct FetchArgs {
 
     /// Where to put it on this machine. Defaults to the current directory.
     pub dest: Option<std::path::PathBuf>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    args_conflicts_with_subcommands = true,
+    after_help = "Examples:\n  \
+                  boatparty pool                 every project's sandboxes\n  \
+                  boatparty pool --refresh       first match the records with the provider\n  \
+                  boatparty pool prune           delete stopped sandboxes no workspace needs\n\n\
+                  A project owns at most `max_sandboxes` sandboxes (account.toml: [defaults], or \
+                  [projects.<name>] for one project). A workspace keeps using the sandbox it used \
+                  last; when it has none it takes a free one, then a new one below the limit, then \
+                  an idle one from another workspace (one whose directory is gone first, then one \
+                  unused for `steal_after_minutes`), and otherwise waits up to \
+                  `acquire_wait_seconds`.\n\n\
+                  --refresh adopts sandboxes that carry the project's label but have no record, \
+                  drops records whose sandbox is gone, deletes sandboxes whose stored disk the \
+                  provider expired, and frees sandboxes whose workspace directory no longer \
+                  exists. A missing directory never deletes anything."
+)]
+pub struct PoolArgs {
+    /// Reconcile the records with the provider's labelled sandboxes first.
+    #[arg(long)]
+    pub refresh: bool,
+
+    /// Only this project.
+    #[arg(long, value_name = "NAME")]
+    pub project: Option<String>,
+
+    #[command(subcommand)]
+    pub action: Option<PoolAction>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PoolAction {
+    /// Delete stopped sandboxes that no workspace needs.
+    Prune(PruneArgs),
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Deletes, at the provider, every stopped pool sandbox that has no workspace or \
+                  whose workspace directory no longer exists, and is not in use. It lists them \
+                  and asks first (reading the answer from standard input) unless --yes is given. \
+                  A sandbox whose workspace still exists is never deleted."
+)]
+pub struct PruneArgs {
+    /// Delete without asking.
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Only this project.
+    #[arg(long, value_name = "NAME")]
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "MEMBER is a sandbox name or id from `boatparty pool`. It must be free: not in \
+                  use and not tied to another workspace that still exists. This workspace's \
+                  previous sandbox, if any, becomes free."
+)]
+pub struct AssignArgs {
+    /// The sandbox to pin (name or id).
+    pub member: String,
 }
 
 #[derive(Debug, Args)]
