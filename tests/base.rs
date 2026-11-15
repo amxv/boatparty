@@ -72,7 +72,8 @@ fn boat(setup: &E2e, world: Shared) -> FakeBoat {
                 .open(&events)
                 .unwrap();
             let body = request.body.split_whitespace().collect::<String>();
-            let _ = writeln!(log, "provider {} {} {}", request.method, path, body);
+            let line = format!("provider {} {} {}\n", request.method, path, body);
+            let _ = log.write_all(line.as_bytes());
         }
         let mut world = world.lock().unwrap();
         let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();

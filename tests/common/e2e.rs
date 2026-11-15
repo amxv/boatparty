@@ -173,7 +173,10 @@ impl E2e {
                 request.body.split_whitespace().collect::<String>()
             };
             let path_only = request.path.split('?').next().unwrap_or_default();
-            let _ = writeln!(log, "provider {} {} {}", request.method, path_only, body);
+            // One write per line: requests are served on concurrent threads,
+            // and `writeln!` on a file may split a line into several writes.
+            let line = format!("provider {} {} {}\n", request.method, path_only, body);
+            let _ = log.write_all(line.as_bytes());
             let sandbox = json!({
                 "id": ID, "name": "bp-app-1", "state": "idle", "hydrated": true,
                 "labels": {"boatparty.project": "app", "boatparty.role": "pool"},
