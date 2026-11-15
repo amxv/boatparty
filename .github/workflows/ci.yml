@@ -1,9 +1,7 @@
 name: CI
 
-# Every job runs on a fresh boat.dev sandbox (`runs-on: boat`, the `default`
-# size) that boat deletes when the job ends, so nothing builds on a developer
-# machine and nothing idles. Needs the boat CI GitHub App on this repository
-# (`boat ci connect`).
+# Every job runs on a GitHub-hosted runner, so CI spends no boat.dev starts
+# and nothing builds on a developer machine.
 
 on:
   push:
@@ -31,7 +29,7 @@ concurrency:
 
 jobs:
   rust:
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       CARGO_TERM_COLOR: always
@@ -40,12 +38,11 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install the pinned Rust toolchain
-        # rustup is preinstalled on boat sandboxes; this installs the channel
+        # rustup is preinstalled on the runner; this installs the channel
         # and components from rust-toolchain.toml.
         run: |
-          # boat images ship a system-wide rustup at /usr/local/cargo with
-          # RUSTUP_HOME set but CARGO_HOME unset, which some rustup commands
-          # reject; point CARGO_HOME at the real installation.
+          # Images with a system-wide rustup at /usr/local/cargo and
+          # CARGO_HOME unset need CARGO_HOME pointed at that installation.
           if [ -z "${CARGO_HOME:-}" ] && [ -x /usr/local/cargo/bin/rustup ]; then
             export CARGO_HOME=/usr/local/cargo
             echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
@@ -80,7 +77,7 @@ jobs:
           fi
 
   docs:
-    runs-on: boat
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:

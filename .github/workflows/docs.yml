@@ -22,8 +22,8 @@ concurrency:
 
 jobs:
   docs:
-    # A fresh boat.dev sandbox per job, deleted when the job ends.
-    runs-on: boat
+    # A GitHub-hosted runner, so docs deploys spend no boat.dev starts.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
       run:
