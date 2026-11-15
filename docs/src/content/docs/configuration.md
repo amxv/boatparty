@@ -23,7 +23,7 @@ machine = "default"          # small, default, large, xlarge (at most the projec
 [sync]
 history = "head"             # "head": HEAD's commit only; "full": branches, tags and history
 copy_back = true             # apply the command's file changes locally
-seed = true                  # fetch from the GitHub remote first when the sandbox holds nothing
+seed = true                  # fetch pushed commits on the sandbox from GitHub instead of sending them
 github_token = true          # use a GitHub token for that fetch (private repositories)
 
 [run]
@@ -78,7 +78,11 @@ Layers merge in order: defaults, each preset, then `boatparty.toml`. Tables merg
 
 - `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them. This and `[run] github_token` apply to `cheers`, `cruise`, `pipe` and `board`.
 - `[run] github_token = true` lets git inside commands and steps reach github.com over HTTPS with `BOATPARTY_GITHUB_TOKEN` or `gh auth token`. The token is served from memory for the command's lifetime only and is never written to the sandbox. SSH-style GitHub URLs are rewritten to HTTPS. Go private modules also need `GOPRIVATE` in `[run.env]`, for example `GOPRIVATE = "github.com/your-org/*"`.
-- `[sync] github_token` is separate: it lets the first sync of a sandbox fetch a private repository from GitHub.
+- `[sync] github_token` is separate: it lets a sync fetch a private repository from GitHub (see Seeding).
+
+## Seeding
+
+With `[sync] seed` on and a GitHub remote, a sandbox fetches pushed commits from GitHub itself, and your machine sends only what GitHub lacks (unpushed commits and uncommitted files). That happens on a sandbox's first sync, and again whenever HEAD moved to pushed commits whose objects the sandbox lacks and those add up to 8 MiB or more (a large pull, or a switch to a distant branch; `BOATPARTY_SEED_WARM_MIN_BYTES` changes the size). Below that, sending the difference is faster than a fetch from GitHub. A sync whose HEAD did not move never looks. A failed fetch falls back to sending everything.
 
 ## The base snapshot
 

@@ -30,6 +30,7 @@ fn config() -> SeedConfig {
         enabled: true,
         allow_file: true,
         min_bytes: 0,
+        warm_min_bytes: u64::MAX,
         timeout_secs: 30,
         token: TokenSource::None,
     }
@@ -630,6 +631,73 @@ fn the_daily_prune_drops_old_snapshots_and_keeps_what_the_client_counts_on() {
     // The next sync is still thin: what the client knows is still there.
     write(&local.join("a.txt"), "after the prune\n");
     let (next, _) = load(&local, &host, &mut member, History::Head, Some(&config()));
+    assert!(!next.full_retry);
+    assert_head_mirror(&local, &host.repo);
+}
+
+#[test]
+fn a_warm_member_is_seeded_again_only_when_a_large_pull_would_travel() {
+    let root = TempDir::new("seed-warm");
+    let (local, bare) = pushed_repo(root.path());
+    let host = LocalRunner::new(root.path(), "remote");
+    let mut member = Member::default();
+    let (first, log) = load(&local, &host, &mut member, History::Head, Some(&config()));
+    assert_eq!(first.seed.route, SeedRoute::Github, "{log}");
+
+    // Someone else pushes large commits; this checkout pulls them.
+    let other = root.path().join("other");
+    git(
+        root.path(),
+        &[
+            "clone",
+            "-q",
+            "-b",
+            "main",
+            bare.to_str().unwrap(),
+            other.to_str().unwrap(),
+        ],
+    );
+    git(&other, &["config", "user.name", "Other"]);
+    git(&other, &["config", "user.email", "other@example.com"]);
+    let push_large = |n: u64| {
+        write(
+            &other.join(format!("pulled{n}.txt")),
+            &noise(100 + n, 256 * 1024),
+        );
+        commit(&other, &format!("pulled {n}"));
+        git(&other, &["push", "-q", "origin", "main"]);
+        git(&local, &["pull", "-q", "--ff-only"]);
+    };
+
+    // Below the threshold: the pack carries the pull, as before.
+    push_large(1);
+    let (small, log) = load(&local, &host, &mut member, History::Head, Some(&config()));
+    assert_eq!(small.seed.route, SeedRoute::None, "{log}");
+    assert!(small.pack_bytes > 100 * 1024, "{}", small.pack_bytes);
+    assert_head_mirror(&local, &host.repo);
+
+    // At the threshold: the sandbox fetches the pull from GitHub and the
+    // pack carries only the snapshot.
+    let warm = SeedConfig {
+        warm_min_bytes: 64 * 1024,
+        ..config()
+    };
+    push_large(2);
+    write(&local.join("a.txt"), "local edit\n");
+    let (seeded, log) = load(&local, &host, &mut member, History::Head, Some(&warm));
+    assert_eq!(seeded.seed.route, SeedRoute::Github, "{log}");
+    assert_eq!(
+        seeded.seed.commits,
+        vec![git(&local, &["rev-parse", "HEAD"])]
+    );
+    assert!(seeded.pack_bytes < 8 * 1024, "{}", seeded.pack_bytes);
+    assert!(!seeded.full_retry);
+    assert_head_mirror(&local, &host.repo);
+
+    // HEAD did not move: nothing is looked at, nothing is seeded.
+    write(&local.join("a.txt"), "another local edit\n");
+    let (next, _) = load(&local, &host, &mut member, History::Head, Some(&warm));
+    assert_eq!(next.seed.route, SeedRoute::None);
     assert!(!next.full_retry);
     assert_head_mirror(&local, &host.repo);
 }

@@ -34,6 +34,12 @@ pub const MIN_BYTES_ENV: &str = "BOATPARTY_SEED_MIN_BYTES";
 pub const TIMEOUT_ENV: &str = "BOATPARTY_SEED_TIMEOUT_SECONDS";
 
 pub const DEFAULT_MIN_BYTES: u64 = 0;
+/// A member that already holds the project seeds again only when what it
+/// lacks of the seed commits is at least this large (bytes as stored).
+pub const WARM_MIN_BYTES_ENV: &str = "BOATPARTY_SEED_WARM_MIN_BYTES";
+/// A GitHub fetch costs a few seconds however small; a signed upload moves
+/// about 4.5 MB/s from a fast connection, so seeding wins from about here.
+pub const DEFAULT_WARM_MIN_BYTES: u64 = 8 * 1024 * 1024;
 pub const DEFAULT_TIMEOUT_SECONDS: u64 = 180;
 
 /// A secret string whose `Debug` output is redacted.
@@ -100,6 +106,9 @@ pub struct SeedConfig {
     pub allow_file: bool,
     /// Seed only when HEAD's files add up to at least this many bytes.
     pub min_bytes: u64,
+    /// Seed a member that already holds something only when the objects it
+    /// lacks add up to at least this many bytes.
+    pub warm_min_bytes: u64,
     pub timeout_secs: u64,
     pub token: TokenSource,
 }
@@ -119,6 +128,7 @@ impl SeedConfig {
             enabled,
             allow_file: std::env::var(ALLOW_FILE_ENV).is_ok_and(|value| value == "1"),
             min_bytes: number(MIN_BYTES_ENV, DEFAULT_MIN_BYTES),
+            warm_min_bytes: number(WARM_MIN_BYTES_ENV, DEFAULT_WARM_MIN_BYTES),
             timeout_secs: number(TIMEOUT_ENV, DEFAULT_TIMEOUT_SECONDS).max(1),
             token,
         }
@@ -380,6 +390,42 @@ fn head_bytes(root: &Path) -> Option<u64> {
             .filter_map(|size| size.parse::<u64>().ok())
             .sum(),
     )
+}
+
+/// How many bytes (as stored, compressed) the objects of `commits` take
+/// that `known` does not reach: about what a pack would carry for them.
+/// Known commits this repository lacks are ignored.
+pub fn missing_bytes(root: &Path, commits: &[String], known: &[String]) -> Option<u64> {
+    let mut args = vec!["rev-list", "--objects", "--ignore-missing"];
+    args.extend(commits.iter().map(String::as_str));
+    args.push("--not");
+    args.extend(known.iter().map(String::as_str));
+    let listed = git(root, &args, &[], None, true).ok()?;
+    if !listed.status.success() {
+        return None;
+    }
+    let names: String = String::from_utf8_lossy(&listed.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .map(|sha| format!("{sha}\n"))
+        .collect();
+    if names.is_empty() {
+        return Some(0);
+    }
+    let sizes = git(
+        root,
+        &["cat-file", "--batch-check=%(objectsize:disk)"],
+        &[],
+        Some(names.as_bytes()),
+        true,
+    )
+    .ok()?;
+    sizes.status.success().then(|| {
+        String::from_utf8_lossy(&sizes.stdout)
+            .lines()
+            .filter_map(|size| size.trim().parse::<u64>().ok())
+            .sum()
+    })
 }
 
 /// The token for this seed, if any. `gh` runs only here, only for
@@ -645,6 +691,7 @@ mod tests {
             enabled: true,
             allow_file: false,
             min_bytes: 0,
+            warm_min_bytes: 0,
             timeout_secs: 1,
             token: TokenSource::Fixed(secret),
         };

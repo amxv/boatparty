@@ -374,7 +374,8 @@ fn session(
     let mut known: Vec<String> = request.known.to_vec();
     let seed = match request.seed {
         Some(config) if known.is_empty() => seed_first(host, request, config, sink),
-        _ => SeedReport::default(),
+        Some(config) => seed_warm(host, request, config, &known, sink),
+        None => SeedReport::default(),
     };
     known.extend(seed.commits.iter().cloned());
     let mut installed = seed.installed;
@@ -478,6 +479,50 @@ fn seed_first(
             return report;
         }
     };
+    run_seed(host, request, config, plan, started, sink)
+}
+
+/// Seed a sandbox that already holds an earlier sync, when HEAD moved to
+/// pushed commits whose objects the sandbox lacks and those add up to at
+/// least `warm_min_bytes` (a large pull or a switch to a distant branch):
+/// fetching them on the sandbox from GitHub beats sending them from here.
+/// When HEAD did not move, nothing is looked at, so the usual warm sync
+/// costs nothing more. Never reports a skip: a warm sync not seeding is
+/// the normal case.
+fn seed_warm(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    config: &SeedConfig,
+    known: &[String],
+    sink: &mut dyn Sink,
+) -> SeedReport {
+    let started = std::time::Instant::now();
+    if !config.enabled || known.contains(&request.info.head) {
+        return SeedReport::default();
+    }
+    let Ok(plan) = seed::plan(request.info, request.history, request.refs, config) else {
+        return SeedReport::default();
+    };
+    if plan.commits.iter().all(|sha| known.contains(sha)) {
+        return SeedReport::default();
+    }
+    match seed::missing_bytes(&request.info.root, &plan.commits, known) {
+        Some(bytes) if bytes >= config.warm_min_bytes => {}
+        _ => return SeedReport::default(),
+    }
+    run_seed(host, request, config, plan, started, sink)
+}
+
+/// Fetch `plan` on the sandbox, with a token when one is set up.
+fn run_seed(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    config: &SeedConfig,
+    plan: seed::SeedPlan,
+    started: std::time::Instant,
+    sink: &mut dyn Sink,
+) -> SeedReport {
+    let mut report = SeedReport::default();
     let token = seed::token(&config.token, &plan.url);
     let fetched = seed::fetch(
         host,
@@ -497,7 +542,7 @@ fn seed_first(
         }
         Err(reason) => {
             sink.note(&format!(
-                "seeding from {} failed ({reason}); sending every object instead",
+                "seeding from {} failed ({reason}); sending the objects from here instead",
                 plan.url
             ));
             report.fallback = Some(reason);
