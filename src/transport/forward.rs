@@ -345,7 +345,15 @@ mod tests {
             .check_local_port()
             .unwrap_err();
         assert_eq!(error.code(), "port_in_use");
+        // Free again once released; tests running in parallel may take the
+        // same ephemeral port meanwhile, so allow a few tries.
         drop(held);
-        assert!(Forward::local(None, port, 80).check_local_port().is_ok());
+        let free = (0..50).any(|_| {
+            Forward::local(None, port, 80).check_local_port().is_ok() || {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                false
+            }
+        });
+        assert!(free, "port {port} stayed taken after it was released");
     }
 }

@@ -8,9 +8,9 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
-## 0.1.1 - 2026-11-15
+## 0.1.2 - 2026-11-15
 
-First published release: warm boat.dev sandbox pools for any Git project. (The `v0.1.0` tag was cut but never published; its macOS build exposed two test portability bugs, fixed here.)
+First published release: warm boat.dev sandbox pools for any Git project. (The `v0.1.0` and `v0.1.1` tags were cut but never published: their macOS builds exposed test portability bugs and timing races, fixed here.)
 
 - `cheers` syncs the working tree as a thin Git pack (HEAD only by default), runs one command with live output and its real exit code (125 when boatparty itself failed), and applies the command's file changes back; large packs and patches travel by signed URL.
 - `launch`, `load`, `board` (a shell or one command, with your Git identity, an optional GitHub token and `[run.env]`), `pipe` (a command fed standard input that is never recorded), `fetch`, `dock`, `status`, `rm`.

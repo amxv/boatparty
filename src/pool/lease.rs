@@ -451,7 +451,12 @@ mod tests {
             move || recorded.lock().unwrap().push(("bx_test", 900))
         });
         std::thread::sleep(Duration::from_millis(20));
-        assert_eq!(calls.lock().unwrap().len(), 1, "the deadline moves at once");
+        // At least the immediate push; a slow machine may already have
+        // reached the next tick.
+        assert!(
+            !calls.lock().unwrap().is_empty(),
+            "the deadline moves at once"
+        );
         std::thread::sleep(Duration::from_millis(250));
         heartbeat.stop();
         let extended = calls.lock().unwrap().len();
