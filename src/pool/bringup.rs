@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use std::time::Duration;
 
 use super::wait::{self, Deadline};
-use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, remote_checkout};
+use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, new_member, remote_checkout};
+use crate::base::{self, BaseRecord};
 use crate::error::AppError;
 use crate::paths::Paths;
 use crate::provider::{
@@ -16,7 +17,7 @@ use crate::provider::{
     SandboxState,
 };
 use crate::starts::StartFailure;
-use crate::state::{BringingUp, Member, Role, SyncState};
+use crate::state::{BringingUp, Lease, LeaseKind, Member, Role, SyncState};
 use crate::system;
 use crate::transport::ssh::{self, SshTarget, shell_quote};
 
@@ -67,6 +68,90 @@ pub fn bring_up(
         });
     }
     result
+}
+
+/// Bring the project's builder up for a base build, creating its record
+/// (role `builder`, no affinity) on first use. This process holds it with
+/// a lease until the build releases it; another live build is refused.
+pub fn bring_up_builder(pool: &Pool<'_>, options: BringUp) -> Result<Up, AppError> {
+    let project = pool.project.clone();
+    let key = system::uuid_v4()?;
+    let now = system::now_ms();
+    let pid = std::process::id();
+    let claim = pool.store.update(|state| {
+        let slot = state.project_mut(&project);
+        let index = match slot
+            .members
+            .iter()
+            .position(|member| member.role == Role::Builder)
+        {
+            Some(index) => index,
+            None => {
+                let mut member = new_member(base::builder_name(&project), key.clone(), None, now);
+                member.role = Role::Builder;
+                slot.members.push(member);
+                slot.members.len() - 1
+            }
+        };
+        let member = &mut slot.members[index];
+        let fresh = member.create_key == key;
+        if member.busy() {
+            return Ok(Err(member.clone()));
+        }
+        member
+            .leases
+            .retain(|lease| lease.pid != pid && system::pid_alive(lease.pid));
+        member.leases.push(Lease {
+            pid,
+            kind: LeaseKind::Session,
+            label: "base build".to_string(),
+            started_at: now,
+            workspace: None,
+        });
+        member.bringing_up = Some(BringingUp {
+            pid,
+            started_at: now,
+        });
+        Ok(Ok((member.clone(), fresh)))
+    })?;
+    let (member, fresh) = claim.map_err(|busy| {
+        AppError::new(
+            "base_busy",
+            format!(
+                "{} is in use by another boatparty process ({})",
+                busy.name,
+                busy.live_leases()
+                    .map(|lease| format!("pid {} {}", lease.pid, lease.label))
+                    .chain(
+                        busy.bringing_up
+                            .iter()
+                            .map(|claim| format!("pid {} starting it", claim.pid))
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )
+        .with_hint("wait for that base build to finish")
+    })?;
+    let result = claimed(pool, member, fresh, options);
+    if result.is_err() {
+        release_builder(pool);
+    }
+    result
+}
+
+/// Drop this process's lease on the builder.
+pub fn release_builder(pool: &Pool<'_>) {
+    let pid = std::process::id();
+    let project = pool.project.clone();
+    let _ = pool.store.update(|state| {
+        for member in &mut state.project_mut(&project).members {
+            if member.role == Role::Builder {
+                member.leases.retain(|lease| lease.pid != pid);
+            }
+        }
+        Ok(())
+    });
 }
 
 /// The single-flight claim on a member's bring-up.
@@ -182,9 +267,16 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
         let mut sandbox = match member.id.clone() {
             Some(id) => get(pool.provider, &id)?,
             None => {
-                let (sandbox, record) = create(pool, &member, fresh, options)?;
+                let (sandbox, record, base) = create(pool, &member, fresh, options)?;
                 let id = sandbox.id.clone();
-                member = pool.modify(&record, |member| member.id = Some(id))?;
+                member = pool.modify(&record, |member| {
+                    member.id = Some(id);
+                    // The base's repository is this sandbox's: the first
+                    // sync sends only what changed since the base commit.
+                    if let Some(base) = &base {
+                        member.sync = base.seeded_sync();
+                    }
+                })?;
                 created = true;
                 sandbox
             }
@@ -359,17 +451,39 @@ fn resume(
     }
 }
 
+/// The base a new member of this role starts from: the project's, for
+/// pool members only (the builder starts blank).
+fn base_for(pool: &Pool<'_>, role: Role) -> Result<Option<BaseRecord>, AppError> {
+    if role != Role::Pool {
+        return Ok(None);
+    }
+    let state = pool.store.load()?;
+    Ok(state.project(&pool.project).and_then(base::record))
+}
+
 /// Create the member's sandbox with its recorded idempotency key, admitted
-/// by the start ledger. A record left pending by an earlier run is first
-/// looked up by name, in case that run's create succeeded but its answer
-/// was lost. Returns the sandbox and the record (whose key may have been
-/// renewed after a rate-limited attempt).
+/// by the start ledger, from the project's base when there is one. A record
+/// left pending by an earlier run is first looked up by name, in case that
+/// run's create succeeded but its answer was lost. Returns the sandbox, the
+/// record (whose key may have been renewed after a rate-limited attempt)
+/// and the base it started from.
 fn create(
     pool: &Pool<'_>,
     member: &Member,
     fresh: bool,
     options: BringUp,
-) -> Result<(Sandbox, Member), AppError> {
+) -> Result<(Sandbox, Member, Option<BaseRecord>), AppError> {
+    let mut base = base_for(pool, member.role)?;
+    if let Some(record) = &base
+        && let Ok(None) = pool.provider.saved_snapshot(&record.snapshot)
+    {
+        // Removed outside boatparty: start blank rather than fail.
+        pool.out.note(format_args!(
+            "the base {} no longer exists at the provider; creating {} without it (`boatparty              base build` makes a new one)",
+            record.snapshot, member.name
+        ));
+        base = None;
+    }
     if !fresh {
         let existing = wait::retry(Duration::from_secs(60), wait::transient, || {
             pool.provider.list_by_label(LABEL_PROJECT, &pool.project)
@@ -383,13 +497,20 @@ fn create(
                 "found {} ({}) from an earlier interrupted create",
                 member.name, found.id
             ));
-            return Ok((found, member.clone()));
+            // It may predate the base; a wrong guess costs one full pack.
+            return Ok((found, member.clone(), base));
         }
     }
-    pool.out.note(format_args!(
-        "creating {} ({} machine)",
-        member.name, options.size
-    ));
+    match &base {
+        Some(base) => pool.out.note(format_args!(
+            "creating {} ({} machine) from the base {}",
+            member.name, options.size, base.snapshot
+        )),
+        None => pool.out.note(format_args!(
+            "creating {} ({} machine)",
+            member.name, options.size
+        )),
+    }
     let record = RefCell::new(member.clone());
     let mut ambiguous = !fresh;
     let mut rate_limited = false;
@@ -409,10 +530,11 @@ fn create(
                 name: member.name.clone(),
                 size: options.size,
                 ttl_seconds: options.ttl_seconds,
-                labels: member_labels(&pool.project, Role::Pool),
+                labels: member_labels(&pool.project, member.role),
                 no_env: pool.environment.is_none(),
                 environment: pool.environment.clone(),
                 idempotency_key: record.borrow().create_key.clone(),
+                from: base.as_ref().map(|base| base.snapshot.clone()),
             };
             let result = wait::retry(CREATE_RETRY, create_retryable, || {
                 let result = pool.provider.create(&request);
@@ -434,7 +556,7 @@ fn create(
     );
     let record = record.into_inner();
     match result {
-        Ok(sandbox) => Ok((sandbox, record)),
+        Ok(sandbox) => Ok((sandbox, record, base)),
         // A definite refusal of the only attempt created nothing, so the
         // pending record can go. After an unclear outcome it stays, and the
         // next run reuses its key.

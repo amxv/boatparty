@@ -204,7 +204,7 @@ impl Setup {
     fn workspace(&self, name: &str) -> PathBuf {
         let repo = self.root.path().join(name);
         std::fs::create_dir_all(&repo).unwrap();
-        let status = std::process::Command::new("git")
+        let status = common::isolated("git")
             .args(["init", "-q"])
             .current_dir(&repo)
             .status()

@@ -9,6 +9,7 @@
 mod boat;
 pub mod error;
 pub mod sandbox;
+pub mod snapshot;
 
 use std::fmt;
 use std::path::Path;
@@ -22,6 +23,7 @@ pub use sandbox::{
     CreateSandbox, Deletion, DeletionStatus, Hydration, Resumed, Sandbox, SandboxCost,
     SandboxState, SshAccess,
 };
+pub use snapshot::{SavedSnapshot, SnapshotAllowance, SnapshotStatus};
 
 use crate::account::ApiKey;
 use crate::error::AppError;
@@ -84,6 +86,25 @@ pub trait Provider {
     /// rule as [`Provider::upload_file`] holds.
     fn download_file(&self, id: &str, remote_path: &str, file: &Path)
     -> Result<u64, ProviderError>;
+
+    /// Freeze a sandbox's disk under `name` (its last snapshot when it is
+    /// stopped). Answers at once with the save in progress. Saving an
+    /// existing name replaces it only once the new save is ready.
+    fn save_snapshot(&self, sandbox_id: &str, name: &str) -> Result<SavedSnapshot, ProviderError>;
+
+    /// One saved snapshot; `None` when no such name exists.
+    fn saved_snapshot(&self, name: &str) -> Result<Option<SavedSnapshot>, ProviderError>;
+
+    /// The saved snapshots named exactly `name`, and the account's
+    /// saved-snapshot allowance when the provider reports it.
+    fn saved_snapshots(
+        &self,
+        name: &str,
+    ) -> Result<(Vec<SavedSnapshot>, Option<SnapshotAllowance>), ProviderError>;
+
+    /// Remove a saved snapshot; `false` when it did not exist. Sandboxes
+    /// already started from it are unaffected.
+    fn delete_saved_snapshot(&self, name: &str) -> Result<bool, ProviderError>;
 }
 
 /// Open the provider described by the account settings with this key.

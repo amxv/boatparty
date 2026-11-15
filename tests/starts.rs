@@ -43,7 +43,7 @@ impl Setup {
         let root = TempDir::new(label);
         let repo = root.path().join("app");
         std::fs::create_dir_all(&repo).unwrap();
-        let status = std::process::Command::new("git")
+        let status = common::isolated("git")
             .args(["init", "-q"])
             .current_dir(&repo)
             .status()

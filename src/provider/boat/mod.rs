@@ -6,6 +6,7 @@ mod http;
 mod limits;
 mod sandboxes;
 mod scope;
+mod snapshots;
 
 use std::path::Path;
 
@@ -15,7 +16,7 @@ use crate::account::ApiKey;
 use crate::error::AppError;
 use crate::provider::{
     AccountLimits, CreateSandbox, CredentialCheck, CredentialHelp, Deletion, Provider,
-    ProviderError, Resumed, Sandbox, SandboxCost, SshAccess,
+    ProviderError, Resumed, Sandbox, SandboxCost, SavedSnapshot, SnapshotAllowance, SshAccess,
 };
 
 pub struct BoatProvider {
@@ -95,6 +96,25 @@ impl Provider for BoatProvider {
         file: &Path,
     ) -> Result<u64, ProviderError> {
         files::download_file(&self.http, id, remote_path, file)
+    }
+
+    fn save_snapshot(&self, sandbox_id: &str, name: &str) -> Result<SavedSnapshot, ProviderError> {
+        snapshots::save(&self.http, sandbox_id, name)
+    }
+
+    fn saved_snapshot(&self, name: &str) -> Result<Option<SavedSnapshot>, ProviderError> {
+        snapshots::get(&self.http, name)
+    }
+
+    fn saved_snapshots(
+        &self,
+        name: &str,
+    ) -> Result<(Vec<SavedSnapshot>, Option<SnapshotAllowance>), ProviderError> {
+        snapshots::list(&self.http, name)
+    }
+
+    fn delete_saved_snapshot(&self, name: &str) -> Result<bool, ProviderError> {
+        snapshots::delete(&self.http, name)
     }
 }
 

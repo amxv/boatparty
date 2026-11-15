@@ -20,8 +20,17 @@ use crate::transport::ssh::{SshTarget, shell_quote};
 pub use spec::{NO_SPEC, RunnerSpec};
 pub use trailer::{Piece, Trailer, TrailerFilter};
 
-/// The runner script.
-pub const SCRIPT: &str = include_str!("runner.sh");
+/// The runner script: one bash file, kept in the repository as focused parts
+/// under `script/` and joined here in this order at build time. The parts are
+/// not standalone scripts; only the joined text is uploaded and hashed.
+pub const SCRIPT: &str = concat!(
+    include_str!("script/core.sh"),
+    include_str!("script/restore.sh"),
+    include_str!("script/steps.sh"),
+    include_str!("script/credentials.sh"),
+    include_str!("script/sync.sh"),
+    include_str!("script/run.sh"),
+);
 
 /// Exit status of an invocation whose runner version is not on the sandbox.
 pub const EXIT_MISSING: i32 = 96;
@@ -252,6 +261,26 @@ mod tests {
             remote_script_path(),
             format!("/home/user/.boatparty/bin/runner-{}.sh", script_hash())
         );
+    }
+
+    #[test]
+    fn the_parts_join_into_one_script() {
+        let parts = [
+            include_str!("script/core.sh"),
+            include_str!("script/restore.sh"),
+            include_str!("script/steps.sh"),
+            include_str!("script/credentials.sh"),
+            include_str!("script/sync.sh"),
+            include_str!("script/run.sh"),
+        ];
+        // Each part ends a line, so no line runs into the next part.
+        for part in parts {
+            assert!(part.ends_with('\n'));
+        }
+        assert!(SCRIPT.starts_with("#!/usr/bin/env bash\n"));
+        assert_eq!(SCRIPT.matches("#!/usr/bin/env bash").count(), 1);
+        assert_eq!(SCRIPT, parts.concat());
+        assert!(SCRIPT.trim_end().ends_with("esac"));
     }
 
     #[test]

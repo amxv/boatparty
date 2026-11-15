@@ -437,7 +437,7 @@ fn git_spy(dir: &Path) -> PathBuf {
 }
 
 fn hash(text: &str) -> String {
-    let mut child = Command::new("git")
+    let mut child = common::isolated("git")
         .args(["-C", "/", "hash-object", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

@@ -5,13 +5,13 @@
 //! argument list, and are never written to the sandbox. The runner exports
 //! the identity to the command's environment and serves the token to Git's
 //! credential helper over a socket that lives exactly as long as the
-//! command (see `runner.sh`, "Build credentials"). On this side the token
+//! command (see `src/runner/script/credentials.sh`). On this side the token
 //! is read only when a command is about to run with it, held in memory and
 //! never recorded in state, runs or output.
 
 use std::path::Path;
+use std::process::{Command, Stdio};
 
-use super::git;
 use super::seed::{Secret, TokenSource};
 
 /// What one command gets.
@@ -77,15 +77,46 @@ impl RunCredentials {
     }
 }
 
-/// One value of the repository's effective Git configuration (local,
-/// global, system and includes), if set and not empty.
+/// One value of the repository's configuration files (local, worktree,
+/// global, system and their includes), if set and not empty.
+///
+/// Configuration injected through the environment (`GIT_CONFIG_COUNT`,
+/// `GIT_CONFIG_KEY_<n>`, `GIT_CONFIG_VALUE_<n>`, `GIT_CONFIG_PARAMETERS`) is
+/// ignored: it outranks even the repository's own file, and boatparty's
+/// runner sets exactly these for every command. Honoring it would make a
+/// boatparty run inside a boatparty command report the outer developer's
+/// identity instead of the repository's.
 fn config_value(root: &Path, key: &str) -> Option<String> {
-    let output = git(root, &["config", "--get", key], &[], None, true).ok()?;
+    let mut command = Command::new("git");
+    command
+        .args(["config", "--get", key])
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    for name in injected_config_vars() {
+        command.env_remove(name);
+    }
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
     let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!value.is_empty() && printable(&value)).then_some(value)
+}
+
+/// The names of this process's environment variables that inject Git
+/// configuration.
+fn injected_config_vars() -> Vec<std::ffi::OsString> {
+    std::env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            let name = name.to_string_lossy();
+            name == "GIT_CONFIG_COUNT"
+                || name == "GIT_CONFIG_PARAMETERS"
+                || name.starts_with("GIT_CONFIG_KEY_")
+                || name.starts_with("GIT_CONFIG_VALUE_")
+        })
+        .collect()
 }
 
 fn printable(value: &str) -> bool {

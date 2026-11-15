@@ -1,4 +1,5 @@
 pub mod account;
+pub mod base;
 pub mod cli;
 pub mod commands;
 pub mod config;
@@ -75,6 +76,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Assign(args) => commands::pin::assign(&ctx, &args),
         Command::Dock(args) => commands::dock::run(&ctx, &args),
         Command::Rm(args) => commands::rm::run(&ctx, &args),
+        Command::Base(args) => commands::base::run(&ctx, &args),
         Command::Log(args) => commands::log::run(&ctx, &args),
         Command::IdleHelper(args) => {
             pool::lease::idle_helper(&ctx.paths, &args.project, &args.member)?;

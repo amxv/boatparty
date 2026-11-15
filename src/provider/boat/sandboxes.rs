@@ -262,6 +262,9 @@ pub fn create_body(request: &CreateSandbox) -> Value {
     {
         body["environment"] = json!(environment);
     }
+    if let Some(from) = &request.from {
+        body["from"] = json!(from);
+    }
     body
 }
 
@@ -537,8 +540,10 @@ mod tests {
             no_env: true,
             environment: None,
             idempotency_key: "k".into(),
+            from: None,
         };
         let body = create_body(&request);
+        assert!(body.get("from").is_none());
         assert_eq!(body["noEnv"], true);
         assert_eq!(body["type"], "default");
         assert_eq!(body["ttlSeconds"], 900);
@@ -548,11 +553,20 @@ mod tests {
         let named = CreateSandbox {
             no_env: false,
             environment: Some("ci-secrets".into()),
-            ..request
+            ..request.clone()
         };
         let body = create_body(&named);
         assert_eq!(body["noEnv"], false);
         assert_eq!(body["environment"], "ci-secrets");
+        // From a base, the request still names noEnv itself: a deploy would
+        // otherwise inherit the snapshot source's setting.
+        let based = CreateSandbox {
+            from: Some("bp-app".into()),
+            ..request
+        };
+        let body = create_body(&based);
+        assert_eq!(body["from"], "bp-app");
+        assert_eq!(body["noEnv"], true);
     }
 
     #[test]

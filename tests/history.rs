@@ -7,7 +7,6 @@ mod common;
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use boatparty::sync::pack::usable_known;
 use boatparty::sync::{
@@ -59,7 +58,7 @@ fn commit(dir: &Path, message: &str) -> String {
 }
 
 fn has_object(dir: &Path, sha: &str) -> bool {
-    Command::new("git")
+    common::isolated("git")
         .args(["cat-file", "-e", sha])
         .current_dir(dir)
         .status()
@@ -75,7 +74,7 @@ fn assert_head_mirror(local: &Path, remote: &Path) {
         git(local, &["rev-parse", "HEAD"])
     );
     let branch = |dir: &Path| {
-        Command::new("git")
+        common::isolated("git")
             .args(["symbolic-ref", "-q", "--short", "HEAD"])
             .current_dir(dir)
             .output()

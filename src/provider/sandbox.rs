@@ -130,6 +130,8 @@ pub struct CreateSandbox {
     pub environment: Option<String>,
     /// Exactly-once key: a retry with the same key returns the same sandbox.
     pub idempotency_key: String,
+    /// Start from this saved snapshot instead of a blank disk.
+    pub from: Option<String>,
 }
 
 /// What a resume did.

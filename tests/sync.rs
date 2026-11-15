@@ -5,7 +5,7 @@ mod common;
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use boatparty::runner::{RunnerHost, Trailer, TrailerFilter};
@@ -154,7 +154,7 @@ fn a_thin_pack_whose_base_the_sandbox_lacks_answers_needfull_and_the_client_reco
     let snapshot = sync::snapshot(&info).unwrap();
 
     // The raw runner: a pack that assumes HEAD, sent to an empty sandbox.
-    let mut pack_objects = Command::new("git")
+    let mut pack_objects = common::isolated("git")
         .args(["pack-objects", "--stdout", "--revs", "--thin", "-q"])
         .current_dir(&local)
         .stdin(Stdio::piped())
@@ -369,7 +369,7 @@ fn ignored_files_never_leave_the_machine() {
 
     // The ignored directory's content was never sent.
     let ignored_blob = git(&local, &["hash-object", "ignored/big.bin"]);
-    let probe = Command::new("git")
+    let probe = common::isolated("git")
         .args(["cat-file", "-e", &ignored_blob])
         .current_dir(&remote)
         .status()
@@ -387,7 +387,7 @@ fn ignored_files_never_leave_the_machine() {
     let listed = git(&remote, &["ls-tree", "-r", "--name-only", &outcome.tree]);
     assert!(!listed.lines().any(|line| line == "secret.env"), "{listed}");
     let second_blob = git(&local, &["hash-object", "secret.env"]);
-    let probe = Command::new("git")
+    let probe = common::isolated("git")
         .args(["cat-file", "-e", &second_blob])
         .current_dir(&remote)
         .status()
@@ -431,7 +431,7 @@ fn detached_head_is_mirrored_detached() {
     let host = LocalRunner::new(root.path(), "remote");
     load(&local, &host, &mut Member::default());
     assert_eq!(git(&host.repo, &["rev-parse", "HEAD"]), head);
-    let symbolic = Command::new("git")
+    let symbolic = common::isolated("git")
         .args(["symbolic-ref", "-q", "HEAD"])
         .current_dir(&host.repo)
         .status()

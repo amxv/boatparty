@@ -8,10 +8,29 @@ use std::process::{Command, Stdio};
 
 use boatparty::runner::{RunnerHost, RunnerSpec};
 
-pub const SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/runner/runner.sh");
+/// The runner as the binary uploads it (its parts joined), written once per
+/// version to a file the local child runs by path.
+pub fn script() -> &'static Path {
+    static PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        let text = boatparty::runner::SCRIPT;
+        let path = std::env::temp_dir().join(format!(
+            "boatparty-test-runner-{}.sh",
+            boatparty::runner::script_hash()
+        ));
+        if fs::read_to_string(&path).ok().as_deref() != Some(text) {
+            // Written aside and renamed, so a concurrent test binary never
+            // runs a half-written file.
+            let partial = path.with_extension(format!("{}.partial", std::process::id()));
+            fs::write(&partial, text).unwrap();
+            fs::rename(&partial, &path).unwrap();
+        }
+        path
+    })
+}
 
 pub fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = super::isolated("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_AUTHOR_NAME", "t")
@@ -75,14 +94,14 @@ impl LocalRunner {
 impl RunnerHost for LocalRunner {
     fn command(&self, args: &[String]) -> Command {
         if self.missing.get() {
-            let mut command = Command::new("sh");
+            let mut command = super::isolated("sh");
             command.args(["-c", "echo boatparty-runner-missing >&2; exit 96"]);
             return command;
         }
         self.spawned.borrow_mut().push(args.to_vec());
-        let mut command = Command::new("bash");
+        let mut command = super::isolated("bash");
         command
-            .arg(SCRIPT)
+            .arg(script())
             .args(args)
             .env("BOATPARTY_RUNNER_REPO", &self.repo)
             .env("BOATPARTY_RUNNER_STATE", &self.state)

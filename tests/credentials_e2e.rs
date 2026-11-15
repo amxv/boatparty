@@ -90,7 +90,7 @@ fn assert_no_token_under(dir: &Path) {
 
 fn git_hash(value: &str) -> String {
     use std::io::Write;
-    let mut child = std::process::Command::new("git")
+    let mut child = common::isolated("git")
         .args(["-C", "/", "hash-object", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

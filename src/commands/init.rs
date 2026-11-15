@@ -45,6 +45,10 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
     };
     load_account(ctx)?;
     let registered = account::config::register_project(&ctx.paths, &name)?;
+    let (base, base_note) = match workspace.load_project(&ctx.paths) {
+        Ok(project) => super::base::summary(ctx, &project, &workspace.root),
+        Err(_) => (serde_json::Value::Null, None),
+    };
 
     if ctx.out.is_json() {
         ctx.out.document(&json!({
@@ -64,6 +68,7 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
             "detected_from": detected.as_ref().map(|found| found.markers.clone()),
             "registered": registered,
             "account_file": ctx.paths.account_file().display().to_string(),
+            "base": base,
         }));
     } else {
         if wrote {
@@ -98,6 +103,9 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
                 "registered project {name} in {}",
                 ctx.paths.account_file().display()
             ));
+        }
+        if let Some(note) = base_note {
+            ctx.out.text(note);
         }
         ctx.out
             .text("next: `boatparty launch` starts this workspace's sandbox");

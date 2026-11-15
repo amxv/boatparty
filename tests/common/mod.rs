@@ -40,9 +40,44 @@ impl Drop for TempDir {
     }
 }
 
+/// Variables of the environment the tests themselves run in that would leak
+/// into what they observe. Tests run inside `boatparty cheers` too, whose
+/// runner exports the developer's Git identity (GIT_AUTHOR_*, GIT_COMMITTER_*
+/// and user.name and user.email through GIT_CONFIG_COUNT), `BOATPARTY=1`
+/// and, with a token, `BOATPARTY_CREDENTIAL_SOCKET`. Every process a test
+/// starts drops them, so results do not depend on where the tests run.
+pub fn ambient_vars() -> Vec<std::ffi::OsString> {
+    std::env::vars_os()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            let name = name.to_string_lossy();
+            name == "BOATPARTY"
+                || name == "BOATPARTY_CREDENTIAL_SOCKET"
+                || name == "GIT_CONFIG_COUNT"
+                || name == "GIT_CONFIG_PARAMETERS"
+                || name.starts_with("GIT_CONFIG_KEY_")
+                || name.starts_with("GIT_CONFIG_VALUE_")
+                || name.starts_with("GIT_AUTHOR_")
+                || name.starts_with("GIT_COMMITTER_")
+        })
+        .collect()
+}
+
+/// A std command for `program` without the ambient variables.
+pub fn isolated(program: &str) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    for name in ambient_vars() {
+        command.env_remove(name);
+    }
+    command
+}
+
 /// The binary with an isolated environment rooted at `home`.
 pub fn boatparty(home: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_boatparty"));
+    for name in ambient_vars() {
+        command.env_remove(name);
+    }
     command
         .env("BOATPARTY_HOME", home)
         .env_remove("BOATPARTY_BOAT_API_KEY")

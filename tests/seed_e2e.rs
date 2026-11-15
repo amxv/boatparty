@@ -231,7 +231,7 @@ fn a_fresh_member_is_seeded_with_a_gh_token_that_never_leaks() {
 
 fn git_hash(text: &str) -> String {
     use std::io::Write;
-    let mut child = std::process::Command::new("git")
+    let mut child = common::isolated("git")
         .args(["-C", "/", "hash-object", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use acquire::LeaseRequest;
-pub use bringup::{BringUp, Up, ensure_connected};
+pub use bringup::{BringUp, Up, bring_up_builder, ensure_connected, release_builder};
 
 use crate::account::ProjectSettings;
 use crate::account::config::AccountConfig;

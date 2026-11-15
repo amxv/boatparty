@@ -1,3 +1,4 @@
+pub mod base;
 pub mod board;
 pub mod cheers;
 pub mod config;

@@ -87,7 +87,7 @@ impl E2e {
              done\n\
              for a in \"$@\"; do last=\"$a\"; done\n\
              cmd=$(printf '%s' \"$last\" | sed -e 's#/home/user/#{remote}/#g')\n\
-             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; esac\n\
+             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; *' settle app '*) echo ssh-settle >> '{events}';; esac\n\
              exec sh -c \"$cmd\"\n",
             remote = self.remote().display(),
             events = self.events().display(),

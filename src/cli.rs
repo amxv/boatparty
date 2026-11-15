@@ -65,6 +65,9 @@ pub enum Command {
     Assign(AssignArgs),
     /// Delete a sandbox at the provider and forget it.
     Rm(RmArgs),
+    /// Build, inspect or remove this project's base: a saved snapshot that
+    /// new sandboxes start from with dependencies already built.
+    Base(BaseArgs),
     /// Store the boat API key, read from standard input.
     Login(LoginArgs),
     /// Check that this machine and the stored API key are ready.
@@ -310,6 +313,50 @@ pub struct DockArgs {
 pub struct RmArgs {
     /// The sandbox to delete (name or id); defaults to this workspace's.
     pub member: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "The base is optional. Without one, every new sandbox installs and builds \
+                  dependencies on its first command; with one, it starts from the saved snapshot \
+                  bp-<project> and its first sync sends only what changed since the base \
+                  commit. Sandboxes that already exist are not affected by a new base. Nothing \
+                  rebuilds the base by itself: `base status` says how fresh it is."
+)]
+pub struct BaseArgs {
+    #[command(subcommand)]
+    pub action: BaseAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BaseAction {
+    /// Build the base: warm the builder sandbox at the base ref and save it.
+    #[command(
+        after_help = "Brings up the project's builder sandbox (bp-<project>-builder: never \
+                      leased to a workspace, not counted against max_sandboxes, stopped between \
+                      builds so a rebuild is incremental), syncs the base ref (`[base] ref`; by \
+                      default the default remote branch, origin/HEAD or origin/main or \
+                      origin/master, when the repository has one, else HEAD) in the project's \
+                      history mode, runs the setup and ensure steps and `[base] warm`, settles \
+                      the checkout, waits until the builder's files are complete, stops it and \
+                      saves it as the saved snapshot bp-<project>. The base is recorded only \
+                      once the save is ready, so a failed build leaves the previous base in \
+                      use. The builder gets no account secrets (noEnv) and no credential is \
+                      written to its disk."
+    )]
+    Build,
+    /// Show the base: its commit, age, commits behind its ref, changed
+    /// stale inputs, size, and the account's saved-snapshot allowance.
+    Status,
+    /// Delete the base's saved snapshot, its record and the builder sandbox.
+    Rm(BaseRmArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct BaseRmArgs {
+    /// Keep the stopped builder sandbox, so a later build is incremental.
+    #[arg(long)]
+    pub keep_builder: bool,
 }
 
 #[derive(Debug, Args)]

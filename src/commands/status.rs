@@ -51,6 +51,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         rows.push((member, sandbox));
     }
     let untracked: Vec<Sandbox> = by_id.into_values().collect();
+    let (base, base_note) = super::base::summary(ctx, &wctx.project, &wctx.workspace.root);
 
     if ctx.out.is_json() {
         ctx.out.document(&json!({
@@ -66,6 +67,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
                 "name": sandbox.name,
                 "state": sandbox.state.as_str(),
             })).collect::<Vec<_>>(),
+            "base": base,
         }));
         return Ok(0);
     }
@@ -106,6 +108,9 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             sandbox.id,
             sandbox.state
         ));
+    }
+    if let Some(note) = base_note {
+        ctx.out.text(note);
     }
     Ok(0)
 }

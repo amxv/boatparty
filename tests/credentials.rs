@@ -151,7 +151,7 @@ fn assert_no_token_under(dir: &Path) {
 
 /// The SHA-1 Git gives `text` as a blob.
 fn git_hash(text: &str) -> String {
-    let mut child = std::process::Command::new("git")
+    let mut child = common::isolated("git")
         .args(["-C", "/", "hash-object", "--stdin"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
