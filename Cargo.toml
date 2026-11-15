@@ -9,7 +9,7 @@ repository = "https://github.com/amxv/boatparty"
 homepage = "https://github.com/amxv/boatparty#readme"
 readme = "README.md"
 publish = false
-include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
+include = ["/src/**", "/skill/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE"]
 keywords = ["cli", "sandbox", "boat", "remote-build", "git"]
 categories = ["command-line-utilities"]
 

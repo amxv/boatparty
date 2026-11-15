@@ -353,6 +353,8 @@ fn doctor_passes_with_tools_and_a_complete_key() {
     let output = boatparty(home.path())
         .env("BOATPARTY_BOAT_API_URL", boat.url())
         .env("PATH", &tools)
+        // No control sockets: the machine's own masters are not this test's.
+        .env("BOATPARTY_CONTROL_DIR", "/nonexistent/boatparty-sockets")
         .args(["doctor", "--json"])
         .output()
         .unwrap();
@@ -382,6 +384,8 @@ fn doctor_passes_with_tools_and_a_complete_key() {
             ("key", "ok"),
             ("key_scope", "ok"),
             ("pools", "ok"),
+            ("ssh_configs", "ok"),
+            ("control_sockets", "ok"),
         ]
     );
     // One validity call plus one probe per other action; none touch a real sandbox.

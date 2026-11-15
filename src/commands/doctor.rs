@@ -1,6 +1,11 @@
 //! `boatparty doctor`: is this machine ready, and does the key allow
 //! everything boatparty does? Every failed check prints the command that
 //! fixes it. The key itself is never shown.
+//!
+//! It also matches every project's records with the provider (as `pool
+//! --refresh` does) and then reports leftovers: SSH configs and pinned host
+//! keys of sandboxes no record names, and control sockets no master answers
+//! on. Those are warnings, with the command that removes them.
 
 use std::env;
 use std::fs;
@@ -18,6 +23,8 @@ use crate::provider::{self, CredentialCheck, CredentialHelp};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Status {
     Ok,
+    /// Worth cleaning up; not a failure.
+    Warn,
     Fail,
     Skipped,
 }
@@ -26,6 +33,7 @@ impl Status {
     fn as_str(self) -> &'static str {
         match self {
             Self::Ok => "ok",
+            Self::Warn => "warn",
             Self::Fail => "fail",
             Self::Skipped => "skipped",
         }
@@ -54,6 +62,15 @@ impl Check {
         Self {
             name,
             status: Status::Fail,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+        }
+    }
+
+    fn warn(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+        Self {
+            name,
+            status: Status::Warn,
             detail: detail.into(),
             fix: Some(fix.into()),
         }
@@ -169,6 +186,10 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         }
     }
 
+    // After the pools check, which may have dropped records.
+    checks.push(ssh_files_check(ctx));
+    checks.push(control_sockets_check(ctx));
+
     let failed = checks
         .iter()
         .filter(|check| check.status == Status::Fail)
@@ -243,6 +264,127 @@ fn pool_check(
             if names.len() == 1 { "" } else { "s" }
         ),
     )
+}
+
+/// SSH configs and pinned host keys (`<id>.conf`, `<id>.known_hosts`) of
+/// sandboxes that no record in state.json names.
+fn ssh_files_check(ctx: &Context) -> Check {
+    let state = match crate::state::Store::new(&ctx.paths).load() {
+        Ok(state) => state,
+        Err(error) => return Check::skipped("ssh_configs", error.message()),
+    };
+    let known: std::collections::BTreeSet<String> = state
+        .projects
+        .values()
+        .flat_map(|project| project.members.iter())
+        .filter_map(|member| member.id.clone())
+        .collect();
+    let dir = ctx.paths.ssh_state_dir();
+    let mut total = 0;
+    let mut stale = Vec::new();
+    for path in files_in(&dir) {
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Some(id) = name
+            .strip_suffix(".conf")
+            .or_else(|| name.strip_suffix(".known_hosts"))
+        else {
+            continue;
+        };
+        total += 1;
+        if !known.contains(id) {
+            stale.push(path);
+        }
+    }
+    if stale.is_empty() {
+        return Check::ok(
+            "ssh_configs",
+            format!(
+                "{total} file{} in {}, none stale",
+                plural(total),
+                dir.display()
+            ),
+        );
+    }
+    Check::warn(
+        "ssh_configs",
+        format!(
+            "{} stale file{} for sandboxes no record names: {}",
+            stale.len(),
+            plural(stale.len()),
+            names(&stale)
+        ),
+        remove_command(&stale),
+    )
+}
+
+/// Control sockets no SSH master answers on: what a master that died
+/// without cleaning up leaves behind.
+fn control_sockets_check(ctx: &Context) -> Check {
+    use std::os::unix::fs::FileTypeExt;
+    let dir = ctx.paths.control_dir();
+    let mut total = 0;
+    let mut stale = Vec::new();
+    for path in files_in(&dir) {
+        let is_socket = fs::symlink_metadata(&path)
+            .map(|meta| meta.file_type().is_socket())
+            .unwrap_or(false);
+        if !is_socket {
+            continue;
+        }
+        total += 1;
+        if std::os::unix::net::UnixStream::connect(&path).is_err() {
+            stale.push(path);
+        }
+    }
+    if stale.is_empty() {
+        return Check::ok(
+            "control_sockets",
+            format!(
+                "{total} socket{} in {}, none stale",
+                plural(total),
+                dir.display()
+            ),
+        );
+    }
+    Check::warn(
+        "control_sockets",
+        format!(
+            "{} stale socket{} no SSH master answers on: {}",
+            stale.len(),
+            plural(stale.len()),
+            names(&stale)
+        ),
+        remove_command(&stale),
+    )
+}
+
+/// The entries of `dir`, sorted; none when it does not exist.
+fn files_in(dir: &Path) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    paths
+}
+
+fn names(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .filter_map(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn remove_command(paths: &[PathBuf]) -> String {
+    let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
+    format!("rm -f {}", quoted.join(" "))
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
 }
 
 fn credential_check(source: &KeySource) -> Check {
@@ -347,6 +489,7 @@ fn render(checks: &[Check]) -> String {
     for check in checks {
         let label = match check.status {
             Status::Ok => "ok  ",
+            Status::Warn => "warn",
             Status::Fail => "FAIL",
             Status::Skipped => "skip",
         };

@@ -563,6 +563,7 @@ fn attempt(
             pack: route.input,
             root: &request.info.root,
             hold_stdin: command.is_some(),
+            input: None,
         },
         sink,
         cancel,

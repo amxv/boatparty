@@ -1,5 +1,5 @@
 //! A `session` lease around work on this workspace's member that does not
-//! sync: `board` and `fetch`.
+//! sync: `board`, `fetch` and `pipe`.
 //!
 //! When the member has a live SSH master, nothing but `git` (to find the
 //! workspace), a local lease write and the work itself runs: no provider
@@ -11,7 +11,7 @@ use crate::Context;
 use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
 use crate::pool::{LeaseRequest, warm_member};
-use crate::project::Workspace;
+use crate::project::{ProjectConfig, Workspace};
 use crate::signals::Interrupts;
 use crate::state::{LeaseKind, Member, Store};
 use crate::system;
@@ -20,6 +20,8 @@ use crate::transport::ssh::SshTarget;
 /// What the work receives.
 pub(crate) struct Held<'a> {
     pub project: &'a str,
+    pub config: &'a ProjectConfig,
+    pub workspace: &'a Workspace,
     pub member: &'a Member,
     pub target: &'a SshTarget,
 }
@@ -52,6 +54,8 @@ pub(crate) fn with_session<T>(
     let mut heartbeat = Heartbeat::for_member(&ctx.paths, &id, times);
     let result = work(&Held {
         project: name,
+        config: &project,
+        workspace: &workspace,
         member: &member,
         target: &target,
     });

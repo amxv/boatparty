@@ -15,6 +15,9 @@ use crate::error::AppError;
 use crate::provider::HostPort;
 
 pub fn run(ctx: &Context, args: &ExposeArgs) -> Result<u8, AppError> {
+    if args.hide {
+        return hide(ctx, args.port);
+    }
     let request = HostPort {
         port: args.port,
         public: args.public,
@@ -67,5 +70,42 @@ pub fn run(ctx: &Context, args: &ExposeArgs) -> Result<u8, AppError> {
             hosted.port
         ));
     }
+    Ok(ended.interrupted.unwrap_or(0))
+}
+
+/// `expose --hide`: the sandbox's own `host hide <port>` (the provider has
+/// no API for it), over SSH like `board`.
+fn hide(ctx: &Context, port: u16) -> Result<u8, AppError> {
+    let label = format!("expose --hide {port}");
+    let ended = with_session(ctx, &label, |held| {
+        let (code, stderr) = held.target.run_quiet(&format!("host hide {port}"))?;
+        if code != 0 {
+            return Err(AppError::new(
+                "hide_failed",
+                format!(
+                    "`host hide {port}` on {} failed (exit {code}): {stderr}",
+                    held.member.name
+                ),
+            ));
+        }
+        Ok((
+            held.member.name.clone(),
+            held.member.id.clone().unwrap_or_default(),
+            held.project.to_string(),
+        ))
+    })?;
+    let (member, id, project) = ended.value?;
+    if ctx.out.is_json() {
+        ctx.out.document(&json!({
+            "ok": true,
+            "project": project,
+            "member": { "name": member, "id": id },
+            "port": port,
+            "hidden": true,
+        }));
+    }
+    ctx.out.note(format_args!(
+        "took down the URL of port {port} on {member} ({id}); the server keeps running"
+    ));
     Ok(ended.interrupted.unwrap_or(0))
 }

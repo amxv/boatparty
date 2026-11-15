@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod contract;
 pub mod e2e;
 pub mod runner;
 

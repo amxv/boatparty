@@ -211,6 +211,7 @@ case "$mode" in
     serve_mode=1
     mode_run "$@"
     ;;
+  pipe) mode_pipe "$@" ;;
   seed) mode_seed "$@" ;;
   credential) mode_credential "$@" ;;
   maintain) mode_maintain ;;

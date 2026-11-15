@@ -44,8 +44,18 @@ pub fn run() -> ExitCode {
         }
     };
     let out = Output::new(cli.json);
+    // A streaming command's failure is its result frame, even when it fails
+    // before streaming anything.
+    let streaming = matches!(
+        cli.command,
+        Command::Cheers(_) | Command::Cruise(_) | Command::Pipe(_) | Command::Board(_)
+    );
     match dispatch(cli, out) {
         Ok(status) => ExitCode::from(status),
+        Err(error) if streaming => {
+            stream::Stream::new(out.is_json()).error(&error);
+            ExitCode::from(error.exit_code())
+        }
         Err(error) => {
             out.error(&error);
             ExitCode::from(error.exit_code())
@@ -68,6 +78,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Cruise(args) => commands::cruise::run(&ctx, &args),
         Command::Board(args) => commands::board::run(&ctx, &args),
         Command::Load => commands::load::run(&ctx),
+        Command::Pipe(args) => commands::pipe::run(&ctx, &args),
         Command::Fetch(args) => commands::fetch::run(&ctx, &args),
         Command::Forward(args) => commands::forward::run(&ctx, &args),
         Command::Expose(args) => commands::expose::run(&ctx, &args),
@@ -81,6 +92,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Rm(args) => commands::rm::run(&ctx, &args),
         Command::Base(args) => commands::base::run(&ctx, &args),
         Command::Log(args) => commands::log::run(&ctx, &args),
+        Command::Skill(args) => commands::skill::run(&ctx, &args),
         Command::IdleHelper(args) => {
             pool::lease::idle_helper(&ctx.paths, &args.project, &args.member)?;
             Ok(0)

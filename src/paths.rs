@@ -12,11 +12,15 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 
 pub const HOME_ENV: &str = "BOATPARTY_HOME";
+/// Replaces the SSH control socket directory (an absolute path short enough
+/// for a socket path); for tests.
+pub const CONTROL_DIR_ENV: &str = "BOATPARTY_CONTROL_DIR";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     config_dir: PathBuf,
     state_dir: PathBuf,
+    control_dir: Option<PathBuf>,
 }
 
 impl Paths {
@@ -27,6 +31,9 @@ impl Paths {
 
     /// Resolve the roots from an arbitrary variable lookup (used by tests).
     pub fn resolve(var: impl Fn(&str) -> Option<OsString>) -> Result<Self, AppError> {
+        let control_dir = non_empty(var(CONTROL_DIR_ENV))
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute());
         if let Some(home) = non_empty(var(HOME_ENV)) {
             let home = PathBuf::from(home);
             if !home.is_absolute() {
@@ -38,6 +45,7 @@ impl Paths {
             return Ok(Self {
                 config_dir: home.join("config"),
                 state_dir: home.join("state"),
+                control_dir,
             });
         }
 
@@ -61,6 +69,7 @@ impl Paths {
         Ok(Self {
             config_dir: base("XDG_CONFIG_HOME", &[".config"])?.join("boatparty"),
             state_dir: base("XDG_STATE_HOME", &[".local", "state"])?.join("boatparty"),
+            control_dir,
         })
     }
 
@@ -126,7 +135,9 @@ impl Paths {
     /// SSH control sockets. Short and outside the state root because macOS
     /// limits a socket path to 104 bytes.
     pub fn control_dir(&self) -> PathBuf {
-        PathBuf::from(format!("/tmp/boatparty-{}", crate::system::uid()))
+        self.control_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(format!("/tmp/boatparty-{}", crate::system::uid())))
     }
 
     /// Where `boatparty skill` writes the bundled skill.

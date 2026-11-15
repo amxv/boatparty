@@ -14,6 +14,7 @@ pub mod credentials;
 pub mod exchange;
 pub mod mirror;
 pub mod pack;
+pub mod pipe;
 pub mod pullback;
 pub mod seed;
 pub mod snapshot;
@@ -31,6 +32,7 @@ pub use mirror::{
     MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
     run_command_with, serve_command_with,
 };
+pub use pipe::{PipeOutcome, pipe_command};
 pub use pullback::{PullBack, apply_pullback};
 pub use seed::{SeedConfig, SeedReport, SeedRoute, TokenSource};
 pub use snapshot::{Snapshot, snapshot};

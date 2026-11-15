@@ -45,6 +45,9 @@ pub enum Command {
     Board(BoardArgs),
     /// Stop this workspace's sandbox; its disk is kept.
     Dock(DockArgs),
+    /// Run one command in the sandbox's checkout with this process's standard
+    /// input (no sync); for input that must not be in a command line or a log.
+    Pipe(PipeArgs),
     /// Copy a file or directory from the sandbox to this machine (no sync).
     Fetch(FetchArgs),
     /// Forward a local port to a port on the sandbox until cancelled.
@@ -83,8 +86,11 @@ pub enum Command {
     /// Show the account's and every project's limits and usage, or change a
     /// limit with `limits set`.
     Limits(LimitsArgs),
-    /// List recent runs (`cheers`), oldest first.
+    /// List recent runs (`cheers`, `cruise`, `pipe`), oldest first.
     Log(LogArgs),
+    /// Write boatparty's skill for coding agents to the state directory and
+    /// print its path (installs nothing).
+    Skill(SkillArgs),
     /// Internal: set a member's idle deadline after its last lease ended.
     #[command(name = "__idle", hide = true)]
     IdleHelper(IdleHelperArgs),
@@ -220,6 +226,48 @@ fn parse_minutes(value: &str) -> Result<f64, String> {
 }
 
 #[derive(Debug, Args)]
+#[command(
+    group(ArgGroup::new("what").required(true).args(["sh", "command"])),
+    after_help = "Examples:\n  \
+                  printf '%s\\n' \"$UPLOAD_URL\" | boatparty pipe -- bash scripts/upload.sh\n  \
+                  boatparty pipe --sh 'cat > ~/.config/app/token && chmod 600 ~/.config/app/token' < token.txt\n\n\
+                  Runs the command in the sandbox's checkout (/home/user/<project>) with this \
+                  process's standard input as its standard input, byte for byte. Nothing is synced \
+                  first and no setup or ensure step runs; the project's credentials ([run] \
+                  git_identity and github_token) and [run.env] apply as for `cheers`. The input is \
+                  never written to runs.jsonl, state.json or boatparty's messages, so use pipe, not \
+                  an argument, for a secret. Files the command changes stay on the sandbox.\n\n\
+                  If this process dies in any way, SIGKILL included, the sandbox stops the command \
+                  within seconds, even while its input is still open. stdout is passed through \
+                  byte for byte. Exit status: the command's own; 125 when boatparty itself \
+                  failed; 130 or 143 after SIGINT or SIGTERM, which also stop the command. With \
+                  --json, stdout carries the frames `cheers` uses, then one result frame."
+)]
+pub struct PipeArgs {
+    /// Run this shell line as given instead of a quoted argument list.
+    #[arg(long, value_name = "LINE", conflicts_with = "command")]
+    pub sh: Option<String>,
+
+    /// The command to run, after `--`. Every word is quoted.
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Writes the skill (a SKILL.md that teaches a coding agent to use \
+                  boatparty, matching this binary's version) to \
+                  <state dir>/skill/boatparty/SKILL.md and prints that path. It installs nothing: \
+                  copy the directory into an agent's skills directory only if the user asks for \
+                  it. --print writes the skill to stdout instead of a file."
+)]
+pub struct SkillArgs {
+    /// Print the skill's text on stdout instead of writing the file.
+    #[arg(long)]
+    pub print: bool,
+}
+
+#[derive(Debug, Args)]
 #[command(after_help = "Examples:\n  \
                   boatparty forward 5432               127.0.0.1:5432 here reaches port 5432 on the sandbox\n  \
                   boatparty forward 8000:18000         127.0.0.1:18000 here reaches port 8000 there\n  \
@@ -243,13 +291,16 @@ pub struct ForwardArgs {
 #[command(after_help = "Examples:\n  \
                   boatparty expose 8000                     a URL that only works with its token\n  \
                   boatparty expose 5173 --localhost         for a service bound to 127.0.0.1\n  \
-                  boatparty expose 8000 --public --title docs   anyone can open it\n\n\
+                  boatparty expose 8000 --public --title docs   anyone can open it\n  \
+                  boatparty expose 8000 --hide              take the URL down again\n\n\
                   Prints the URL on stdout and nowhere else. Without --public it carries an access \
                   token (`_token`): treat the whole URL like a password. The URL stays the same for \
                   this sandbox and port, across stops and resumes. boatparty does not keep it in \
                   its state or logs; run the command again to print it again. Ports the provider \
                   uses (22, 6080, 8090, 8911, 47984 to 48010) are refused. The service must listen \
-                  on 0.0.0.0, or on 127.0.0.1 with --localhost.")]
+                  on 0.0.0.0, or on 127.0.0.1 with --localhost. --hide takes the URL down (the \
+                  server keeps running; the access token is kept, so exposing the port again \
+                  brings the same URL back).")]
 pub struct ExposeArgs {
     /// The sandbox port the service listens on.
     #[arg(value_name = "PORT", value_parser = crate::transport::forward::parse_expose_port)]
@@ -266,6 +317,10 @@ pub struct ExposeArgs {
     /// A display title for the exposed port.
     #[arg(long, value_name = "TITLE")]
     pub title: Option<String>,
+
+    /// Take the port's URL down instead.
+    #[arg(long, conflicts_with_all = ["public", "localhost", "title"])]
+    pub hide: bool,
 }
 
 #[derive(Debug, Args)]

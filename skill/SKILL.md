@@ -1,0 +1,89 @@
+---
+name: boatparty
+description: Build, test and run a Git project on a boat.dev Linux sandbox with the boatparty CLI instead of this computer. Use for compiles, test suites, dev servers and anything that needs Linux x86_64, whenever the project has a boatparty.toml or the user asks for remote builds.
+---
+
+# boatparty
+
+This skill matches boatparty {{version}}.
+
+boatparty mirrors this Git checkout to a warm boat.dev sandbox, runs a command
+there with live output and its real exit code, and brings the command's file
+changes back. Sandboxes are Linux x86_64 (Ubuntu 24.04), whatever this computer
+is. `boatparty <command> --help` documents every command.
+
+## The six everyday commands
+
+| Command | Plain meaning |
+| --- | --- |
+| `launch` | Start this workspace's sandbox (create or resume it) |
+| `cheers` | Sync, run one command, stream its output, apply its file changes back |
+| `load` | Sync the working tree only |
+| `cruise` | Run a long-lived process (a dev server) until cancelled |
+| `board` | Open a shell in the checkout, or run one command there without syncing |
+| `dock` | Stop the sandbox; its disk is kept |
+
+## The loop
+
+```bash
+boatparty init                        # once per repository: writes boatparty.toml
+boatparty cheers -- cargo test        # every word after -- is quoted
+boatparty cheers --sh 'make 2>&1 | tail -n 20'   # one shell line
+boatparty cheers test                 # a [commands] entry, or the script runner
+boatparty load                        # sync without running anything
+boatparty cruise --forward 3000:3000 -- npm run dev   # through gg_process or similar
+boatparty status                      # this project's sandboxes
+boatparty limits                      # starts, running sandboxes, caps
+```
+
+- `cheers` exits with the command's own status. **Exit 125 means boatparty or
+  the sandbox failed, not the command**: retry once, then report it as an
+  infrastructure problem, never as a failing test.
+- stdout is the command's, byte for byte. boatparty's own messages go to
+  stderr as `boatparty: ...`. `--json` (before the command) gives JSON instead.
+- Edit locally; the next `cheers` syncs. Ignored files never leave this
+  computer, and changes the command makes to tracked or untracked files come
+  back. Ignored build outputs stay on the sandbox: get one with
+  `boatparty fetch target/release/app [dest]`.
+
+## Starts are scarce
+
+Every create or resume is a start, and the account has a few per minute,
+hour and day. Do not `dock` between commands: a sandbox stops by itself 5
+minutes after its last command ends and costs nothing while stopped. Do not
+start one only to check that it works. `boatparty limits` shows what is left.
+
+## Secrets
+
+Never put a secret in a command line: it lands in the run log. Pass it on
+standard input with `pipe`, which runs one command in the checkout without
+syncing and records nothing of the input:
+
+```bash
+printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
+```
+
+## Project settings (boatparty.toml)
+
+- `[commands]` names lines for `cheers NAME [args]`; `[run] script` (for
+  example `"bun run"`) runs package scripts by name: `cheers check:rust`.
+- `presets = ["rust"]` (also node, pnpm, bun, python, go) install
+  dependencies once, keyed by the lockfile. `boatparty preset show rust`,
+  `boatparty preset eject rust` to edit one, `boatparty config show --resolved`
+  for the effective settings, `boatparty config validate` after edits.
+- `[run] git_identity` (on by default) lets commands commit as the local user.
+  `[run] github_token = true` lets git on the sandbox reach private GitHub
+  repositories over HTTPS with `gh auth token`, for the command's lifetime
+  only. Go private modules also need `GOPRIVATE` in `[run.env]`.
+- `boatparty base build` saves a snapshot with dependencies built, so new
+  sandboxes start warm. `boatparty base status` says how stale it is.
+
+## Cautions
+
+- Do not run `rm`, `pool prune`, `base rm` or `limits set` unless the user
+  asks. They delete sandboxes or change account limits.
+- `cruise --forward LOCAL:REMOTE` reaches a server on this computer's
+  127.0.0.1. `boatparty expose PORT` gives a token-gated public URL instead
+  (the server must listen on 0.0.0.0, or add `--localhost`); it is printed
+  only on stdout, so treat it like a password. `expose PORT --hide` takes it
+  down.

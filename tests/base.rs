@@ -10,6 +10,7 @@ use std::fs;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+use common::contract::assert_shape;
 use common::e2e::E2e;
 use common::runner::git;
 use common::{FakeBoat, Reply, Request};
@@ -283,6 +284,7 @@ fn a_build_runs_its_steps_in_order_and_records_the_base() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     let report = json_of(&output.stdout);
+    assert_shape("base build", &report);
     let head = git(&setup.repo(), &["rev-parse", "HEAD"]);
     assert_eq!(report["base"]["snapshot"], "bp-app");
     assert_eq!(report["base"]["commit"], head);
@@ -557,6 +559,7 @@ fn base_status_reports_freshness_and_rm_removes_snapshot_record_and_builder() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report = json_of(&output.stdout);
+    assert_shape("base status", &report);
     assert_eq!(report["saved"]["status"], "ready");
     assert_eq!(report["staleness"]["behind"], 2);
     assert_eq!(report["staleness"]["inputs_changed"], json!(["deps.lock"]));
@@ -569,6 +572,7 @@ fn base_status_reports_freshness_and_rm_removes_snapshot_record_and_builder() {
         .output()
         .unwrap();
     let status = json_of(&output.stdout);
+    assert_shape("status", &status);
     assert_eq!(status["base"]["present"], true);
     assert_eq!(status["base"]["stale"], true);
 
@@ -583,6 +587,7 @@ fn base_status_reports_freshness_and_rm_removes_snapshot_record_and_builder() {
         String::from_utf8_lossy(&output.stderr)
     );
     let report = json_of(&output.stdout);
+    assert_shape("base rm", &report);
     assert_eq!(report["snapshot_deleted"], true);
     assert_eq!(report["record_removed"], true);
     assert_eq!(report["builder_deleted"]["id"], "bx_b");

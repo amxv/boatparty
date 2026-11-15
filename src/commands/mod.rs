@@ -15,10 +15,12 @@ pub mod load;
 pub mod log;
 pub mod login;
 pub mod pin;
+pub mod pipe;
 pub mod pool;
 pub mod preset;
 pub mod rm;
 mod session;
+pub mod skill;
 pub mod status;
 
 use crate::Context;

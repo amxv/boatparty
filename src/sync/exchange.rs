@@ -1,6 +1,11 @@
 //! One invocation of the runner: write a header and an optional pack into its
 //! stdin, pump its stdout and stderr, and pick out the trailer and events.
 //!
+//! With caller input (`pipe`), that input follows the header as frames (a
+//! 4-byte big-endian length, then the bytes; length 0 ends it), and only
+//! once the runner reports `started`, so an invocation that never started
+//! (a missing runner) has consumed none of it.
+//!
 //! Both output pipes are read by threads that hand chunks to the calling
 //! thread, which does all the writing and watches the child. That way the
 //! caller never blocks on a pipe forever: a multiplexed `ssh` client that dies
@@ -10,6 +15,8 @@
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -78,7 +85,27 @@ pub struct Spec<'a> {
     /// Keep stdin open after the pack until the runner finishes (or a cancel
     /// closes it). The runner treats its end as "stop the command".
     pub hold_stdin: bool,
+    /// The caller's input, framed after the header once the runner reports
+    /// `started` (implies `hold_stdin`). It is read only from then on.
+    pub input: Option<Box<dyn Read + Send>>,
 }
+
+/// What the writer thread is told after the header and the pack.
+enum Feed {
+    /// A chunk of the caller's input, and the count of input bytes queued
+    /// for the writer, which it lowers once the chunk is written.
+    Data(Vec<u8>, Arc<AtomicUsize>),
+    /// The caller's input ended.
+    End,
+    /// Close the runner's stdin.
+    Close,
+}
+
+/// Bytes per input frame.
+const FRAME: usize = 64 * 1024;
+/// Input read ahead of the writer, at most: the reader waits beyond it, so
+/// a slow connection does not pull the whole input into memory.
+const INPUT_AHEAD: usize = 1024 * 1024;
 
 /// The pack that follows the header on the runner's stdin.
 #[derive(Debug)]
@@ -150,12 +177,14 @@ pub fn run(
             return Err(AppError::io("cannot start the runner", error));
         }
     };
-    let (close_tx, close_rx) = mpsc::channel::<()>();
+    let (close_tx, close_rx) = mpsc::channel::<Feed>();
+    let hold = spec.hold_stdin || spec.input.is_some();
+    let go = spec.input.map(|input| spawn_input(input, close_tx.clone()));
     let writer = spawn_writer(
         child.stdin.take().expect("stdin is piped"),
         spec.header,
         source,
-        spec.hold_stdin.then_some(close_rx),
+        hold.then_some(close_rx),
     );
     let (tx, rx) = mpsc::channel();
     pump(
@@ -181,13 +210,14 @@ pub fn run(
         sink,
         cancel,
         &close_tx,
+        go,
     );
     let mut tail = sniffer.pass(&filter.end());
     tail.extend(sniffer.finish());
     if !tail.is_empty() {
         sink.stderr(&tail);
     }
-    let _ = close_tx.send(());
+    let _ = close_tx.send(Feed::Close);
     let status = reap(&mut child, watched.killed);
     let pack_bytes = writer.join().unwrap_or(0);
     let trailer = filter.result();
@@ -219,7 +249,9 @@ struct Watch {
 }
 
 /// Move output to the sink until both pipes end, or until they can no
-/// longer be trusted to end.
+/// longer be trusted to end. `go` lets the caller's input flow once the
+/// runner reports `started`.
+#[allow(clippy::too_many_arguments)]
 fn watch(
     child: &mut Child,
     rx: &Receiver<Chunk>,
@@ -227,7 +259,8 @@ fn watch(
     sniffer: &mut MissingSniffer,
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
-    close: &Sender<()>,
+    close: &Sender<Feed>,
+    mut go: Option<Sender<()>>,
 ) -> Watch {
     let mut open = 2;
     let mut exited_at: Option<Instant> = None;
@@ -249,7 +282,14 @@ fn watch(
                                 sink.stderr(&printable);
                             }
                         }
-                        Piece::Event(name) => sink.event(&name),
+                        Piece::Event(name) => {
+                            if name == "started"
+                                && let Some(go) = go.take()
+                            {
+                                let _ = go.send(());
+                            }
+                            sink.event(&name);
+                        }
                     }
                 }
                 if trailer_at.is_none() && filter.complete() {
@@ -265,7 +305,7 @@ fn watch(
             CancelState::Soft if cancel_at.is_none() => {
                 result.cancelled = true;
                 cancel_at = Some(Instant::now());
-                let _ = close.send(());
+                let _ = close.send(Feed::Close);
             }
             CancelState::Soft => {}
             CancelState::Hard => {
@@ -355,15 +395,49 @@ impl Read for OpenPack {
     }
 }
 
+/// Read the caller's input, once told to, into frames for the writer. It
+/// may block on its input forever (a terminal nobody types into); it is
+/// never joined, and it reads nothing when the go signal never comes.
+fn spawn_input(mut input: Box<dyn Read + Send>, feed: Sender<Feed>) -> Sender<()> {
+    let (go_tx, go_rx) = mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        if go_rx.recv().is_err() {
+            return;
+        }
+        let queued = Arc::new(AtomicUsize::new(0));
+        let mut buffer = vec![0u8; FRAME];
+        loop {
+            while queued.load(Ordering::Acquire) > INPUT_AHEAD {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            match input.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => {
+                    queued.fetch_add(read, Ordering::AcqRel);
+                    let chunk = Feed::Data(buffer[..read].to_vec(), Arc::clone(&queued));
+                    if feed.send(chunk).is_err() {
+                        return;
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
+        }
+        let _ = feed.send(Feed::End);
+    });
+    go_tx
+}
+
 /// Write the header, then stream the pack, into the runner; then, when
-/// asked to hold stdin, keep it open until told to close it. Returns the pack
-/// bytes written. A runner that stops reading ends the copy quietly; its
-/// trailer says what happened.
+/// asked to hold stdin, keep it open until told to close it, framing any
+/// caller input that arrives meanwhile. Returns the pack (or input) bytes
+/// written. A runner that stops reading ends the copy quietly; its trailer
+/// says what happened.
 fn spawn_writer(
     mut stdin: ChildStdin,
     header: Vec<u8>,
     pack: Option<Box<dyn Read + Send>>,
-    hold: Option<Receiver<()>>,
+    hold: Option<Receiver<Feed>>,
 ) -> JoinHandle<u64> {
     std::thread::spawn(move || {
         let mut written = 0u64;
@@ -386,11 +460,46 @@ fn spawn_writer(
         }
         let _ = stdin.flush();
         if let Some(hold) = hold {
-            let _ = hold.recv();
+            let mut queued: Option<Arc<AtomicUsize>> = None;
+            while let Ok(feed) = hold.recv() {
+                let frame = match feed {
+                    Feed::Data(bytes, count) => {
+                        queued = Some(count);
+                        frame(&bytes)
+                    }
+                    Feed::End => frame(&[]),
+                    Feed::Close => break,
+                };
+                if stdin
+                    .write_all(&frame)
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+                {
+                    break;
+                }
+                let payload = frame.len().saturating_sub(4);
+                if let Some(count) = &queued {
+                    count.fetch_sub(payload, Ordering::AcqRel);
+                }
+                written += payload as u64;
+            }
+            // A reader waiting for room finds the writer gone on its next send.
+            if let Some(count) = queued {
+                count.store(0, Ordering::Release);
+            }
         }
         drop(stdin);
         written
     })
+}
+
+/// One input frame: the length as 4 big-endian bytes, then the bytes.
+fn frame(bytes: &[u8]) -> Vec<u8> {
+    let length = u32::try_from(bytes.len()).expect("frames are at most 64 KiB");
+    let mut frame = Vec::with_capacity(bytes.len() + 4);
+    frame.extend_from_slice(&length.to_be_bytes());
+    frame.extend_from_slice(bytes);
+    frame
 }
 
 /// Holds back the start of the runner's stderr while it could still be the
@@ -432,7 +541,15 @@ impl MissingSniffer {
 
 #[cfg(test)]
 mod tests {
-    use super::MissingSniffer;
+    use super::{MissingSniffer, frame};
+
+    #[test]
+    fn input_frames_carry_a_big_endian_length() {
+        assert_eq!(frame(b""), [0, 0, 0, 0]);
+        assert_eq!(frame(b"ab"), [0, 0, 0, 2, b'a', b'b']);
+        let big = vec![7u8; 0x1_0000];
+        assert_eq!(frame(&big)[..4], [0, 1, 0, 0]);
+    }
 
     #[test]
     fn the_missing_marker_is_swallowed_and_other_output_is_not() {
