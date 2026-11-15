@@ -9,10 +9,10 @@
 //! - every live lease on a member comes from its affinity workspace;
 //! - affinity changes only while the member has no live lease.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::new_member;
-use super::policy::{self, Candidate, Decision, Limits, Reassign, Running};
+use super::policy::{self, Candidate, Decision, Limits, Reassign, Running, WaitFor};
 use crate::error::AppError;
 use crate::state::{Lease, LeaseKind, Member, ProjectState, Role, State};
 use crate::system;
@@ -39,12 +39,34 @@ pub struct Request<'a> {
     pub project: &'a str,
     pub workspace: &'a str,
     pub limits: Limits,
+    /// `max_running` of the project and of the account.
+    pub max_running: RunningCaps,
     pub lease: Option<&'a LeaseRequest>,
     /// The lease holder.
     pub pid: u32,
     /// The create key for a new member, should one be created.
     pub new_key: &'a str,
     pub now: u64,
+}
+
+/// The limits on running machines.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunningCaps {
+    pub project: Option<u32>,
+    pub account: Option<u32>,
+}
+
+impl RunningCaps {
+    pub fn any(&self) -> bool {
+        self.project.is_some() || self.account.is_some()
+    }
+}
+
+/// How many machines run, as counted for `max_running`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunningCount {
+    pub project: Option<u64>,
+    pub account: Option<u64>,
 }
 
 /// How the member was found.
@@ -65,6 +87,8 @@ pub enum Outcome {
     /// Nothing is free; `members` is the pool's size.
     Wait {
         members: usize,
+        why: WaitFor,
+        running: RunningCount,
     },
 }
 
@@ -74,6 +98,52 @@ pub struct Facts<'a> {
     pub running: &'a BTreeMap<String, bool>,
     /// Whether a workspace directory exists.
     pub exists: &'a dyn Fn(&str) -> bool,
+    /// The project's sandboxes that have a machine (running or starting),
+    /// when they were listed.
+    pub active: Option<&'a BTreeSet<String>>,
+    /// Sandboxes with a machine across the account, when fetched.
+    pub account_running: Option<u64>,
+}
+
+impl<'a> Facts<'a> {
+    /// Facts with no running information (nothing listed or fetched).
+    pub fn local(running: &'a BTreeMap<String, bool>, exists: &'a dyn Fn(&str) -> bool) -> Self {
+        Self {
+            running,
+            exists,
+            active: None,
+            account_running: None,
+        }
+    }
+}
+
+/// Machines counted for `max_running`: those listed with a machine, plus
+/// members another live process is creating or starting right now.
+fn count_running(pool: &ProjectState, facts: &Facts<'_>) -> RunningCount {
+    let starting = pool
+        .members
+        .iter()
+        .filter(|member| {
+            member.bring_up_claimed_by_other()
+                && member
+                    .id
+                    .as_ref()
+                    .is_none_or(|id| facts.active.is_none_or(|active| !active.contains(id)))
+        })
+        .count() as u64;
+    RunningCount {
+        project: facts.active.map(|active| active.len() as u64 + starting),
+        account: facts.account_running.map(|running| running + starting),
+    }
+}
+
+/// Whether one more machine may run. Unknown counts never block.
+fn has_room(caps: RunningCaps, count: RunningCount) -> bool {
+    let fits = |cap: Option<u32>, count: Option<u64>| match (cap, count) {
+        (Some(cap), Some(count)) => count < u64::from(cap),
+        _ => true,
+    };
+    fits(caps.project, count.project) && fits(caps.account, count.account)
 }
 
 fn running_of(member: &Member, running: &BTreeMap<String, bool>) -> Running {
@@ -87,6 +157,8 @@ fn running_of(member: &Member, running: &BTreeMap<String, bool>) -> Running {
 /// Decide and apply one acquisition on the locked state.
 pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> Outcome {
     let pool = state.project_mut(request.project);
+    let running = count_running(pool, facts);
+    let room = has_room(request.max_running, running);
     let decision = {
         let candidates: Vec<Candidate<'_>> = pool
             .members
@@ -104,16 +176,24 @@ pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> O
                 last_used_at: member.last_used_at,
             })
             .collect();
-        policy::decide(&candidates, request.workspace, request.limits, request.now)
+        policy::decide(
+            &candidates,
+            request.workspace,
+            request.limits,
+            room,
+            request.now,
+        )
     };
     let (key, how) = match decision {
-        Decision::Wait => {
+        Decision::Wait(why) => {
             return Outcome::Wait {
                 members: pool
                     .members
                     .iter()
                     .filter(|member| member.role == Role::Pool)
                     .count(),
+                why,
+                running,
             };
         }
         Decision::Use { key } => (key, How::Affinity),
@@ -131,6 +211,17 @@ pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> O
             (request.new_key.to_string(), How::Created)
         }
     };
+    // Under max_running the workspace may move off its own (stopped, unused)
+    // member to a running one; the old member keeps no affinity.
+    for member in &mut pool.members {
+        if member.role == Role::Pool
+            && member.create_key != key
+            && member.affinity.as_deref() == Some(request.workspace)
+        {
+            member.affinity = None;
+            member.leases.retain(|lease| system::pid_alive(lease.pid));
+        }
+    }
     if request.lease.is_some() {
         // One process holds at most one lease in a project.
         for member in &mut pool.members {
@@ -363,6 +454,7 @@ mod tests {
                 max_sandboxes: max,
                 steal_after_ms,
             },
+            max_running: RunningCaps::default(),
             lease,
             pid,
             new_key: key,
@@ -409,7 +501,7 @@ mod tests {
                                         let outcome = acquire(
                                             state,
                                             &request(workspace, Some(&lease), pid, &key, CAP, 0),
-                                            &Facts { running, exists },
+                                            &Facts::local(running, exists),
                                         );
                                         if let Err(error) = check_invariants(
                                             &state.projects["app"],
@@ -577,10 +669,7 @@ mod tests {
         let outcome = acquire(
             &mut state,
             &request("/w", Some(&lease), pid, "new", 1, 0),
-            &Facts {
-                running: &running,
-                exists: &exists,
-            },
+            &Facts::local(&running, &exists),
         );
         let Outcome::Acquired { member, how } = outcome else {
             panic!("expected a member");
@@ -593,11 +682,86 @@ mod tests {
         let outcome = acquire(
             &mut state,
             &request("/v", None, pid + 1, "other", 1, 0),
-            &Facts {
-                running: &running,
-                exists: &exists,
-            },
+            &Facts::local(&running, &exists),
         );
-        assert!(matches!(outcome, Outcome::Wait { members: 1 }));
+        assert!(matches!(
+            outcome,
+            Outcome::Wait {
+                members: 1,
+                why: WaitFor::Member,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn at_max_running_a_workspace_moves_to_a_running_member_and_lets_its_own_go() {
+        let mut state = state_with(vec![member("own", Some("/w")), member("other", Some("/v"))]);
+        let running = BTreeMap::from([
+            ("bx_own".to_string(), false),
+            ("bx_other".to_string(), true),
+        ]);
+        let active = BTreeSet::from(["bx_other".to_string()]);
+        let exists = |_: &str| true;
+        let mut capped = request("/w", None, std::process::id(), "new", 4, 0);
+        capped.max_running = RunningCaps {
+            project: Some(1),
+            account: None,
+        };
+        let facts = Facts {
+            running: &running,
+            exists: &exists,
+            active: Some(&active),
+            account_running: None,
+        };
+        let Outcome::Acquired { member: got, how } = acquire(&mut state, &capped, &facts) else {
+            panic!("expected a member");
+        };
+        assert_eq!(got.name, "other");
+        assert_eq!(
+            how,
+            How::Reassigned {
+                from: "/v".into(),
+                why: Reassign::RunningCap
+            }
+        );
+        let pool = &state.projects["app"];
+        assert_eq!(pool.find("own").unwrap().affinity, None);
+        check_invariants(pool, None).unwrap();
+
+        // The account's cap counts too; with room the own member is used.
+        let mut state = state_with(vec![member("own", Some("/w"))]);
+        capped.max_running = RunningCaps {
+            project: None,
+            account: Some(3),
+        };
+        let facts = Facts {
+            running: &running,
+            exists: &exists,
+            active: Some(&active),
+            account_running: Some(3),
+        };
+        assert!(matches!(
+            acquire(&mut state, &capped, &facts),
+            Outcome::Wait {
+                why: WaitFor::Running,
+                running: RunningCount {
+                    account: Some(3),
+                    ..
+                },
+                ..
+            }
+        ));
+        let facts = Facts {
+            account_running: Some(2),
+            ..facts
+        };
+        assert!(matches!(
+            acquire(&mut state, &capped, &facts),
+            Outcome::Acquired {
+                how: How::Affinity,
+                ..
+            }
+        ));
     }
 }

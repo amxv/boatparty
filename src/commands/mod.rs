@@ -16,10 +16,10 @@ mod session;
 pub mod status;
 
 use crate::Context;
-use crate::account::{self, ApiKey, KeySource, LoadedAccount};
+use crate::account::{self, ApiKey, KeySource, LoadedAccount, ProjectSettings};
 use crate::error::AppError;
 use crate::project::{ProjectConfig, Workspace};
-use crate::provider::{self, MachineSize, Provider};
+use crate::provider::{self, Provider};
 
 /// Load `account.toml`, saying so when this call created it.
 pub(crate) fn load_account(ctx: &Context) -> Result<LoadedAccount, AppError> {
@@ -72,13 +72,14 @@ pub(crate) fn runner_host(
     }
 }
 
-/// Everything a workspace command needs: the account, the provider, the
-/// workspace and its project.
+/// Everything a workspace command needs: the provider, the workspace, its
+/// project and the project's limits.
 pub(crate) struct WorkspaceContext {
-    pub account: LoadedAccount,
     pub provider: Box<dyn Provider>,
     pub workspace: Workspace,
     pub project: ProjectConfig,
+    /// The project's limits, with what its boatparty.toml asks for applied.
+    pub settings: ProjectSettings,
 }
 
 impl WorkspaceContext {
@@ -95,13 +96,20 @@ impl WorkspaceContext {
             ));
             account = account::load_or_create(&ctx.paths)?;
         }
+        let settings = ProjectSettings::resolve(&account.config, project.name())
+            .with_requested_machine(
+                project.name(),
+                project.requested_machine(),
+                &workspace.project_file(),
+                &account.path,
+            )?;
         let (key, _) = require_key(ctx)?;
         let provider = provider::connect(account.config.provider.api_url.as_deref(), key)?;
         Ok(Self {
-            account,
             provider,
             workspace,
             project,
+            settings,
         })
     }
 
@@ -112,16 +120,15 @@ impl WorkspaceContext {
             ctx.out,
             self.project.name().to_string(),
             self.workspace.clone(),
-            crate::pool::PoolLimits::for_project(&self.account.config, self.project.name()),
+            crate::pool::PoolLimits::from_settings(&self.settings),
         )
     }
 
     /// How `launch` and `board` bring a member up.
     pub fn bring_up_options(&self, extend_running: bool) -> crate::pool::BringUp {
-        let defaults = &self.account.config.defaults;
         crate::pool::BringUp {
-            size: defaults.machine.parse().unwrap_or(MachineSize::Default),
-            ttl_seconds: u64::from(defaults.lease_minutes) * 60,
+            size: self.settings.machine,
+            ttl_seconds: self.settings.lease_seconds(),
             extend_running,
         }
     }

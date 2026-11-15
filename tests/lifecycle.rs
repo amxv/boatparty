@@ -393,9 +393,11 @@ fn a_lost_create_answer_is_retried_with_the_same_key() {
 fn a_refused_create_drops_the_pending_record() {
     let setup = Setup::new("launch-refused");
     setup.init();
-    let limited = common::fixture("errors/429-rate-limited-hour.json");
+    // A refusal that a retry cannot fix (rate limits are retried, see
+    // tests/starts.rs).
+    let refused = common::fixture("errors/402-billing-required.json");
     let boat = FakeBoat::start(move |request| match request.method.as_str() {
-        "POST" => Reply::json(429, &limited),
+        "POST" => Reply::json(402, &refused),
         _ => Reply::json(404, r#"{"ok":false,"code":"not_found","status":404}"#),
     });
     let output = setup
@@ -404,12 +406,11 @@ fn a_refused_create_drops_the_pending_record() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(125));
-    assert_eq!(
-        parse_json(&output.stdout)["error"]["code"],
-        "start_rate_limited"
-    );
+    assert_eq!(parse_json(&output.stdout)["error"]["code"], "billing");
     let state = setup.state();
     assert_eq!(state["projects"]["app"]["members"], json!([]));
+    // A refused start leaves the ledger unchanged.
+    assert_eq!(state["starts"], json!([]));
 }
 
 #[test]

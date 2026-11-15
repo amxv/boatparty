@@ -107,6 +107,16 @@ impl Sandbox {
     }
 }
 
+/// Machine time one sandbox used this calendar month (UTC), at list price.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SandboxCost {
+    /// Billable machine-seconds, size multiplier applied.
+    pub seconds: u64,
+    pub dollars: f64,
+    /// The start of the month counted (RFC 3339).
+    pub since: Option<String>,
+}
+
 /// A request to create one sandbox.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateSandbox {

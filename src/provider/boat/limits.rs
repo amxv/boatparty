@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 use crate::provider::{
     AccountLimits, IncludedTime, MachineSize, OveragePrices, SizeAvailability, StartUsage,
-    WindowUsage,
+    StartWindow, WindowFull, WindowUsage,
 };
 
 #[derive(Debug, Deserialize)]
@@ -17,6 +17,8 @@ pub struct LimitsBody {
     max_active_sandboxes: u64,
     #[serde(default)]
     starts: Option<StartsBody>,
+    #[serde(default)]
+    start_window_full: Option<WindowFullBody>,
     #[serde(default)]
     plan_included: Option<PlanIncludedBody>,
     #[serde(default)]
@@ -37,6 +39,15 @@ struct StartsBody {
     hour: Option<WindowBody>,
     #[serde(default)]
     day: Option<WindowBody>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowFullBody {
+    #[serde(default)]
+    window: Option<String>,
+    #[serde(default)]
+    frees_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,10 +129,23 @@ impl From<LimitsBody> for AccountLimits {
                 saved_snapshot_day_dollars: prices.saved_snapshot_day_dollars,
             })
             .unwrap_or_default();
+        let window_full = body.start_window_full.and_then(|full| {
+            let window = match full.window.as_deref()? {
+                "minute" => StartWindow::Minute,
+                "hour" => StartWindow::Hour,
+                "day" => StartWindow::Day,
+                _ => return None,
+            };
+            Some(WindowFull {
+                window,
+                frees_at: full.frees_at,
+            })
+        });
         Self {
             can_start: body.can_start,
             start_blocked_reason: body.start_blocked_reason,
             starts,
+            window_full,
             running_sandboxes: body.active_sandboxes,
             max_running_sandboxes: body.max_active_sandboxes,
             included: body.plan_included.map(|plan| IncludedTime {
@@ -185,6 +209,25 @@ mod tests {
         assert!(!limits.sizes[3].available);
         assert_eq!(limits.overage.vm_hour_dollars, Some(0.036));
         assert_eq!(limits.next_start_dollars, Some(0.0));
+        assert_eq!(limits.window_full, None);
+    }
+
+    #[test]
+    fn a_full_window_says_when_it_frees() {
+        let body: LimitsBody = serde_json::from_str(
+            r#"{"canStart":false,"activeSandboxes":0,"maxActiveSandboxes":5,
+                "starts":{"unlimited":false,"minute":{"limit":12,"used":12,"remaining":0}},
+                "startWindowFull":{"window":"minute","limit":12,"freesAt":"2026-11-15T10:00:30Z","paidBy":null}}"#,
+        )
+        .unwrap();
+        let limits = AccountLimits::from(body);
+        assert_eq!(
+            limits.window_full,
+            Some(WindowFull {
+                window: StartWindow::Minute,
+                frees_at: Some("2026-11-15T10:00:30Z".into())
+            })
+        );
     }
 
     #[test]

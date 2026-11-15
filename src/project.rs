@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 
 use crate::error::AppError;
+use crate::provider::MachineSize;
 use crate::sync::History;
 
 pub const PROJECT_FILE: &str = "boatparty.toml";
@@ -94,7 +95,17 @@ pub struct ProjectConfig {
     pub version: u32,
     pub project: ProjectSection,
     #[serde(default)]
+    pub sandbox: SandboxSection,
+    #[serde(default)]
     pub sync: SyncSection,
+}
+
+/// `[sandbox]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct SandboxSection {
+    /// The machine size this project asks for: small, default, large or
+    /// xlarge. At most the project's `max_machine` in account.toml.
+    pub machine: Option<String>,
 }
 
 /// `[sync]`.
@@ -129,6 +140,11 @@ impl ProjectConfig {
         }
         validate_name(&config.project.name)
             .map_err(|message| AppError::config(format!("{}: {message}", path.display())))?;
+        if let Some(machine) = &config.sandbox.machine {
+            machine.parse::<MachineSize>().map_err(|message| {
+                AppError::config(format!("{}: [sandbox] machine: {message}", path.display()))
+            })?;
+        }
         if let Some(history) = &config.sync.history {
             History::parse(history).map_err(|message| {
                 AppError::config(format!("{}: [sync] history: {message}", path.display()))
@@ -139,6 +155,14 @@ impl ProjectConfig {
 
     pub fn name(&self) -> &str {
         &self.project.name
+    }
+
+    /// The machine size `[sandbox] machine` asks for, if any.
+    pub fn requested_machine(&self) -> Option<MachineSize> {
+        self.sandbox
+            .machine
+            .as_deref()
+            .and_then(|value| value.parse().ok())
     }
 
     /// How seeding from the GitHub remote is set up for this project.
@@ -268,6 +292,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(head.history(), History::Head);
+        assert_eq!(head.requested_machine(), None);
+        let small = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sandbox]\nmachine = \"small\"\n",
+            path,
+        )
+        .unwrap();
+        assert_eq!(small.requested_machine(), Some(MachineSize::Small));
+        assert!(
+            ProjectConfig::parse(
+                "version = 1\n[project]\nname = \"a\"\n[sandbox]\nmachine = \"huge\"\n",
+                path
+            )
+            .is_err()
+        );
         assert!(head.seed_config().enabled);
         let off = ProjectConfig::parse(
             "version = 1\n[project]\nname = \"a\"\n[sync]\nseed = false\ngithub_token = false\n",

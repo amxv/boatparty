@@ -185,6 +185,9 @@ mod tests {
                                 state.starts.push(crate::state::StartRecord {
                                     at: (writer * ROUNDS + round) as u64,
                                     project: "app".into(),
+                                    id: None,
+                                    pid: None,
+                                    done_at: None,
                                 });
                                 Ok(())
                             })

@@ -19,7 +19,8 @@ pub use error::{
     ScopeDenial, StartRefusal, StartWindow,
 };
 pub use sandbox::{
-    CreateSandbox, Deletion, DeletionStatus, Hydration, Resumed, Sandbox, SandboxState, SshAccess,
+    CreateSandbox, Deletion, DeletionStatus, Hydration, Resumed, Sandbox, SandboxCost,
+    SandboxState, SshAccess,
 };
 
 use crate::account::ApiKey;
@@ -38,6 +39,14 @@ pub trait Provider {
 
     /// Every sandbox carrying the label `key=value`.
     fn list_by_label(&self, key: &str, value: &str) -> Result<Vec<Sandbox>, ProviderError>;
+
+    /// [`Provider::list_by_label`] with each sandbox's machine time this
+    /// month, when the provider reports it.
+    fn list_by_label_with_cost(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<(Sandbox, Option<SandboxCost>)>, ProviderError>;
 
     /// One sandbox. A sandbox that does not exist comes back as
     /// [`SandboxState::Gone`], not as an error.
@@ -100,8 +109,8 @@ pub fn check_key_format(key: &str) -> Result<(), String> {
 /// The name of the only provider, as written in `account.toml`.
 pub const PROVIDER_NAME: &str = "boat";
 
-/// Sandbox machine sizes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Sandbox machine sizes, smallest first (the order compares them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MachineSize {
     Small,
     Default,
@@ -186,12 +195,22 @@ pub struct OveragePrices {
     pub saved_snapshot_day_dollars: Option<f64>,
 }
 
+/// A start window that is full now, as the provider reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowFull {
+    pub window: StartWindow,
+    /// When the window has room again (RFC 3339), if known.
+    pub frees_at: Option<String>,
+}
+
 /// Account-wide limits and usage.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountLimits {
     pub can_start: bool,
     pub start_blocked_reason: Option<String>,
     pub starts: StartUsage,
+    /// Set only while a start window is full.
+    pub window_full: Option<WindowFull>,
     pub running_sandboxes: u64,
     pub max_running_sandboxes: u64,
     pub included: Option<IncludedTime>,

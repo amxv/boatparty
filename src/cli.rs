@@ -65,8 +65,9 @@ pub enum Command {
     Login(LoginArgs),
     /// Check that this machine and the stored API key are ready.
     Doctor,
-    /// Show the account's start limits, running sandboxes and included VM time.
-    Limits,
+    /// Show the account's and every project's limits and usage, or change a
+    /// limit with `limits set`.
+    Limits(LimitsArgs),
     /// List recent runs (`cheers`), oldest first.
     Log(LogArgs),
     /// Internal: set a member's idle deadline after its last lease ended.
@@ -96,6 +97,52 @@ pub struct CheersArgs {
     /// The command to run, after `--`. Every word is quoted.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Shows the provider's start windows, running sandboxes and included VM time, \
+                  then for each project: members, running sandboxes, starts in the last hour and \
+                  day against its caps, and this month's machine cost. Limits live in \
+                  account.toml; `boatparty limits set` changes them without touching its comments."
+)]
+pub struct LimitsArgs {
+    #[command(subcommand)]
+    pub action: Option<LimitsAction>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LimitsAction {
+    /// Change limits in account.toml, keeping its comments and layout.
+    #[command(subcommand)]
+    Set(LimitsTarget),
+}
+
+#[derive(Debug, Subcommand)]
+#[command(after_help = "Examples:\n  \
+                  boatparty limits set account max_running=4 reserve_starts_per_day=20\n  \
+                  boatparty limits set project app starts_per_hour=10 max_machine=default\n  \
+                  boatparty limits set project app max_running=     (an empty value removes the key)")]
+pub enum LimitsTarget {
+    /// Account-wide limits ([account]) and defaults for every project ([defaults]):
+    /// max_running, reserve_starts_per_hour, reserve_starts_per_day, machine,
+    /// max_sandboxes, steal_after_minutes, lease_minutes (at most 5),
+    /// idle_minutes (at most 15), heartbeat_minutes, acquire_wait_seconds.
+    Account {
+        /// KEY=VALUE pairs.
+        #[arg(required = true, value_name = "KEY=VALUE")]
+        assignments: Vec<String>,
+    },
+    /// One project's limits ([projects.NAME]): max_sandboxes, max_running,
+    /// max_machine, starts_per_hour, starts_per_day, idle_minutes (at most 15),
+    /// lease_minutes (at most 5).
+    Project {
+        /// The project's name.
+        name: String,
+        /// KEY=VALUE pairs.
+        #[arg(required = true, value_name = "KEY=VALUE")]
+        assignments: Vec<String>,
+    },
 }
 
 #[derive(Debug, Args)]

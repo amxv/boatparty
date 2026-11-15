@@ -4,6 +4,7 @@
 //! A member's state comes from the provider every time; nothing unknown is
 //! resumed on a guess. Only `Stopped` (or `Stopping`) members are resumed.
 
+use std::cell::RefCell;
 use std::time::Duration;
 
 use super::wait::{self, Deadline};
@@ -14,6 +15,7 @@ use crate::provider::{
     BusyReason, CreateSandbox, ErrorKind, MachineSize, Provider, ProviderError, Sandbox,
     SandboxState,
 };
+use crate::starts::StartFailure;
 use crate::state::{BringingUp, Member, Role, SyncState};
 use crate::system;
 use crate::transport::ssh::{self, SshTarget, shell_quote};
@@ -180,9 +182,9 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
         let mut sandbox = match member.id.clone() {
             Some(id) => get(pool.provider, &id)?,
             None => {
-                let sandbox = create(pool, &member, fresh, options)?;
+                let (sandbox, record) = create(pool, &member, fresh, options)?;
                 let id = sandbox.id.clone();
-                member = pool.modify(&member, |member| member.id = Some(id))?;
+                member = pool.modify(&record, |member| member.id = Some(id))?;
                 created = true;
                 sandbox
             }
@@ -241,7 +243,7 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                     }
                     pool.out
                         .note(format_args!("resuming {} ({id})", member.name));
-                    match resume(pool.provider, &id, options.ttl_seconds)? {
+                    match resume(pool, &member.name, &id, options.ttl_seconds)? {
                         Some(outcome) => {
                             resumed = true;
                             reclaimed = outcome.reclaimed;
@@ -322,17 +324,25 @@ fn get(provider: &dyn Provider, id: &str) -> Result<Sandbox, AppError> {
     )?)
 }
 
-/// Resume once. `None` when the provider refused for now or the answer was
-/// lost, in which case the caller reads the state again rather than resuming
-/// blindly a second time.
+/// Resume once, admitted by the start ledger. `None` when the provider
+/// refused for now or the answer was lost, in which case the caller reads
+/// the state again rather than resuming blindly a second time. A resume
+/// that takes back the kept machine is not a start and keeps no reservation.
 fn resume(
-    provider: &dyn Provider,
+    pool: &Pool<'_>,
+    name: &str,
     id: &str,
     ttl_seconds: u64,
 ) -> Result<Option<crate::provider::Resumed>, AppError> {
-    match provider.resume(id, ttl_seconds) {
+    let started = pool.start_gate().start(
+        name,
+        || pool.provider.resume(id, ttl_seconds),
+        |resumed| !resumed.reclaimed,
+    );
+    match started {
         Ok(outcome) => Ok(Some(outcome)),
-        Err(error) => match error.kind() {
+        Err(StartFailure::Refused(error)) => Err(error),
+        Err(StartFailure::Provider(error)) => match error.kind() {
             ErrorKind::Busy {
                 reason: BusyReason::Stopping | BusyReason::Resuming | BusyReason::Starting,
                 ..
@@ -349,15 +359,17 @@ fn resume(
     }
 }
 
-/// Create the member's sandbox with its recorded idempotency key. A record
-/// left pending by an earlier run is first looked up by name, in case that
-/// run's create succeeded but its answer was lost.
+/// Create the member's sandbox with its recorded idempotency key, admitted
+/// by the start ledger. A record left pending by an earlier run is first
+/// looked up by name, in case that run's create succeeded but its answer
+/// was lost. Returns the sandbox and the record (whose key may have been
+/// renewed after a rate-limited attempt).
 fn create(
     pool: &Pool<'_>,
     member: &Member,
     fresh: bool,
     options: BringUp,
-) -> Result<Sandbox, AppError> {
+) -> Result<(Sandbox, Member), AppError> {
     if !fresh {
         let existing = wait::retry(Duration::from_secs(60), wait::transient, || {
             pool.provider.list_by_label(LABEL_PROJECT, &pool.project)
@@ -371,43 +383,87 @@ fn create(
                 "found {} ({}) from an earlier interrupted create",
                 member.name, found.id
             ));
-            return Ok(found);
+            return Ok((found, member.clone()));
         }
     }
-    let request = CreateSandbox {
-        name: member.name.clone(),
-        size: options.size,
-        ttl_seconds: options.ttl_seconds,
-        labels: member_labels(&pool.project, Role::Pool),
-        no_env: true,
-        idempotency_key: member.create_key.clone(),
-    };
     pool.out.note(format_args!(
         "creating {} ({} machine)",
         member.name, options.size
     ));
+    let record = RefCell::new(member.clone());
     let mut ambiguous = !fresh;
-    let result = wait::retry(CREATE_RETRY, create_retryable, || {
-        let result = pool.provider.create(&request);
-        if let Err(error) = &result
-            && wait::transient(error.kind())
-        {
-            ambiguous = true;
-        }
-        result
-    });
+    let mut rate_limited = false;
+    let result = pool.start_gate().start(
+        &member.name,
+        || {
+            if rate_limited {
+                // Nothing was created under the refused key; a fresh key
+                // keeps a remembered refusal from answering the retry.
+                let renewed = renew_key(pool, &record.borrow()).map_err(|error| {
+                    ProviderError::new(ErrorKind::Unknown).with_message(error.to_string())
+                })?;
+                *record.borrow_mut() = renewed;
+                rate_limited = false;
+            }
+            let request = CreateSandbox {
+                name: member.name.clone(),
+                size: options.size,
+                ttl_seconds: options.ttl_seconds,
+                labels: member_labels(&pool.project, Role::Pool),
+                no_env: true,
+                idempotency_key: record.borrow().create_key.clone(),
+            };
+            let result = wait::retry(CREATE_RETRY, create_retryable, || {
+                let result = pool.provider.create(&request);
+                if let Err(error) = &result
+                    && wait::transient(error.kind())
+                {
+                    ambiguous = true;
+                }
+                result
+            });
+            if let Err(error) = &result
+                && matches!(error.kind(), ErrorKind::RateLimited(_))
+            {
+                rate_limited = true;
+            }
+            result
+        },
+        |_| true,
+    );
+    let record = record.into_inner();
     match result {
-        Ok(sandbox) => Ok(sandbox),
-        Err(error) => {
-            // A definite refusal of the only attempt created nothing, so the
-            // pending record can go. After an unclear outcome it stays, and
-            // the next run reuses its key.
+        Ok(sandbox) => Ok((sandbox, record)),
+        // A definite refusal of the only attempt created nothing, so the
+        // pending record can go. After an unclear outcome it stays, and the
+        // next run reuses its key.
+        Err(StartFailure::Provider(error)) => {
             if !ambiguous && refused(&error) {
-                pool.forget(member)?;
+                pool.forget(&record)?;
             }
             Err(error.into())
         }
+        Err(StartFailure::Refused(error)) => {
+            if !ambiguous {
+                pool.forget(&record)?;
+            }
+            Err(error)
+        }
     }
+}
+
+/// Give a pending record a new create key.
+fn renew_key(pool: &Pool<'_>, member: &Member) -> Result<Member, AppError> {
+    let key = system::uuid_v4()?;
+    let project = pool.project.clone();
+    pool.store.update(|state| {
+        let slot = state
+            .project_mut(&project)
+            .find_mut_by_key(&member.create_key)
+            .ok_or_else(|| AppError::new("member_failed", "the pending record disappeared"))?;
+        slot.create_key = key;
+        Ok(slot.clone())
+    })
 }
 
 fn create_retryable(kind: &ErrorKind) -> bool {

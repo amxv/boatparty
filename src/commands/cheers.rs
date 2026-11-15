@@ -123,7 +123,7 @@ impl Cheers<'_> {
         // anything remote happens.
         let info = WorktreeInfo::read(&workspace.root)?;
         let account = super::load_account(ctx)?;
-        let times = LeaseTimes::from_defaults(&account.config.defaults);
+        let times = LeaseTimes::for_project(&account.config, &name);
         let store = Store::new(&ctx.paths);
         self.record["project"] = json!(name);
         self.record["workspace"] = json!(workspace.key());

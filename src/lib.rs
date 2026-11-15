@@ -10,6 +10,7 @@ pub mod provider;
 pub mod runner;
 pub mod runs;
 pub mod signals;
+pub mod starts;
 pub mod state;
 pub mod stream;
 pub mod sync;
@@ -58,7 +59,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
     match cli.command {
         Command::Login(args) => commands::login::run(&ctx, &args),
         Command::Doctor => commands::doctor::run(&ctx),
-        Command::Limits => commands::limits::run(&ctx),
+        Command::Limits(args) => commands::limits::run(&ctx, &args),
         Command::Init(args) => commands::init::run(&ctx, &args),
         Command::Launch => commands::launch::run(&ctx),
         Command::Cheers(args) => commands::cheers::run(&ctx, &args),

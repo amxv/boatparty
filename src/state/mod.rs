@@ -167,10 +167,23 @@ impl Default for SyncState {
     }
 }
 
+/// One start in the `StartLedger`: a reservation made before a create or
+/// resume, kept when the provider counted the start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRecord {
+    /// When the start was reserved.
     pub at: u64,
     pub project: String,
+    /// Identifies the reservation (added in Phase 8; older records have none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The process that reserved it, while the start is in flight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// When the provider's answer arrived; `None` while the call is in
+    /// flight. A start done before a limits fetch began is in that figure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_at: Option<u64>,
 }
 
 impl State {

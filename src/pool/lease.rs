@@ -14,7 +14,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use super::wait;
-use crate::account::config::Defaults;
+use crate::account::ProjectSettings;
 use crate::error::AppError;
 use crate::paths::Paths;
 use crate::provider::{self, Provider, SandboxState};
@@ -42,12 +42,19 @@ pub struct LeaseTimes {
 }
 
 impl LeaseTimes {
-    pub fn from_defaults(defaults: &Defaults) -> Self {
+    /// The project's lease and idle lengths, with a heartbeat that fits
+    /// inside its lease.
+    pub fn from_settings(settings: &ProjectSettings) -> Self {
         Self {
-            lease_seconds: u64::from(defaults.lease_minutes) * 60,
-            idle_seconds: u64::from(defaults.idle_minutes) * 60,
-            heartbeat: Duration::from_secs(u64::from(defaults.heartbeat_minutes) * 60),
+            lease_seconds: settings.lease_seconds(),
+            idle_seconds: settings.idle_seconds(),
+            heartbeat: settings.heartbeat(),
         }
+    }
+
+    /// The lease times of `project` in `account.toml`.
+    pub fn for_project(config: &crate::account::AccountConfig, project: &str) -> Self {
+        Self::from_settings(&ProjectSettings::resolve(config, project))
     }
 }
 
@@ -248,7 +255,7 @@ pub fn idle_helper(paths: &Paths, project: &str, member_id: &str) -> Result<(), 
         return Ok(());
     }
     let account = crate::account::load_or_create(paths)?;
-    let times = LeaseTimes::from_defaults(&account.config.defaults);
+    let times = LeaseTimes::for_project(&account.config, project);
     let provider = open_provider(paths)?;
     let set_ttl = |seconds: u64| {
         wait::retry(Duration::from_secs(60), wait::transient, || {

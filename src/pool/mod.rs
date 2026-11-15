@@ -15,24 +15,30 @@ pub mod reconcile;
 pub mod remove;
 pub mod wait;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use acquire::LeaseRequest;
 pub use bringup::{BringUp, Up, ensure_connected};
 
+use crate::account::ProjectSettings;
 use crate::account::config::AccountConfig;
 use crate::error::AppError;
 use crate::output::Output;
 use crate::paths::Paths;
 use crate::project::Workspace;
 use crate::provider::{Provider, SandboxState};
+use crate::starts::StartGate;
+use crate::starts::admission::Budget;
 use crate::state::{Member, Role, State, Store, SyncState};
 use crate::system;
 use crate::transport::ssh::SshTarget;
-use acquire::{Facts, How, Outcome, Request};
-use policy::{Limits, Reassign};
+use acquire::{Facts, How, Outcome, Request, RunningCaps, RunningCount};
+use policy::{Limits, Reassign, WaitFor};
+
+/// While waiting for room under `max_running`, look at the provider this often.
+const RUNNING_RECHECK: Duration = Duration::from_secs(10);
 
 pub const LABEL_PROJECT: &str = "boatparty.project";
 pub const LABEL_ROLE: &str = "boatparty.role";
@@ -78,20 +84,28 @@ pub struct PoolLimits {
     pub max_sandboxes: u32,
     pub steal_after_minutes: u32,
     pub acquire_wait: Duration,
+    /// `max_running` of the project and of the account.
+    pub max_running: RunningCaps,
+    /// What the start ledger admits for this project.
+    pub budget: Budget,
 }
 
 impl PoolLimits {
-    /// `[defaults]`, with the project's own `max_sandboxes` when it sets one.
+    /// `[defaults]`, lowered by the project's own table, and `[account]`.
     pub fn for_project(config: &AccountConfig, project: &str) -> Self {
-        let defaults = &config.defaults;
+        Self::from_settings(&ProjectSettings::resolve(config, project))
+    }
+
+    pub fn from_settings(settings: &ProjectSettings) -> Self {
         Self {
-            max_sandboxes: config
-                .projects
-                .get(project)
-                .and_then(|entry| entry.max_sandboxes)
-                .unwrap_or(defaults.max_sandboxes),
-            steal_after_minutes: defaults.steal_after_minutes,
-            acquire_wait: Duration::from_secs(u64::from(defaults.acquire_wait_seconds)),
+            max_sandboxes: settings.max_sandboxes,
+            steal_after_minutes: settings.steal_after_minutes,
+            acquire_wait: Duration::from_secs(u64::from(settings.acquire_wait_seconds)),
+            max_running: RunningCaps {
+                project: settings.max_running,
+                account: settings.account_max_running,
+            },
+            budget: Budget::from_settings(settings),
         }
     }
 
@@ -107,6 +121,17 @@ impl PoolLimits {
 /// its member; nothing is deleted because of it.
 pub fn workspace_exists(workspace: &str) -> bool {
     Path::new(workspace).is_dir()
+}
+
+/// One provider listing of a project's sandboxes.
+#[derive(Debug, Default)]
+struct Listed {
+    /// Provider id to "is running".
+    running: BTreeMap<String, bool>,
+    /// The ids with a machine (running or starting).
+    active: BTreeSet<String>,
+    /// The listing succeeded.
+    ok: bool,
 }
 
 /// What a command needs to work on one workspace's pool.
@@ -148,22 +173,37 @@ impl<'a> Pool<'a> {
     pub fn acquire(&self, lease: Option<&LeaseRequest>) -> Result<(Member, bool), AppError> {
         let workspace = self.workspace.key();
         let deadline = Instant::now() + self.limits.acquire_wait;
-        let mut running: Option<BTreeMap<String, bool>> = None;
-        let mut announced = false;
+        let capped = self.limits.max_running.any();
+        let mut listed: Option<Listed> = None;
+        let mut account_running: Option<u64> = None;
+        let mut looked: Option<Instant> = None;
+        let mut announced: Option<WaitFor> = None;
         loop {
-            if running.is_none() && self.needs_running(&workspace)? {
-                running = Some(self.running_members());
+            // Which members run matters to the choice only without an
+            // affinity member, or under max_running; it costs a listing.
+            let due = looked.is_none_or(|at| capped && at.elapsed() >= RUNNING_RECHECK);
+            if due && (capped || (listed.is_none() && self.needs_running(&workspace)?)) {
+                looked = Some(Instant::now());
+                listed = Some(self.running_members());
+                if self.limits.max_running.account.is_some() {
+                    account_running = crate::starts::refresh(&self.store, self.provider)
+                        .map(|cache| cache.running);
+                }
             }
-            let empty = BTreeMap::new();
+            let empty = Listed::default();
+            let seen = listed.as_ref().unwrap_or(&empty);
             let facts = Facts {
-                running: running.as_ref().unwrap_or(&empty),
+                running: &seen.running,
                 exists: &workspace_exists,
+                active: seen.ok.then_some(&seen.active),
+                account_running,
             };
             let key = system::uuid_v4()?;
             let request = Request {
                 project: &self.project,
                 workspace: &workspace,
                 limits: self.limits.policy(),
+                max_running: self.limits.max_running,
                 lease,
                 pid: std::process::id(),
                 new_key: &key,
@@ -177,17 +217,28 @@ impl<'a> Pool<'a> {
                     self.announce(&member, &how);
                     return Ok((*member, how == How::Created));
                 }
-                Outcome::Wait { members } => {
+                Outcome::Wait {
+                    members,
+                    why,
+                    running,
+                } => {
                     if Instant::now() >= deadline {
-                        return Err(self.exhausted(members));
+                        return Err(match why {
+                            WaitFor::Member => self.exhausted(members),
+                            WaitFor::Running => self.running_full(running),
+                        });
                     }
-                    if !announced {
-                        announced = true;
+                    if announced != Some(why) {
+                        announced = Some(why);
+                        let reason = match why {
+                            WaitFor::Member => format!(
+                                "all {members} sandboxes of project {} are in use (max_sandboxes = {})",
+                                self.project, self.limits.max_sandboxes
+                            ),
+                            WaitFor::Running => self.running_words(running),
+                        };
                         self.out.note(format_args!(
-                            "all {members} sandboxes of project {} are in use (max_sandboxes = {}); \
-                             waiting up to {}s for one to become free",
-                            self.project,
-                            self.limits.max_sandboxes,
+                            "{reason}; waiting up to {}s for one to become free",
                             self.limits.acquire_wait.as_secs()
                         ));
                     }
@@ -200,6 +251,47 @@ impl<'a> Pool<'a> {
                 }
             }
         }
+    }
+
+    /// `max_running` in words, with the counts that reached it.
+    fn running_words(&self, running: RunningCount) -> String {
+        let caps = self.limits.max_running;
+        let mut parts = Vec::new();
+        if let (Some(cap), Some(count)) = (caps.project, running.project)
+            && count >= u64::from(cap)
+        {
+            parts.push(format!(
+                "project {} has {count} sandboxes running (max_running = {cap} under [projects.{}])",
+                self.project, self.project
+            ));
+        }
+        if let (Some(cap), Some(count)) = (caps.account, running.account)
+            && count >= u64::from(cap)
+        {
+            parts.push(format!(
+                "the account has {count} sandboxes running (max_running = {cap} under [account])"
+            ));
+        }
+        if parts.is_empty() {
+            parts.push("max_running is reached".to_string());
+        }
+        format!("{} and none is free to take over", parts.join(" and "))
+    }
+
+    fn running_full(&self, running: RunningCount) -> AppError {
+        AppError::new(
+            "running_limit",
+            format!(
+                "no sandbox could start within {}s: {}",
+                self.limits.acquire_wait.as_secs(),
+                self.running_words(running)
+            ),
+        )
+        .with_hint(format!(
+            "stop one with `boatparty dock`, or raise the limit with `boatparty limits set \
+             project {} max_running=N` (or `limits set account max_running=N`)",
+            self.project
+        ))
     }
 
     /// Whether the choice may depend on which members run: this workspace
@@ -216,17 +308,40 @@ impl<'a> Pool<'a> {
     }
 
     /// Which members run, from one provider listing. Empty when the listing
-    /// fails: running is only a preference.
-    fn running_members(&self) -> BTreeMap<String, bool> {
-        self.provider
-            .list_by_label(LABEL_PROJECT, &self.project)
-            .map(|listed| {
-                listed
-                    .into_iter()
-                    .map(|sandbox| (sandbox.id, sandbox.state == SandboxState::Running))
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// fails: running is then only an unknown preference, and no count.
+    fn running_members(&self) -> Listed {
+        match self.provider.list_by_label(LABEL_PROJECT, &self.project) {
+            Ok(listed) => Listed {
+                running: listed
+                    .iter()
+                    .map(|sandbox| (sandbox.id.clone(), sandbox.state == SandboxState::Running))
+                    .collect(),
+                active: listed
+                    .iter()
+                    .filter(|sandbox| {
+                        matches!(
+                            sandbox.state,
+                            SandboxState::Running | SandboxState::Starting
+                        )
+                    })
+                    .map(|sandbox| sandbox.id.clone())
+                    .collect(),
+                ok: true,
+            },
+            Err(_) => Listed::default(),
+        }
+    }
+
+    /// The start ledger's gate for this project's creates and resumes.
+    pub fn start_gate(&self) -> StartGate<'_> {
+        StartGate {
+            paths: self.paths,
+            store: &self.store,
+            provider: self.provider,
+            out: self.out,
+            project: &self.project,
+            budget: self.limits.budget,
+        }
     }
 
     fn announce(&self, member: &Member, how: &How) {
@@ -244,6 +359,10 @@ impl<'a> Pool<'a> {
                         "unused for more than {} minutes",
                         self.limits.steal_after_minutes
                     ),
+                    Reassign::RunningCap => {
+                        "it is running unused and max_running leaves no room to start another"
+                            .to_string()
+                    }
                 }
             )),
         }

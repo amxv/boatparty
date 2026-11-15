@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::http::{Http, Method};
 use crate::provider::{
     CreateSandbox, Deletion, DeletionStatus, ErrorKind, Hydration, ProviderError, Resumed, Sandbox,
-    SandboxState, SshAccess,
+    SandboxCost, SandboxState, SshAccess,
 };
 
 /// boat's header that must equal the sandbox id for a delete to be accepted.
@@ -66,6 +66,19 @@ pub struct SandboxBody {
     data_expired_at: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    cost: Option<CostBody>,
+}
+
+/// `cost`, present only with `include=cost`.
+#[derive(Debug, Deserialize)]
+struct CostBody {
+    #[serde(default)]
+    since: Option<String>,
+    #[serde(default)]
+    seconds: u64,
+    #[serde(default)]
+    dollars: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,17 +187,47 @@ pub(super) fn checked_id(id: &str) -> Result<&str, ProviderError> {
 }
 
 pub fn list_by_label(http: &Http, key: &str, value: &str) -> Result<Vec<Sandbox>, ProviderError> {
+    Ok(list(http, key, value, false)?
+        .into_iter()
+        .map(|(sandbox, _)| sandbox)
+        .collect())
+}
+
+/// [`list_by_label`] with `include=cost`: each sandbox's machine time this
+/// calendar month.
+pub fn list_by_label_with_cost(
+    http: &Http,
+    key: &str,
+    value: &str,
+) -> Result<Vec<(Sandbox, Option<SandboxCost>)>, ProviderError> {
+    list(http, key, value, true)
+}
+
+fn list(
+    http: &Http,
+    key: &str,
+    value: &str,
+    cost: bool,
+) -> Result<Vec<(Sandbox, Option<SandboxCost>)>, ProviderError> {
     let label = encode(&format!("{key}={value}"));
     let mut cursor: Option<String> = None;
     let mut out = Vec::new();
     loop {
         let mut path = format!("/sandboxes?label={label}&limit={PAGE_SIZE}");
+        if cost {
+            path.push_str("&include=cost");
+        }
         if let Some(cursor) = &cursor {
             path.push_str(&format!("&cursor={}", encode(cursor)));
         }
         let body: ListBody = http.send(Method::Get, &path, None, None)?.json()?;
-        for sandbox in body.sandboxes {
-            out.push(sandbox.into_sandbox()?);
+        for mut sandbox in body.sandboxes {
+            let cost = sandbox.cost.take().map(|cost| SandboxCost {
+                seconds: cost.seconds,
+                dollars: cost.dollars,
+                since: cost.since,
+            });
+            out.push((sandbox.into_sandbox()?, cost));
         }
         match body.page_info {
             Some(PageInfo {

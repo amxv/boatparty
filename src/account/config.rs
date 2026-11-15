@@ -49,9 +49,27 @@ heartbeat_minutes = 2
 # How long to wait for a free sandbox before failing, in seconds.
 acquire_wait_seconds = 900
 
+[account]
+# Limits across every project of this account.
+# The most sandboxes running at once (unset: only the provider's own limit).
+# max_running = 4
+# Starts per hour and per day that boatparty leaves unused for other tools
+# and for starts made by hand. boatparty waits rather than use them.
+reserve_starts_per_hour = 0
+reserve_starts_per_day = 0
+
 # Projects registered by `boatparty init`, one [projects.<name>] table each,
-# appended below. A project's table may set its own `max_sandboxes`.
+# appended below. A project's table may lower its own limits:
+#   max_sandboxes, max_running, max_machine (small, default, large, xlarge),
+#   starts_per_hour, starts_per_day, idle_minutes (at most 15) and
+#   lease_minutes (at most 5). `boatparty limits set` edits them.
 "#;
+
+/// The longest `lease_minutes` allowed, so a crashed client never leaves a
+/// sandbox billing for long.
+pub const MAX_LEASE_MINUTES: u32 = 5;
+/// The longest `idle_minutes` allowed: idle sandboxes stop soon.
+pub const MAX_IDLE_MINUTES: u32 = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,19 +79,46 @@ pub struct AccountConfig {
     pub provider: ProviderSettings,
     #[serde(default)]
     pub defaults: Defaults,
+    #[serde(default)]
+    pub account: AccountLimitsSection,
     /// Projects registered by `boatparty init`, by project name.
     #[serde(default)]
     pub projects: BTreeMap<String, ProjectEntry>,
 }
 
-/// One registered project and its own limits. Phase 8 adds the rest.
+/// `[account]`: limits across every project.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, default)]
+pub struct AccountLimitsSection {
+    /// The most sandboxes running at once across the account.
+    pub max_running: Option<u32>,
+    /// Starts per rolling hour boatparty leaves to others.
+    pub reserve_starts_per_hour: u32,
+    /// Starts per rolling day boatparty leaves to others.
+    pub reserve_starts_per_day: u32,
+}
+
+/// One registered project and its own limits. `lease_minutes` can only
+/// lower the account's value; nothing can pass the caps on `idle_minutes`
+/// and `lease_minutes`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields, default)]
 pub struct ProjectEntry {
     /// The most sandboxes this project's pool may own, instead of
     /// `defaults.max_sandboxes`.
-    #[serde(default)]
     pub max_sandboxes: Option<u32>,
+    /// The most of this project's sandboxes running at once.
+    pub max_running: Option<u32>,
+    /// The largest machine size the project may ask for.
+    pub max_machine: Option<String>,
+    /// Starts per rolling hour.
+    pub starts_per_hour: Option<u32>,
+    /// Starts per rolling day.
+    pub starts_per_day: Option<u32>,
+    /// Instead of `defaults.idle_minutes`, at most [`MAX_IDLE_MINUTES`].
+    pub idle_minutes: Option<u32>,
+    /// Instead of `defaults.lease_minutes`, at most [`MAX_LEASE_MINUTES`].
+    pub lease_minutes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -161,12 +206,29 @@ impl AccountConfig {
                 return fail(format!("defaults.{name} must be at least 1"));
             }
         }
+        if let Some(message) = capped(
+            "defaults.lease_minutes",
+            self.defaults.lease_minutes,
+            MAX_LEASE_MINUTES,
+        )
+        .or_else(|| {
+            capped(
+                "defaults.idle_minutes",
+                self.defaults.idle_minutes,
+                MAX_IDLE_MINUTES,
+            )
+        }) {
+            return fail(message);
+        }
+        if self.account.max_running == Some(0) {
+            return fail("account.max_running must be at least 1".to_string());
+        }
         for (name, entry) in &self.projects {
             if let Err(message) = crate::project::validate_name(name) {
                 return fail(format!("projects: {message}"));
             }
-            if entry.max_sandboxes == Some(0) {
-                return fail(format!("projects.{name}.max_sandboxes must be at least 1"));
+            if let Err(message) = entry.validate(name) {
+                return fail(message);
             }
         }
         if self.defaults.heartbeat_minutes >= self.defaults.lease_minutes {
@@ -176,6 +238,68 @@ impl AccountConfig {
             ));
         }
         Ok(())
+    }
+}
+
+/// A message when `value` is above `max`.
+fn capped(name: &str, value: u32, max: u32) -> Option<String> {
+    (value > max).then(|| {
+        format!(
+            "{name} is {value}, above its maximum of {max}: idle sandboxes must stop soon, \
+             so boatparty never keeps one up longer"
+        )
+    })
+}
+
+impl ProjectEntry {
+    fn validate(&self, name: &str) -> Result<(), String> {
+        let at_least_one = [
+            ("max_sandboxes", self.max_sandboxes),
+            ("max_running", self.max_running),
+            ("starts_per_hour", self.starts_per_hour),
+            ("starts_per_day", self.starts_per_day),
+            ("idle_minutes", self.idle_minutes),
+            ("lease_minutes", self.lease_minutes),
+        ];
+        for (key, value) in at_least_one {
+            if value == Some(0) {
+                return Err(format!("projects.{name}.{key} must be at least 1"));
+            }
+        }
+        if let Some(message) = self
+            .lease_minutes
+            .and_then(|value| {
+                capped(
+                    &format!("projects.{name}.lease_minutes"),
+                    value,
+                    MAX_LEASE_MINUTES,
+                )
+            })
+            .or_else(|| {
+                self.idle_minutes.and_then(|value| {
+                    capped(
+                        &format!("projects.{name}.idle_minutes"),
+                        value,
+                        MAX_IDLE_MINUTES,
+                    )
+                })
+            })
+        {
+            return Err(message);
+        }
+        if let Some(machine) = &self.max_machine {
+            machine
+                .parse::<MachineSize>()
+                .map_err(|message| format!("projects.{name}.max_machine: {message}"))?;
+        }
+        Ok(())
+    }
+
+    /// `max_machine` as a size (validated on load).
+    pub fn max_machine(&self) -> Option<MachineSize> {
+        self.max_machine
+            .as_deref()
+            .and_then(|value| value.parse().ok())
     }
 }
 

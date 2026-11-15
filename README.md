@@ -26,7 +26,9 @@ Then check everything:
 
 ```bash
 boatparty doctor   # tools on PATH, account file, key validity and scope; prints a fix for each failure
-boatparty limits   # starts used and left per window, running sandboxes, included VM time, sizes
+boatparty limits   # starts used and left per window, running sandboxes, included VM time, sizes,
+                   # then each project's members, running sandboxes, starts and cost this month
+boatparty limits set project app starts_per_hour=10   # edit account.toml, comments kept
 ```
 
 `BOATPARTY_BOAT_API_KEY` overrides the stored key.

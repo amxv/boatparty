@@ -15,7 +15,7 @@ use crate::account::ApiKey;
 use crate::error::AppError;
 use crate::provider::{
     AccountLimits, CreateSandbox, CredentialCheck, CredentialHelp, Deletion, Provider,
-    ProviderError, Resumed, Sandbox, SshAccess,
+    ProviderError, Resumed, Sandbox, SandboxCost, SshAccess,
 };
 
 pub struct BoatProvider {
@@ -42,6 +42,14 @@ impl Provider for BoatProvider {
 
     fn list_by_label(&self, key: &str, value: &str) -> Result<Vec<Sandbox>, ProviderError> {
         sandboxes::list_by_label(&self.http, key, value)
+    }
+
+    fn list_by_label_with_cost(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<(Sandbox, Option<SandboxCost>)>, ProviderError> {
+        sandboxes::list_by_label_with_cost(&self.http, key, value)
     }
 
     fn get(&self, id: &str) -> Result<Sandbox, ProviderError> {

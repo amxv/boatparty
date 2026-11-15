@@ -73,6 +73,52 @@ pub fn rfc3339(ms: u64) -> String {
     )
 }
 
+/// An RFC 3339 timestamp (`2026-11-15T01:12:30.000Z`, or with a numeric
+/// offset) as milliseconds since the epoch. `None` when it cannot be read.
+pub fn parse_rfc3339(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let (date, rest) = text.split_once(['T', 't', ' '])?;
+    let mut parts = date.splitn(3, '-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: i64 = parts.next()?.parse().ok()?;
+    let day: i64 = parts.next()?.parse().ok()?;
+    let (time, offset_secs) = if let Some(time) = rest.strip_suffix(['Z', 'z']) {
+        (time, 0)
+    } else {
+        let at = rest.rfind(['+', '-'])?;
+        let (time, offset) = rest.split_at(at);
+        let sign = if offset.starts_with('-') { -1 } else { 1 };
+        let (hours, minutes) = offset[1..].split_once(':')?;
+        let offset: i64 = hours.parse::<i64>().ok()? * 3600 + minutes.parse::<i64>().ok()? * 60;
+        (time, sign * offset)
+    };
+    let mut clock = time.splitn(3, ':');
+    let hour: i64 = clock.next()?.parse().ok()?;
+    let minute: i64 = clock.next()?.parse().ok()?;
+    let seconds = clock.next()?;
+    let (whole, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
+    let second: i64 = whole.parse().ok()?;
+    let millis: i64 = format!("{fraction:0<3}").get(..3)?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 {
+        return None;
+    }
+    let days = days_from_civil(year, month, day);
+    let secs = days * 86_400 + hour * 3600 + minute * 60 + second - offset_secs;
+    u64::try_from(secs * 1000 + millis).ok()
+}
+
+/// A proleptic Gregorian date to days since 1970-01-01 (the inverse of
+/// [`civil_from_days`]).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year.rem_euclid(400);
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 /// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's
 /// algorithm).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
@@ -97,6 +143,23 @@ mod tests {
         assert_eq!(rfc3339(0), "1970-01-01T00:00:00Z");
         assert_eq!(rfc3339(951_782_400_000), "2000-02-29T00:00:00Z");
         assert_eq!(rfc3339(1_794_700_000_123), "2026-11-14T23:46:40Z");
+    }
+
+    #[test]
+    fn timestamps_parse_back() {
+        for ms in [0, 951_782_400_000, 1_794_700_000_000] {
+            assert_eq!(parse_rfc3339(&rfc3339(ms)), Some(ms));
+        }
+        assert_eq!(
+            parse_rfc3339("2026-11-14T23:46:40.123Z"),
+            Some(1_794_700_000_123)
+        );
+        assert_eq!(
+            parse_rfc3339("2026-11-15T01:46:40+02:00"),
+            Some(1_794_700_000_000)
+        );
+        assert_eq!(parse_rfc3339("yesterday"), None);
+        assert_eq!(parse_rfc3339("2026-13-01T00:00:00Z"), None);
     }
 
     #[test]

@@ -44,7 +44,7 @@ pub(crate) fn with_session<T>(
     let store = Store::new(&ctx.paths);
     let (member, target) = connect(ctx, &store, name, &workspace, LeaseKind::Session, label)?;
     let account = super::load_account(ctx)?;
-    let times = LeaseTimes::from_defaults(&account.config.defaults);
+    let times = LeaseTimes::for_project(&account.config, name);
     // SIGINT and SIGTERM reach the child processes, which end; this process
     // then lets go of its lease before exiting.
     let interrupts = Interrupts::install()?;

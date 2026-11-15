@@ -8,6 +8,12 @@
 //! whose workspace no longer exists, then the least recently used one idle
 //! longer than `steal_after`, preferring running over stopped in both;
 //! (5) wait.
+//!
+//! When `max_running` (the project's or the account's) leaves no room for
+//! another running machine, a choice that would start one is replaced by a
+//! running member nobody is using: a free one, else another workspace's
+//! (its workspace gone first, then the least recently used, at any idle
+//! age). With none, the caller waits for room.
 
 use std::cmp::Reverse;
 
@@ -47,6 +53,17 @@ pub enum Reassign {
     WorkspaceGone,
     /// Nobody used it for longer than `steal_after`.
     Idle,
+    /// `max_running` is reached and it runs with nobody using it.
+    RunningCap,
+}
+
+/// What a wait is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitFor {
+    /// Every member is in use at `max_sandboxes`.
+    Member,
+    /// `max_running` leaves no room to start one.
+    Running,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,12 +81,79 @@ pub enum Decision {
         why: Reassign,
     },
     /// Step 5: nothing is free.
-    Wait,
+    Wait(WaitFor),
 }
 
 /// Decide which member serves `workspace`. `members` are the project's pool
-/// members (builders excluded); `now` is in milliseconds.
-pub fn decide(members: &[Candidate<'_>], workspace: &str, limits: Limits, now: u64) -> Decision {
+/// members (builders excluded); `room` says whether `max_running` allows
+/// one more running machine; `now` is in milliseconds.
+pub fn decide(
+    members: &[Candidate<'_>],
+    workspace: &str,
+    limits: Limits,
+    room: bool,
+    now: u64,
+) -> Decision {
+    let decision = decide_unbounded(members, workspace, limits, now);
+    if room || !starts_a_machine(members, &decision) {
+        return decision;
+    }
+    // No room for another machine: a running member nobody uses instead.
+    let idle_running = |member: &&Candidate<'_>| member.running == Running::Yes && !member.busy;
+    if let Some(free) = members
+        .iter()
+        .filter(|member| member.affinity.is_none())
+        .filter(idle_running)
+        .max_by_key(|member| member.last_used_at)
+    {
+        return Decision::Take {
+            key: free.key.to_string(),
+        };
+    }
+    if let Some(other) = members
+        .iter()
+        .filter(|member| {
+            member
+                .affinity
+                .is_some_and(|affinity| affinity != workspace)
+        })
+        .filter(idle_running)
+        .min_by_key(|member| (member.workspace_exists, member.last_used_at))
+    {
+        return Decision::Reassign {
+            key: other.key.to_string(),
+            from: other.affinity.unwrap_or_default().to_string(),
+            why: if other.workspace_exists {
+                Reassign::RunningCap
+            } else {
+                Reassign::WorkspaceGone
+            },
+        };
+    }
+    Decision::Wait(WaitFor::Running)
+}
+
+/// Whether carrying out `decision` starts a machine: a new member, or a
+/// member that does not run and that nobody else is using or starting.
+fn starts_a_machine(members: &[Candidate<'_>], decision: &Decision) -> bool {
+    let key = match decision {
+        Decision::Create => return true,
+        Decision::Wait(_) => return false,
+        Decision::Use { key } | Decision::Take { key } | Decision::Reassign { key, .. } => key,
+    };
+    members
+        .iter()
+        .find(|member| member.key == key)
+        .is_some_and(|member| member.running != Running::Yes && !member.busy)
+}
+
+/// The acquisition order without `max_running`.
+fn decide_unbounded(
+    members: &[Candidate<'_>],
+    workspace: &str,
+    limits: Limits,
+    now: u64,
+) -> Decision {
     if let Some(own) = members
         .iter()
         .find(|member| member.affinity == Some(workspace))
@@ -115,7 +199,7 @@ pub fn decide(members: &[Candidate<'_>], workspace: &str, limits: Limits, now: u
     {
         return pick(Reassign::Idle, idle);
     }
-    Decision::Wait
+    Decision::Wait(WaitFor::Member)
 }
 
 #[cfg(test)]
@@ -205,7 +289,7 @@ mod tests {
                 "a free member that is busy is not taken",
                 vec![("busy", None, true, Yes, true, 0)],
                 1,
-                Decision::Wait,
+                Decision::Wait(WaitFor::Member),
             ),
             // Step 3: create below the cap.
             ("empty pool", vec![], 3, Decision::Create),
@@ -247,7 +331,7 @@ mod tests {
                 "workspace gone but leased is not taken",
                 vec![("g", Some("/g"), true, Yes, false, 90)],
                 1,
-                Decision::Wait,
+                Decision::Wait(WaitFor::Member),
             ),
             // Step 4b: idle longer than steal_after.
             (
@@ -272,7 +356,7 @@ mod tests {
                 "idle: not long enough is not taken",
                 vec![("recent", Some("/a"), false, Yes, true, 29)],
                 1,
-                Decision::Wait,
+                Decision::Wait(WaitFor::Member),
             ),
             (
                 "idle: a busy member is never taken",
@@ -291,7 +375,7 @@ mod tests {
                     ("b", Some("/b"), true, Yes, true, 0),
                 ],
                 2,
-                Decision::Wait,
+                Decision::Wait(WaitFor::Member),
             ),
             (
                 "over the cap (lowered later) and nothing free",
@@ -300,7 +384,7 @@ mod tests {
                     ("b", Some("/b"), false, Yes, true, 1),
                 ],
                 1,
-                Decision::Wait,
+                Decision::Wait(WaitFor::Member),
             ),
         ];
         for (name, rows, max, expected) in cases {
@@ -309,7 +393,119 @@ mod tests {
                 max_sandboxes: max,
                 ..LIMITS
             };
-            assert_eq!(decide(&members, "/w", limits, NOW), expected, "{name}");
+            assert_eq!(
+                decide(&members, "/w", limits, true, NOW),
+                expected,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn max_running_steers_toward_running_members_nobody_uses() {
+        let use_ = |key: &str| Decision::Use { key: key.into() };
+        let wait = Decision::Wait(WaitFor::Running);
+        let cases: Vec<(&str, Vec<Row>, u32, Decision)> = vec![
+            // Nothing would start: the cap changes nothing.
+            (
+                "own member already running",
+                vec![
+                    ("own", Some("/w"), false, Yes, true, 5),
+                    ("free", None, false, Yes, true, 0),
+                ],
+                3,
+                use_("own"),
+            ),
+            (
+                "own member busy (another process is starting it)",
+                vec![("own", Some("/w"), true, No, true, 5)],
+                3,
+                use_("own"),
+            ),
+            (
+                "a running free member is taken as without the cap",
+                vec![("free", None, false, Yes, true, 0)],
+                3,
+                take("free"),
+            ),
+            // A start would be needed: prefer a running member nobody uses.
+            (
+                "own member stopped: a running free member instead",
+                vec![
+                    ("own", Some("/w"), false, No, true, 5),
+                    ("free", None, false, Yes, true, 0),
+                ],
+                3,
+                take("free"),
+            ),
+            (
+                "own member stopped: another workspace's running idle member, any idle age",
+                vec![
+                    ("own", Some("/w"), false, No, true, 5),
+                    ("theirs", Some("/b"), false, Yes, true, 1),
+                ],
+                3,
+                reassign("theirs", "/b", Reassign::RunningCap),
+            ),
+            (
+                "below max_sandboxes: reassign rather than create",
+                vec![
+                    ("stopped-free", None, false, No, true, 0),
+                    ("recent", Some("/b"), false, Yes, true, 1),
+                    ("older", Some("/c"), false, Yes, true, 9),
+                ],
+                5,
+                reassign("older", "/c", Reassign::RunningCap),
+            ),
+            (
+                "a running member whose workspace is gone goes first",
+                vec![
+                    ("older", Some("/c"), false, Yes, true, 9),
+                    ("orphan", Some("/g"), false, Yes, false, 1),
+                ],
+                5,
+                reassign("orphan", "/g", Reassign::WorkspaceGone),
+            ),
+            (
+                "busy running members are never taken: wait for room",
+                vec![
+                    ("own", Some("/w"), false, No, true, 5),
+                    ("busy", Some("/b"), true, Yes, true, 90),
+                    ("stopped", None, false, No, true, 0),
+                ],
+                5,
+                wait.clone(),
+            ),
+            (
+                "empty pool: wait instead of creating",
+                vec![],
+                3,
+                wait.clone(),
+            ),
+            (
+                "a member of unknown state counts as stopped",
+                vec![("free", None, false, Unknown, true, 0)],
+                3,
+                wait,
+            ),
+            (
+                "at max_sandboxes with nothing free the wait is for a member",
+                vec![("a", Some("/a"), true, Yes, true, 0)],
+                1,
+                Decision::Wait(WaitFor::Member),
+            ),
+        ];
+        for (name, rows, max, expected) in cases {
+            let members = candidates(&rows);
+            let limits = Limits {
+                max_sandboxes: max,
+                ..LIMITS
+            };
+            assert_eq!(
+                decide(&members, "/w", limits, false, NOW),
+                expected,
+                "{name}"
+            );
         }
     }
 }
