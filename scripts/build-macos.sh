@@ -18,6 +18,15 @@
 #   --timeout SECONDS  command limit on the Mac (default 1800)
 #   --drive NAME       NoMac drive for caches (default boatparty-build;
 #                      "none" runs without a drive, fully cold)
+#   --queue SECONDS    how long to wait in line for a Mac or for the drive
+#                      (default 1800, at most 3600)
+#
+# A drive is on one Mac at a time: a second concurrent build waits for the
+# first unless it names another drive (--drive boatparty-build-2) or none.
+# Waiting in line is free and normal while the account's other Macs run.
+# Stop a run with Ctrl-C or SIGTERM, which stops the Mac at once. Never
+# SIGKILL it: the Mac then keeps running (and billing, and holding the drive)
+# until --timeout plus 15 minutes.
 #
 # Output, in the built worktree: target/nomac/boatparty-<target> (ad-hoc
 # signed) and target/nomac/SHA256SUMS. Exit status is the remote build's.
@@ -30,6 +39,7 @@ out=""
 max_cost=1
 timeout=1800
 drive=boatparty-build
+queue=1800
 
 die() { echo "build-macos: $*" >&2; exit 2; }
 
@@ -41,7 +51,8 @@ while [ $# -gt 0 ]; do
     --max-cost) [ $# -ge 2 ] || die "--max-cost needs a value"; max_cost="$2"; shift 2 ;;
     --timeout) [ $# -ge 2 ] || die "--timeout needs a value"; timeout="$2"; shift 2 ;;
     --drive) [ $# -ge 2 ] || die "--drive needs a value"; drive="$2"; shift 2 ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --queue) [ $# -ge 2 ] || die "--queue needs a value"; queue="$2"; shift 2 ;;
+    -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -99,10 +110,11 @@ du -sh "$base" >&2 || true
 drive_args=()
 [ "$drive" = none ] || drive_args=(--drive "$drive")
 
-echo "build-macos: building $root for ${targets[*]} on a one-shot NoMac Mac (max \$$max_cost)" >&2
+echo "build-macos: building $root for ${targets[*]} on a one-shot NoMac Mac (max \$$max_cost, drive $drive)" >&2
+echo "build-macos: waits up to ${queue}s in line if another Mac holds the account or the drive; stop with Ctrl-C, never kill -9" >&2
 rm -rf "$root/target/nomac"
 status=0
-nomac run --max-cost "$max_cost" --timeout "$timeout" "${drive_args[@]}" \
+nomac run --max-cost "$max_cost" --timeout "$timeout" --queue "$queue" ${drive_args[@]+"${drive_args[@]}"} \
   --pull target/nomac -- bash -c "$remote" build-macos "$run_tests" "${targets[@]}" || status=$?
 if [ "$status" -ne 0 ]; then
   echo "build-macos: remote build failed (exit $status)" >&2
