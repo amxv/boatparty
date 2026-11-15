@@ -3,7 +3,7 @@ title: Releases and installation
 description: How boatparty is built, released and installed without compiling anything on a developer machine.
 order: 3
 category: Distribution
-summary: Boat sandboxes build Linux, NoMac builds macOS, GitHub Releases host the archives.
+summary: GitHub-hosted runners build and test Linux and macOS, GitHub Releases host the archives.
 ---
 
 ## Install
@@ -22,18 +22,17 @@ Nothing is compiled on a developer machine.
 
 | Output | Built on | How |
 | --- | --- | --- |
-| Linux x86_64 and aarch64 | a boat.dev sandbox (`runs-on: boat`) | `cargo zigbuild` against glibc 2.28, so the binaries run on older distributions. aarch64 is built, not test-run (boat is x86_64 only) |
-| macOS arm64 and x86_64 | a one-shot NoMac Mac | `scripts/build-macos.sh` builds natively, runs the test suite on macOS and ad-hoc signs the binaries |
+| Linux x86_64 and aarch64 releases | GitHub's `ubuntu-latest` | the test suite, then `cargo zigbuild` against glibc 2.28, so the binaries run on older distributions. aarch64 is built, not test-run |
+| macOS arm64 and x86_64 releases | GitHub's `macos-latest` | the test suite on macOS, then a native `cargo build` per target; Apple's linker signs both binaries ad hoc |
 | CI checks (fmt, clippy, tests, docs) | a boat.dev sandbox per job | `.github/workflows/ci.yml` and `docs.yml`, on every branch |
-
-Every boat sandbox and NoMac Mac exists only for its job and is deleted or stopped when the job ends.
+| Development checks and macOS binaries of a working tree | this workspace's boat sandbox, through boatparty | `just remote-check`, `just boat-build-macos` |
 
 ## The release workflow
 
 `.github/workflows/release.yml` is maintained by hand. A pushed tag `vX.Y.Z` that matches the `Cargo.toml` version:
 
-1. builds and tests Linux on a boat sandbox and packages both Linux targets;
-2. builds and tests macOS on NoMac (the `NOMAC_API_KEY` Actions secret) and packages both macOS targets;
+1. tests and builds Linux on `ubuntu-latest` and packages both Linux targets;
+2. tests and builds macOS on `macos-latest` and packages both macOS targets;
 3. creates the GitHub Release with `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`. The release body is the version's section of the changelog. A version with a `-` suffix becomes a prerelease.
 
 A manual run, or a pull request that changes the release machinery, does steps 1 and 2 and stops before publishing.
@@ -50,4 +49,4 @@ just release-tag 0.2.0
 
 ## A macOS binary of a working tree
 
-For live testing of unreleased code, `scripts/build-macos.sh` (or `just build-macos`) builds the current working tree, uncommitted files included, on a one-shot NoMac Mac and writes `target/nomac/boatparty-<target>`. `--out PATH` also installs the binary there; `--no-test` skips the macOS test run.
+For live testing of unreleased code, `just boat-build-macos --out PATH` cross-compiles the current working tree, uncommitted files included, for `aarch64-apple-darwin` on this workspace's boat sandbox with cargo-zigbuild, fetches the binary and signs it ad hoc locally.

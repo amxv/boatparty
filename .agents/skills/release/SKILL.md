@@ -8,8 +8,9 @@ allowed-tools: Bash, Read, Write, Edit
 
 `Cargo.toml` owns the version. `docs/src/content/docs/changelog.md` owns the release notes. `.github/workflows/release.yml` owns the build and the GitHub Release. Nothing is compiled on the developer's machine:
 
-- Linux x86_64 and aarch64 are built on a boat.dev sandbox (`runs-on: boat`) with cargo-zigbuild against glibc 2.28.
-- macOS arm64 and x86_64 are built natively on a one-shot NoMac Mac by `scripts/build-macos.sh`, which runs the test suite there too.
+- Releases run only on GitHub-hosted runners, never on boat or the developer's machine.
+- Linux x86_64 and aarch64 are tested and built on `ubuntu-latest` with cargo-zigbuild against glibc 2.28.
+- macOS arm64 and x86_64 are tested and built natively on `macos-latest`; Apple's linker signs them ad hoc.
 - The release holds `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`.
 
 The repository is private. Users install with the GitHub CLI: `gh release download -R amxv/boatparty -p install.sh -O - | bash` (see `scripts/install.sh`). There is no npm or crates.io publication.
@@ -38,7 +39,7 @@ Add a `## <version> - <YYYY-MM-DD>` section at the top of `docs/src/content/docs
 
 ## 4. Validate
 
-The CI workflow (`runs-on: boat`) must be green on the release commit: `gh run list -R amxv/boatparty --commit "$(git rev-parse HEAD)"`. The `NOMAC_API_KEY` Actions secret must exist (`gh secret list -R amxv/boatparty`). A missing secret blocks the release: ask the user for a key through `fidelius` and set it with `gh secret set`, never printing it.
+The CI workflow (`runs-on: boat`) must be green on the release commit: `gh run list -R amxv/boatparty --commit "$(git rev-parse HEAD)"`. The release needs no secret besides the workflow's `GITHUB_TOKEN`.
 
 For changes to the release machinery itself, the pull request that changes it runs a full dry run. On `main`, `just release-dry-run` does the same on demand.
 
@@ -62,7 +63,7 @@ gh release view "v<version>" -R amxv/boatparty --json tagName,url,assets
 
 Expect four archives, `install.sh` and `SHA256SUMS`. Verify the installer on a clean location: `bash scripts/install.sh --version v<version> --dir "$(mktemp -d)"`. It downloads, checks the checksum and runs `boatparty --version`.
 
-Check that no NoMac Mac or boat sandbox outlived the run: `nomac status` reports none running, and `boat list` shows no `ci-boatparty-*` sandbox.
+GitHub-hosted runners end with their jobs; nothing needs cleaning up.
 
 ## 7. Report
 

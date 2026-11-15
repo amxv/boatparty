@@ -78,11 +78,12 @@ deployments without first disabling the Actions deployment path.
 
 ## Release boundary
 
-Nothing is compiled on a developer machine, for releases or otherwise. Linux
-release binaries (x86_64, aarch64) are cross-built with cargo-zigbuild against
-glibc 2.28 on a boat.dev sandbox; macOS binaries (arm64, x86_64) are built and
-tested natively on a one-shot NoMac Mac by `scripts/build-macos.sh`. Each
-machine exists only for its job.
+Nothing is compiled on a developer machine, for releases or otherwise.
+Development compiles, checks and tests run on boat through boatparty;
+releases run only on GitHub-hosted runners. Linux release binaries (x86_64,
+aarch64) are tested and cross-built with cargo-zigbuild against glibc 2.28 on
+`ubuntu-latest`; macOS binaries (arm64, x86_64) are tested and built natively
+on `macos-latest`, where Apple's linker signs them ad hoc.
 
 `.github/workflows/release.yml` is maintained by hand (there is no cargo-dist
 and no npm package). A tag `vX.Y.Z` matching `Cargo.toml` publishes a GitHub
@@ -90,7 +91,7 @@ Release with `boatparty-<version>-<target>.tar.gz` archives, `install.sh` and
 `SHA256SUMS`; a pull request touching the release machinery runs the same
 builds as a dry run. The repository is private, so users install with
 `gh release download -R amxv/boatparty -p install.sh -O - | bash`
-(`scripts/install.sh`, checksum-verified, into `~/.local/bin`). The macOS job
-needs the `NOMAC_API_KEY` Actions secret.
+(`scripts/install.sh`, checksum-verified, into `~/.local/bin`). The release
+needs no secret besides the workflow's own `GITHUB_TOKEN`.
 
 For any request to cut or ship a release, read and follow `.agents/skills/release/SKILL.md`.
