@@ -275,8 +275,9 @@ pub struct SkillArgs {
                   Holds the forward, and the sandbox (a `session` lease), until Ctrl-C or SIGTERM; \
                   it ends too if this process dies. The forward listens on 127.0.0.1 unless --bind \
                   names another address, and uses an SSH connection of its own. A ready line goes \
-                  to stderr once it listens. Exit status: 130 or 143 after SIGINT or SIGTERM; 125 \
-                  when the connection failed.")]
+                  to stderr once it listens. When the connection drops, it is reopened (bringing \
+                  the sandbox up again if needed) for up to 10 minutes. Exit status: 130 or 143 \
+                  after SIGINT or SIGTERM; 125 when the connection failed or could not be reopened.")]
 pub struct ForwardArgs {
     /// The sandbox port, then optionally the local port (the same by default).
     #[arg(value_name = "REMOTE[:LOCAL]", value_parser = crate::transport::forward::parse_pair)]

@@ -613,3 +613,61 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
     }
     files
 }
+
+#[test]
+fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
+    let setup = E2e::new("forward-reconnect");
+    let boat = setup.boat();
+    setup.launch(&boat);
+    // In front of the harness's ssh: the first connection carrying a
+    // forward ends a moment after it is up; later ones hold.
+    let bin = setup.root.path().join("bin");
+    let real = bin.join("ssh-real");
+    fs::rename(bin.join("ssh"), &real).unwrap();
+    let count = setup.root.path().join("forward-connections");
+    let wrapper = format!(
+        "#!/bin/sh\n\
+         case \" $* \" in *' -L '*)\n\
+           n=$(cat '{count}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{count}'\n\
+           if [ $n -eq 1 ]; then echo ready; sleep 0.3; exit 255; fi;;\n\
+         esac\n\
+         exec '{real}' \"$@\"\n",
+        count = count.display(),
+        real = real.display(),
+    );
+    fs::write(bin.join("ssh"), wrapper).unwrap();
+    fs::set_permissions(
+        bin.join("ssh"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .unwrap();
+    let port = free_port();
+    let stderr_file = setup.root.path().join("forward.stderr");
+    let mut child = setup
+        .spawn_cmd(&boat)
+        .env("FAKE_SSH_CHECK", "0")
+        .args(["forward", &format!("18765:{port}")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(fs::File::create(&stderr_file).unwrap())
+        .spawn()
+        .unwrap();
+    let reconnected = eventually(Duration::from_secs(20), || {
+        fs::read_to_string(&stderr_file)
+            .unwrap_or_default()
+            .contains("reconnected; forwarding")
+    });
+    let printed = fs::read_to_string(&stderr_file).unwrap_or_default();
+    std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert!(reconnected, "{printed}");
+    assert!(
+        printed.contains("ended (exit 255); reconnecting"),
+        "{printed}"
+    );
+    assert_eq!(status.code(), Some(143), "{printed}");
+    assert_eq!(fs::read_to_string(&count).unwrap().trim(), "2", "{printed}");
+}

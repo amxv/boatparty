@@ -57,7 +57,7 @@ Forwards listen on 127.0.0.1 unless you name another address. `--max-minutes` (d
 | `status` | This project's sandboxes: state, files restored or not, auto-stop time, SSH config paths |
 | `pipe -- CMD` / `pipe --sh LINE` | Run one command with this process's standard input, without syncing; the input is never recorded |
 | `fetch PATH [DEST]` | Copy a file or directory back (relative paths are under the checkout); large ones by signed download |
-| `forward REMOTE[:LOCAL]` | Hold a local port forward until cancelled |
+| `forward REMOTE[:LOCAL]` | Hold a local port forward until cancelled; a dropped connection is reopened for up to 10 minutes, bringing the sandbox up again if needed |
 | `expose PORT [--public] [--localhost] [--title T]` | A public HTTPS URL for a sandbox port, token-gated unless `--public`; `--hide` takes it down |
 | `release` | Let go of this workspace's sandbox so another workspace may use it |
 | `assign MEMBER` | Pin a free sandbox of the project to this workspace |
