@@ -12,7 +12,7 @@
 #   test [ARGS...]   cargo test --locked ARGS (for example a test name filter)
 #
 # Uses the boatparty binary in $BOATPARTY (default: `boatparty` on PATH, else
-# ~/.config/boatparty-dev/bin/boatparty) with the caller's BOATPARTY_HOME, and
+# ~/.local/bin/boatparty) with the caller's BOATPARTY_HOME (default: the shared login), and
 # needs a boatparty.toml in the worktree.
 #
 # Exit status: the remote checks' (0 when all pass); 125 when boatparty
@@ -46,7 +46,7 @@ if [ -n "${BOATPARTY:-}" ]; then
 elif command -v boatparty >/dev/null 2>&1; then
   bp="$(command -v boatparty)"
 else
-  bp="$HOME/.config/boatparty-dev/bin/boatparty"
+  bp="$HOME/.local/bin/boatparty"
 fi
 [ -x "$bp" ] || die "no boatparty binary at $bp (set BOATPARTY)"
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a Git worktree"

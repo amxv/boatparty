@@ -16,7 +16,7 @@
 #                     target/boat-darwin/boatparty-<target> in this worktree)
 #
 # Uses the boatparty binary in $BOATPARTY (default: `boatparty` on PATH, else
-# ~/.config/boatparty-dev/bin/boatparty) with the caller's BOATPARTY_HOME, and
+# ~/.local/bin/boatparty) with the caller's BOATPARTY_HOME (default: the shared login), and
 # needs a boatparty.toml in the worktree. The binary is not run or tested on
 # macOS here; use scripts/build-macos.sh (NoMac) for macOS tests.
 #
@@ -46,7 +46,7 @@ if [ -n "${BOATPARTY:-}" ]; then
 elif command -v boatparty >/dev/null 2>&1; then
   bp="$(command -v boatparty)"
 else
-  bp="$HOME/.config/boatparty-dev/bin/boatparty"
+  bp="$HOME/.local/bin/boatparty"
 fi
 [ -x "$bp" ] || die "no boatparty binary at $bp (set BOATPARTY)"
 
