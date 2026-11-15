@@ -160,8 +160,7 @@ pub struct Lease {
     pub label: String,
     #[serde(default)]
     pub started_at: u64,
-    /// The workspace the holder works for (added in Phase 7; older records
-    /// have none).
+    /// The workspace the holder works for (older records have none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
 }
@@ -198,7 +197,7 @@ pub struct StartRecord {
     /// When the start was reserved.
     pub at: u64,
     pub project: String,
-    /// Identifies the reservation (added in Phase 8; older records have none).
+    /// Identifies the reservation (older records have none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     /// The process that reserved it, while the start is in flight.

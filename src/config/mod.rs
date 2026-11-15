@@ -10,8 +10,7 @@
 //! replaces only the keys it sets, a new name is appended, and
 //! `enabled = false` switches a step off.
 //!
-//! Step meaning, fixed here for the runner (Phase 10) and the base build
-//! (Phase 11):
+//! Step meaning, fixed here for the runner and the base build:
 //! - a `setup` step runs after every create or resume of a sandbox (before
 //!   the first command of each boot of its machine; a resume that reclaims
 //!   the kept machine keeps its effects), unless its `check` succeeds;

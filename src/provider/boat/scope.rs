@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use super::http::{Answer, Http, Method};
 use crate::provider::{CredentialCheck, CredentialHelp, ErrorKind, ProviderError, ScopeDenial};
 
-/// Every action boatparty uses (Phase 1 measured these; see docs/boat-facts.md).
+/// Every action boatparty uses (measured against boat; see docs/boat-facts.md).
 pub const REQUIRED_ACTIONS: [&str; 13] = [
     "sandbox.create",
     "sandbox.read",

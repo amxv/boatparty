@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn a_phase_3_minimal_file_and_this_repositorys_file_load_as_before() {
+    fn a_minimal_file_and_this_repositorys_file_load_as_before() {
         let path = Path::new(PROJECT_FILE);
         let minimal = ProjectConfig::parse(
             "# boatparty project configuration. Check this file in.\n\

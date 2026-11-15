@@ -1,7 +1,7 @@
 //! The pack a sync sends: which objects go, and building it.
 //!
 //! `full` history sends everything reachable from the wanted commits that is
-//! not reachable from a commit the sandbox is known to have (Phase 4's thin
+//! not reachable from a commit the sandbox is known to have (a thin
 //! pack). `head` history must not walk history at all. Excluding old commits
 //! with plain negative revisions would be wrong there: a negative revision
 //! tells Git the receiver has everything reachable from it, but a `head`

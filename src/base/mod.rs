@@ -35,7 +35,8 @@ pub fn builder_name(project: &str) -> String {
 }
 
 /// `projects.<project>.base` in `state.json`. The first six fields are the
-/// fixed interface; the rest were added with Phase 11.
+/// fixed interface; the rest were added later and may be absent in older
+/// records.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BaseRecord {
     /// The saved snapshot's name.

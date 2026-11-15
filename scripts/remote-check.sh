@@ -56,7 +56,7 @@ cd "$root"
 quote() { printf '%q ' "$@"; }
 
 # boat images set RUSTUP_HOME but not CARGO_HOME, which some rustup commands
-# need (until the Phase 9 rust preset exports it). The remote snippets below
+# need (the rust preset exports it too). The remote snippets below
 # are single-quoted on purpose: they expand on the sandbox.
 # shellcheck disable=SC2016
 prelude='set -euo pipefail

@@ -27,7 +27,7 @@ pub struct E2e {
 }
 
 impl E2e {
-    /// A project in `full` history mode, as Phase 4 and 5 tests expect.
+    /// A project in `full` history mode, as the sync and run tests expect.
     pub fn new(label: &str) -> Self {
         Self::with_history(label, Some("full"))
     }
