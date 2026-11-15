@@ -198,13 +198,18 @@ maybe_maintain() {
   return 0
 }
 
-# The prune stamp, and whether it is missing or older than the prune
-# interval (minutes; a day by default).
+# The prune stamp, and whether it is older than the prune interval
+# (minutes; a day by default). A repository without one starts its clock
+# now: a fresh checkout has nothing to prune, and a gc right after the first
+# sync would only race whatever reads the repository next.
 prune_stamp() { printf '%s/pruned-%s' "$state" "$project"; }
 prune_due() {
   local stamp
   stamp="$(prune_stamp)"
-  [[ ! -f "$stamp" ]] && return 0
+  if [[ ! -f "$stamp" ]]; then
+    date +%s >"$stamp" 2>/dev/null || true
+    return 1
+  fi
   [[ -n "$(find "$stamp" -mmin "+${BOATPARTY_RUNNER_PRUNE_MINUTES:-1440}" 2>/dev/null)" ]]
 }
 

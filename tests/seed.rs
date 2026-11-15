@@ -605,16 +605,28 @@ fn the_daily_prune_drops_old_snapshots_and_keeps_what_the_client_counts_on() {
     };
     let before = all(&host.repo);
     assert!(before > reachable(&host.repo), "nothing to prune");
-    // Due (the stamp is gone) with no grace period.
-    let _ = fs::remove_file(host.state.join("pruned-app"));
+    // The first sync started the clock; two days later a prune is due. No
+    // grace period here.
+    let stamp = host.state.join("pruned-app");
+    assert!(stamp.exists());
+    let two_days_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 86_400);
+    fs::File::options()
+        .write(true)
+        .open(&stamp)
+        .unwrap()
+        .set_modified(two_days_ago)
+        .unwrap();
     let status = host
         .command(&["maintain".to_string(), "app".to_string()])
         .env("BOATPARTY_RUNNER_PRUNE_GRACE", "now")
-        .env("BOATPARTY_RUNNER_PRUNE_MINUTES", "0")
+        .env("BOATPARTY_RUNNER_PRUNE_MINUTES", "1440")
         .status()
         .unwrap();
     assert!(status.success());
-    assert!(host.state.join("pruned-app").exists());
+    assert!(
+        fs::metadata(&stamp).unwrap().modified().unwrap() > two_days_ago,
+        "the prune did not run"
+    );
     let after = all(&host.repo);
     assert!(after < before, "{after} objects, {before} before");
     assert_eq!(after, reachable(&host.repo));
