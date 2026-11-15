@@ -1,0 +1,55 @@
+---
+import PixelSea from "./PixelSea.astro";
+
+// A small pixel seascape: pale sky, a sea that deepens downward, and a slot
+// for the boats, docks and labels drawn on top.
+interface Props {
+  height?: number;
+  seaBands?: number;
+  seed?: number;
+  class?: string;
+}
+
+const { height = 220, seaBands = 4, seed = 3, class: className } = Astro.props;
+const colors = Array.from({ length: seaBands }, (_, i) => `var(--scene-${i + 1})`);
+const band = 14;
+---
+
+<div class:list={["scene", className]} style={`height:${height}px;--sea-top:${height - seaBands * band}px`}>
+  <PixelSea class="scene__sea" colors={colors} band={band} px={2} seed={seed} dash="prev" />
+  <slot />
+</div>
+
+<style>
+  .scene {
+    --pb-hull: var(--c-cobalt);
+    --pb-keel: var(--c-deep);
+    --pb-deck: var(--c-t1);
+    --pb-cabin: var(--c-cobalt);
+    --pb-win: #ffffff;
+    --pb-flag: var(--c-t1);
+    --pb-lamp: var(--c-cobalt);
+    --pb-lamp-off: transparent;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--c-t2);
+    background: var(--scene-sky);
+  }
+
+  :global(:root[data-theme="dark"]) .scene {
+    --pb-hull: #e0e3f2;
+    --pb-keel: #929fd3;
+    --pb-deck: #c2c9e6;
+    --pb-cabin: #e0e3f2;
+    --pb-win: #263fa9;
+    --pb-flag: #929fd3;
+    --pb-lamp: #fff6c8;
+  }
+
+  .scene :global(.scene__sea) {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+</style>

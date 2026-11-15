@@ -1,0 +1,297 @@
+---
+import PixelBoat from "./PixelBoat.astro";
+import Scene from "./Scene.astro";
+---
+
+<section class="bp-section legs">
+  <div class="shell">
+    <div class="bp-head bp-reveal">
+      <h2>One command, three legs</h2>
+      <p class="bp-sub">
+        <code>boatparty cheers -- npm test</code> syncs, runs and copies back in one go. The
+        sandbox stays warm for the next command.
+      </p>
+    </div>
+
+    <div class="legs__grid">
+      <article class="bp-reveal">
+        <p class="bp-label">~/code/app → bp-app-1</p>
+        <Scene seed={5}>
+          <div class="dock">
+            <span class="chip">~/code/app</span>
+            <span class="dock__pier"></span>
+          </div>
+          <span class="rope"></span>
+          <span class="packet packet--out">thin pack</span>
+          <div class="ride ride--right"><PixelBoat px={4} /></div>
+        </Scene>
+        <p class="bp-label legs__cmd">$ boatparty cheers -- npm test</p>
+        <h3>Mirror</h3>
+        <p>
+          Tracked and untracked files travel as a thin Git pack; ignored files never leave. Only
+          files whose content changed are rewritten, so build tools see unchanged mtimes.
+        </p>
+      </article>
+
+      <article class="bp-reveal" style="--d:0.08s">
+        <p class="bp-label">bp-app-1 · ubuntu 24.04 · x86_64</p>
+        <Scene seed={9}>
+          <div class="term">
+            <span>$ npm test -- -u</span>
+            <span>PASS src/app.test.ts</span>
+            <span>42 passed, 1 snapshot updated</span>
+          </div>
+          <span class="stream"><i></i><i></i><i></i><i></i><i></i></span>
+          <div class="ride ride--mid"><PixelBoat px={4} /></div>
+        </Scene>
+        <p class="bp-label legs__cmd">live output · exit 0</p>
+        <h3>Run</h3>
+        <p>
+          The command runs in the sandbox's checkout. Its output streams back byte for byte, and
+          <code>cheers</code> exits with the command's own status.
+        </p>
+      </article>
+
+      <article class="bp-reveal" style="--d:0.16s">
+        <p class="bp-label">bp-app-1 → ~/code/app</p>
+        <Scene seed={13}>
+          <div class="dock">
+            <span class="chip chip--done">applied</span>
+            <span class="dock__pier"></span>
+          </div>
+          <span class="rope"></span>
+          <span class="packet packet--in">.snap patch</span>
+          <div class="ride ride--right"><PixelBoat px={4} /></div>
+        </Scene>
+        <p class="bp-label legs__cmd">boatparty: applied the command's changes locally</p>
+        <h3>Copy back</h3>
+        <p>
+          Files the command changed come home as a patch. If you edited the same lines meanwhile,
+          nothing is touched and the patch is kept.
+        </p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  .legs__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2.4rem;
+  }
+
+  .legs__grid article > .bp-label:first-child {
+    margin-bottom: 0.5rem;
+  }
+
+  .legs__cmd {
+    margin-top: 0.5rem;
+  }
+
+  .legs__grid h3 {
+    margin: 1.6rem 0 0.6rem;
+    font-size: 1.55rem;
+  }
+
+  .legs__grid p:not(.bp-label) {
+    color: var(--c-text);
+    line-height: 1.6;
+  }
+
+  /* Scene pieces, positioned against the 220px scene and its waterline. */
+
+  .dock {
+    position: absolute;
+    top: calc(var(--sea-top) - 52px);
+    left: 7%;
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+  }
+
+  .dock__pier {
+    width: 7rem;
+    height: 8px;
+    background: var(--c-deep);
+    box-shadow:
+      12px 14px 0 -2px var(--c-deep),
+      90px 14px 0 -2px var(--c-deep);
+  }
+
+  .chip {
+    padding: 0.3rem 0.55rem;
+    background: var(--c-cobalt);
+    color: #fff;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
+
+  .chip--done::before {
+    content: "✓ ";
+  }
+
+  .rope {
+    position: absolute;
+    top: calc(var(--sea-top) - 70px);
+    right: 22%;
+    left: 30%;
+    border-top: 2px dotted var(--c-t1);
+  }
+
+  .packet {
+    position: absolute;
+    top: calc(var(--sea-top) - 82px);
+    padding: 0.15rem 0.45rem;
+    background: var(--c-ink);
+    color: var(--c-bg);
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+
+  .packet--out {
+    animation: packet-out 3.6s steps(24) infinite;
+  }
+
+  .packet--in {
+    animation: packet-in 3.6s steps(24) infinite;
+  }
+
+  @keyframes packet-out {
+    from {
+      left: 28%;
+      opacity: 1;
+    }
+    80% {
+      left: 60%;
+      opacity: 1;
+    }
+    to {
+      left: 60%;
+      opacity: 0;
+    }
+  }
+
+  @keyframes packet-in {
+    from {
+      left: 60%;
+      opacity: 1;
+    }
+    80% {
+      left: 28%;
+      opacity: 1;
+    }
+    to {
+      left: 28%;
+      opacity: 0;
+    }
+  }
+
+  .ride {
+    position: absolute;
+    top: calc(var(--sea-top) + 10px);
+    transform: translateY(-100%);
+    animation: ride-bob 2.2s steps(2) infinite;
+  }
+
+  .ride--right {
+    right: 9%;
+  }
+
+  .ride--mid {
+    left: 12%;
+  }
+
+  @keyframes ride-bob {
+    50% {
+      transform: translateY(calc(-100% - 2px));
+    }
+  }
+
+  .term {
+    position: absolute;
+    top: 22px;
+    right: 7%;
+    display: grid;
+    width: 58%;
+    padding: 0.55rem 0.7rem;
+    background: var(--c-abyss);
+    color: #e9ecf8;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    line-height: 1.6;
+  }
+
+  .term span {
+    overflow: hidden;
+    white-space: nowrap;
+    animation: term-line 4.8s steps(1) infinite;
+  }
+
+  .term span:nth-child(2) {
+    animation-name: term-line-2;
+  }
+
+  .term span:nth-child(3) {
+    animation-name: term-line-3;
+  }
+
+  @keyframes term-line-2 {
+    0%,
+    24% {
+      visibility: hidden;
+    }
+    25% {
+      visibility: visible;
+    }
+  }
+
+  @keyframes term-line-3 {
+    0%,
+    49% {
+      visibility: hidden;
+    }
+    50% {
+      visibility: visible;
+    }
+  }
+
+  .stream {
+    position: absolute;
+    top: calc(var(--sea-top) - 70px);
+    left: 4%;
+    width: 30%;
+    height: 4px;
+  }
+
+  .stream i {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: var(--c-cobalt);
+    animation: stream 1.6s steps(12) infinite;
+  }
+
+  .stream i:nth-child(2) { animation-delay: -0.32s; }
+  .stream i:nth-child(3) { animation-delay: -0.64s; }
+  .stream i:nth-child(4) { animation-delay: -0.96s; }
+  .stream i:nth-child(5) { animation-delay: -1.28s; }
+
+  @keyframes stream {
+    from {
+      left: 100%;
+    }
+    to {
+      left: 0;
+    }
+  }
+
+  @media (max-width: 960px) {
+    .legs__grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 3.2rem;
+    }
+  }
+</style>

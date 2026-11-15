@@ -4,6 +4,7 @@ import Agents from "../components/landing/Agents.astro";
 import Crew from "../components/landing/Crew.astro";
 import Harbor from "../components/landing/Harbor.astro";
 import Hero from "../components/landing/Hero.astro";
+import Legs from "../components/landing/Legs.astro";
 import Lifecycle from "../components/landing/Lifecycle.astro";
 import Limits from "../components/landing/Limits.astro";
 import Start from "../components/landing/Start.astro";
@@ -11,7 +12,7 @@ import { primaryNav, siteConfig } from "../data/docs";
 import "../styles/landing.css";
 
 const fonts =
-  "https://fonts.googleapis.com/css2?family=Gloock&family=Martian+Mono:wdth,wght@75..112.5,300..600&family=Schibsted+Grotesk:ital,wght@0,400..700;1,400..700&display=swap";
+  "https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300..600&family=Funnel+Sans:ital,wght@0,300..700;1,300..700&family=IBM+Plex+Mono:wght@400;500&display=swap";
 ---
 
 <BaseLayout
@@ -23,6 +24,7 @@ const fonts =
   <link rel="stylesheet" href={fonts} />
   <div class="bp">
     <Hero />
+    <Legs />
     <Harbor />
     <Lifecycle />
     <Limits />

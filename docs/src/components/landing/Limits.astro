@@ -1,5 +1,7 @@
 ---
-// Starts and limits. The meters are illustrative shapes, not measurements.
+import PixelBoat from "./PixelBoat.astro";
+
+// Starts and limits. The tracks are illustrative shapes, not measurements.
 const windows = [
   { name: "per minute", used: 34, reserve: 0, rule: "boat's own limit: retried after the delay boat names" },
   { name: "per hour", used: 58, reserve: 18, rule: "your budgets and the reserve wait with one log line; boat's own limit is retried" },
@@ -7,64 +9,55 @@ const windows = [
 ];
 ---
 
-<section class="bp-section lm">
+<section class="bp-section bp-section--panel lm">
   <div class="shell lm__grid">
     <div>
       <div class="bp-reveal">
-        <p class="bp-eyebrow">Limits in one place</p>
-        <h2>Starts are scarce. <em>Spend them on purpose.</em></h2>
+        <h2>Starts are scarce. Spend them on purpose.</h2>
+        <p class="bp-sub">
+          boat counts every create and every resume onto a new machine as a start, and never
+          queues one. boatparty sends every start from every project through one local ledger,
+          reconciled with boat's own counts, so an over-budget start waits instead of failing.
+        </p>
       </div>
-      <p class="lm__lede bp-reveal" style="--d:0.08s">
-        boat counts every create and every resume onto a new machine as a start, and never queues
-        one. boatparty sends every start from every project through one local ledger, reconciled
-        with boat's own counts, so an over-budget start waits instead of failing.
-      </p>
 
-      <ul class="lm__meters bp-reveal" style="--d:0.14s">
+      <ul class="lm__tracks bp-reveal" style="--d:0.1s">
         {windows.map((w) => (
           <li>
-            <div class="lm__meter-head">
-              <span>Starts {w.name}</span>
-            </div>
-            <div class="lm__meter" style={`--used:${w.used}%;--reserve:${w.reserve}%`}>
+            <span class="bp-label">starts {w.name}</span>
+            <div class="lm__track" style={`--used:${w.used}%;--reserve:${w.reserve}%`}>
               <span class="lm__used"></span>
-              {w.reserve > 0 && <span class="lm__reserve"></span>}
+              {w.reserve > 0 && <span class="lm__reserve">reserve</span>}
+              <span class="lm__boat"><PixelBoat px={2} /></span>
             </div>
             <p>{w.rule}</p>
           </li>
         ))}
       </ul>
-      <p class="lm__legend bp-reveal">
-        <span class="is-used">used</span>
-        <span class="is-reserve">account reserve, kept for you</span>
-      </p>
     </div>
 
     <div class="lm__file bp-reveal" style="--d:0.1s">
       <div class="bp-term">
-        <div class="bp-term__bar">
-          <span class="bp-term__lights"><i></i><i></i><i></i></span>
-          <span>~/.config/boatparty/account.toml</span>
-        </div>
+        <div class="bp-term__bar">~/.config/boatparty/account.toml</div>
         <div class="bp-term__body">
           <span class="t-dim"># every project on this machine, one file</span>
-          <span><span class="t-note">[account]</span></span>
-          <span>max_running            = <span class="t-ok">4</span></span>
-          <span>reserve_starts_per_day = <span class="t-ok">20</span></span>
+          <span class="t-note">[account]</span>
+          <span>max_running            = 4</span>
+          <span>reserve_starts_per_day = 20</span>
           <span>&nbsp;</span>
-          <span><span class="t-note">[projects.app]</span></span>
-          <span>max_sandboxes   = <span class="t-ok">3</span></span>
-          <span>starts_per_hour = <span class="t-ok">10</span></span>
-          <span>idle_minutes    = <span class="t-ok">5</span></span>
+          <span class="t-note">[projects.app]</span>
+          <span>max_sandboxes   = 3</span>
+          <span>starts_per_hour = 10</span>
+          <span>idle_minutes    = 5</span>
         </div>
       </div>
       <div class="lm__cmds">
-        <div class="bp-cmd">
+        <div class="bp-cmd lm__cmd">
           <span class="bp-cmd__prompt" aria-hidden="true">$</span>
           <code>boatparty limits</code>
         </div>
         <p>Starts left in each window, running sandboxes, and each project's usage this month.</p>
-        <div class="bp-cmd">
+        <div class="bp-cmd lm__cmd">
           <span class="bp-cmd__prompt" aria-hidden="true">$</span>
           <code>boatparty limits set project app starts_per_hour=10</code>
         </div>
@@ -75,6 +68,16 @@ const windows = [
 </section>
 
 <style>
+  .lm {
+    --pb-hull: var(--c-cobalt);
+    --pb-keel: var(--c-deep);
+    --pb-deck: var(--c-t1);
+    --pb-cabin: var(--c-cobalt);
+    --pb-win: #ffffff;
+    --pb-flag: var(--c-t1);
+    --pb-lamp: var(--c-cobalt);
+  }
+
   .lm__grid {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
@@ -82,92 +85,67 @@ const windows = [
     align-items: start;
   }
 
-  .lm__lede {
-    max-width: 34rem;
-    margin: 1.5rem 0 2.4rem;
-    color: var(--bp-muted);
-    line-height: 1.6;
-  }
-
-  .lm__meters {
+  .lm__tracks {
     display: grid;
-    gap: 1.4rem;
-    margin: 0;
+    gap: 1.9rem;
+    margin: 2.8rem 0 0;
     padding: 0;
     list-style: none;
   }
 
-  .lm__meter-head {
-    margin-bottom: 0.5rem;
-    font-family: var(--font-mono);
-    font-size: 0.64rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-
-  .lm__meter {
+  .lm__track {
     position: relative;
-    height: 0.7rem;
-    overflow: hidden;
-    border-radius: 999px;
-    background: var(--bp-deep-2);
+    height: 26px;
+    margin-top: 0.35rem;
+    background: linear-gradient(90deg, var(--c-t1) 2px, transparent 2px) 0 bottom / 10px 2px repeat-x;
   }
 
   .lm__used {
     position: absolute;
-    inset: 0 auto 0 0;
+    bottom: 0;
+    left: 0;
     width: var(--used);
-    border-radius: 999px;
-    background: var(--bp-buoy);
+    height: 2px;
+    background: var(--c-cobalt);
     transform-origin: left;
+    transition: transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s;
   }
 
-  :global(.bp-js) .lm__meters:not(.is-in) .lm__used {
+  .lm__boat {
+    position: absolute;
+    bottom: 0;
+    left: var(--used);
+    transform: translateX(-60%);
+    transition: left 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s;
+  }
+
+  :global(.bp-js) .lm__tracks:not(.is-in) .lm__used {
     transform: scaleX(0);
   }
 
-  .lm__meters .lm__used {
-    transition: transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s;
+  :global(.bp-js) .lm__tracks:not(.is-in) .lm__boat {
+    left: 0;
   }
 
   .lm__reserve {
     position: absolute;
-    inset: 0 0 0 auto;
+    right: 0;
+    bottom: 0;
     width: var(--reserve);
-    background: repeating-linear-gradient(135deg, var(--bp-lamp) 0 2px, transparent 2px 6px);
-    opacity: 0.8;
+    height: 26px;
+    padding-left: 0.4rem;
+    border-left: 2px solid var(--c-t2);
+    background: repeating-linear-gradient(135deg, var(--c-t3) 0 2px, transparent 2px 6px);
+    color: var(--c-soft);
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    line-height: 26px;
   }
 
-  .lm__meters p {
-    margin-top: 0.45rem;
-    color: var(--bp-muted);
-    font-size: 0.86rem;
-  }
-
-  .lm__legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1.2rem;
-    margin-top: 1.4rem;
-    color: var(--bp-faint);
-    font-size: 0.78rem;
-  }
-
-  .lm__legend span::before {
-    display: inline-block;
-    width: 1.2rem;
-    height: 0.5rem;
-    margin-right: 0.45rem;
-    border-radius: 999px;
-    content: "";
-  }
-
-  .lm__legend .is-used::before {
-    background: var(--bp-buoy);
-  }
-
-  .lm__legend .is-reserve::before {
-    background: repeating-linear-gradient(135deg, var(--bp-lamp) 0 2px, transparent 2px 6px);
+  .lm__tracks p {
+    margin-top: 0.5rem;
+    color: var(--c-text);
+    font-size: 0.95rem;
   }
 
   .lm__file {
@@ -177,7 +155,7 @@ const windows = [
   }
 
   .lm__file .bp-term__body {
-    font-size: 0.8rem;
+    font-size: 0.86rem;
   }
 
   .lm__cmds {
@@ -186,10 +164,14 @@ const windows = [
     gap: 0.5rem;
   }
 
+  .lm__cmd {
+    background: var(--c-bg);
+  }
+
   .lm__cmds p {
-    margin: 0 0 0.6rem 0.3rem;
-    color: var(--bp-muted);
-    font-size: 0.86rem;
+    margin: 0 0 0.6rem;
+    color: var(--c-text);
+    font-size: 0.95rem;
   }
 
   @media (max-width: 900px) {

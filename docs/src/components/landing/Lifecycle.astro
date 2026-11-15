@@ -33,12 +33,9 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
 
 <section class="bp-section lc">
   <div class="shell">
-    <div class="bp-intro">
-      <div class="bp-reveal">
-        <p class="bp-eyebrow">Warm reuse, idle stops</p>
-        <h2>Warm while you work. <em>Asleep when you don't.</em></h2>
-      </div>
-      <p class="bp-reveal" style="--d:0.1s">
+    <div class="bp-head bp-reveal">
+      <h2>Warm while you work, asleep when you don't</h2>
+      <p class="bp-sub">
         When a sandbox is already up, boatparty makes no call to boat before your command starts.
         When the last command ends, the sandbox stops by itself a few minutes later and keeps its
         disk, so leaving it alone is always the cheap choice.
@@ -105,9 +102,7 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
 <style>
   .lc__chart {
     padding: clamp(1.2rem, 3vw, 2rem) clamp(1.2rem, 3vw, 2.2rem) 1.4rem;
-    border: 1px solid var(--bp-line-strong);
-    border-radius: 22px;
-    background: var(--bp-card);
+    border: 1px solid var(--c-t2);
   }
 
   .lc__track {
@@ -124,51 +119,32 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
     position: absolute;
     bottom: 0;
     display: grid;
-    padding: 0 0 0.9rem 0.55rem;
-    border-left: 1px solid var(--bp-line-strong);
+    padding: 0 0 0.8rem 0.55rem;
+    border-left: 1px dotted var(--c-t1);
     line-height: 1.25;
     white-space: nowrap;
   }
 
   .lc__mark b {
+    color: var(--c-accent);
     font-family: var(--font-mono);
-    font-size: 0.66rem;
+    font-size: 0.74rem;
     font-weight: 500;
   }
 
   .lc__mark small {
-    color: var(--bp-muted);
-    font-size: 0.74rem;
-  }
-
-  .lc__mark[data-kind="start"] b {
-    color: var(--bp-buoy);
+    color: var(--c-soft);
+    font-size: 0.82rem;
   }
 
   .lc__mark[data-kind="stop"] b {
-    color: var(--bp-cold);
-  }
-
-  .lc__mark::after {
-    position: absolute;
-    bottom: -0.3rem;
-    left: -0.3rem;
-    width: 0.55rem;
-    height: 0.55rem;
-    border-radius: 50%;
-    background: var(--bp-buoy);
-    content: "";
-  }
-
-  .lc__mark[data-kind="stop"]::after {
-    background: var(--bp-cold);
+    color: var(--c-soft);
   }
 
   .lc__bar {
     position: relative;
-    height: 3rem;
-    border-radius: 10px;
-    background: var(--bp-deep);
+    height: 2.75rem;
+    background: var(--c-panel);
   }
 
   .lc__span {
@@ -180,8 +156,7 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
     overflow: hidden;
     padding: 0 0.7rem;
     font-family: var(--font-mono);
-    font-size: 0.6rem;
-    font-stretch: 75%;
+    font-size: 0.7rem;
     white-space: nowrap;
   }
 
@@ -192,41 +167,36 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
   }
 
   .lc__span[data-kind="run"] {
-    border-radius: 8px;
-    background: var(--bp-run);
-    color: var(--bp-sea);
+    background: var(--c-cobalt);
+    color: #fff;
   }
 
   .lc__span[data-kind="idle"] {
-    background: linear-gradient(90deg, var(--bp-lamp), color-mix(in srgb, var(--bp-lamp) 15%, transparent));
-    color: var(--bp-sea);
+    background: linear-gradient(90deg, var(--c-t1), var(--c-t2) 40%, var(--c-t4));
+    color: #fff;
   }
 
   .lc__span[data-kind="stopped"] {
-    border: 1px dashed var(--bp-cold);
-    border-radius: 8px;
-    background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--bp-cold) 18%, transparent) 6px 7px);
-    color: var(--bp-muted);
+    border: 2px dotted var(--c-t2);
+    color: var(--c-soft);
   }
 
   .lc__beat {
     position: absolute;
     top: -0.55rem;
-    height: 0.4rem;
-    width: 2px;
-    margin-left: -1px;
-    border-radius: 2px;
-    background: var(--bp-ink);
-    opacity: 0.85;
+    width: 4px;
+    height: 4px;
+    margin-left: -2px;
+    background: var(--c-cobalt);
   }
 
   .lc__beat-key {
     display: inline-block;
-    width: 2px;
-    height: 0.9em;
-    margin: 0 0.15rem;
-    vertical-align: -0.1em;
-    background: var(--bp-ink);
+    width: 4px;
+    height: 4px;
+    margin: 0 0.2rem;
+    vertical-align: 0.15em;
+    background: var(--c-cobalt);
   }
 
   .lc__now {
@@ -234,26 +204,15 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
     top: -0.8rem;
     bottom: -0.8rem;
     left: 0;
-    width: 1px;
-    background: var(--bp-buoy);
-    box-shadow: 0 0 12px var(--bp-buoy);
-    animation: lc-sweep 14s linear infinite;
+    width: 2px;
+    background: var(--c-ink);
+    opacity: 0.6;
+    animation: lc-sweep 14s steps(96) infinite;
   }
 
   @keyframes lc-sweep {
-    from {
-      left: 0;
-      opacity: 0;
-    }
-    4% {
-      opacity: 1;
-    }
-    96% {
-      opacity: 1;
-    }
     to {
       left: 100%;
-      opacity: 0;
     }
   }
 
@@ -266,24 +225,24 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
     position: absolute;
     top: 0.55rem;
     padding-top: 0.35rem;
-    border-top: 1px dashed var(--bp-run);
-    color: var(--bp-run);
-    font-size: 0.74rem;
+    border-top: 2px dotted var(--c-cobalt);
+    color: var(--c-accent);
+    font-size: 0.82rem;
     white-space: nowrap;
   }
 
   .lc__axis {
     position: relative;
     height: 1.2rem;
-    border-top: 1px solid var(--bp-line);
+    border-top: 1px solid var(--c-line);
   }
 
   .lc__axis span {
     position: absolute;
     top: 0.3rem;
-    color: var(--bp-faint);
+    color: var(--c-soft);
     font-family: var(--font-mono);
-    font-size: 0.56rem;
+    font-size: 0.66rem;
     transform: translateX(-50%);
   }
 
@@ -297,20 +256,20 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
 
   .lc__caption {
     margin-top: 1.2rem;
-    color: var(--bp-muted);
-    font-size: 0.88rem;
+    color: var(--c-text);
+    font-size: 0.95rem;
   }
 
   .lc__keys {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1rem;
-    margin: 1.5rem 0 0;
+    gap: 1.5rem;
+    margin: 2.5rem 0 0;
   }
 
   .lc__keys > div {
-    padding: 1.2rem 1.25rem;
-    border-top: 1px solid var(--bp-line-strong);
+    padding-top: 1rem;
+    border-top: 2px solid var(--c-line-strong);
   }
 
   .lc__keys dt {
@@ -321,28 +280,28 @@ const pct = (minute: number) => `${(minute / 24) * 100}%`;
   }
 
   .lc__keys dt code {
-    color: var(--bp-muted);
-    font-size: 0.66rem;
+    color: var(--c-soft);
+    font-size: 0.8rem;
   }
 
   .lc__keys dt span {
     font-family: var(--font-heading);
-    font-size: 2.6rem;
+    font-size: 2.4rem;
     line-height: 1;
   }
 
   .lc__keys dt span::after {
-    margin-left: 0.15rem;
-    color: var(--bp-muted);
+    margin-left: 0.2rem;
+    color: var(--c-soft);
     content: "min";
     font-family: var(--font-mono);
-    font-size: 0.6rem;
+    font-size: 0.7rem;
   }
 
   .lc__keys dd {
     margin: 0.6rem 0 0;
-    color: var(--bp-muted);
-    font-size: 0.9rem;
+    color: var(--c-text);
+    font-size: 0.98rem;
     line-height: 1.5;
   }
 

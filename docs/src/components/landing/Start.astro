@@ -1,12 +1,16 @@
 ---
 import { getCollection } from "astro:content";
+import PixelBoat from "./PixelBoat.astro";
+import PixelSea from "./PixelSea.astro";
 
 const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+
+const install = "gh release download -R amxv/boatparty -p install.sh -O - | bash";
 
 const steps = [
   {
     title: "Install",
-    cmd: "gh release download -R amxv/boatparty -p install.sh -O - | bash",
+    cmd: install,
     note: "Into ~/.local/bin, checksum-verified. macOS or Linux, with ssh, ssh-keygen and git on PATH."
   },
   {
@@ -25,26 +29,28 @@ const steps = [
     note: "The first run creates the sandbox and installs dependencies. Every later run reuses both."
   }
 ];
+
+// The closing sea: night bands from the band's cobalt down into the abyss.
+const night = ["#263fa9", "#2840a3", "#243a96", "#203488", "#1d307d", "#1a2b70"];
 ---
 
 <section class="bp-section st">
   <div class="shell">
-    <div class="st__head bp-reveal">
-      <p class="bp-eyebrow">Set sail</p>
-      <h2>Four commands <em>to the first run.</em></h2>
+    <div class="bp-head bp-reveal">
+      <h2>Four commands to the first run</h2>
     </div>
 
     <ol class="st__steps">
       {steps.map((step, index) => (
         <li class="bp-reveal" style={`--d:${index * 0.06}s`}>
           <span class="st__num">{index + 1}</span>
+          <h3>{step.title}</h3>
           <div class="st__body">
-            <h3>{step.title}</h3>
             <div class="bp-cmd">
               <span class="bp-cmd__prompt" aria-hidden="true">$</span>
               <code>{step.cmd}</code>
               {!step.cmd.includes("…") && (
-                <button class="bp-copy" type="button" data-copy={step.cmd}>Copy</button>
+                <button class="bp-copy" type="button" data-copy={step.cmd}>copy</button>
               )}
             </div>
             <p>{step.note}</p>
@@ -54,7 +60,7 @@ const steps = [
     </ol>
 
     <div class="st__docs">
-      <p class="bp-eyebrow">The docs</p>
+      <p class="bp-label">The docs</p>
       <div class="st__doc-grid">
         {docs.map((entry) => (
           <a class="st__doc bp-reveal" href={`/docs/${entry.id}`}>
@@ -68,123 +74,250 @@ const steps = [
   </div>
 </section>
 
-<style>
-  .st__head h2 {
-    max-width: none;
-  }
+<section class="sail">
+  <div class="shell sail__inner">
+    <div>
+      <h2>Set sail</h2>
+      <p>Your first warm sandbox is one command away.</p>
+    </div>
+    <div class="sail__cta">
+      <div class="bp-cmd sail__cmd">
+        <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+        <code>{install}</code>
+        <button class="bp-copy" type="button" data-copy={install}>copy</button>
+      </div>
+      <a class="sail__docs" href="/docs">Read the docs</a>
+    </div>
+  </div>
+  <div class="sail__sea">
+    <div class="sail__pier"><i></i><i></i><i></i><i></i></div>
+    <div class="sail__boat"><PixelBoat px={5} label="A boatparty boat with its lights on" /></div>
+    <PixelSea colors={night} band={16} px={4} seed={31} dash="prev" />
+  </div>
+</section>
 
+<style>
   .st__steps {
     display: grid;
-    gap: 0;
-    margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+    margin: 0;
     padding: 0;
     list-style: none;
   }
 
   .st__steps li {
     display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr);
-    gap: 1rem;
+    grid-template-columns: 3rem minmax(10rem, 0.3fr) minmax(0, 1fr);
+    gap: 0.6rem 1.5rem;
+    align-items: start;
     padding: 1.6rem 0;
-    border-top: 1px solid var(--bp-line);
+    border-top: 1px solid var(--c-line);
   }
 
   .st__num {
-    font-family: var(--font-heading);
-    font-size: 3rem;
-    font-style: italic;
-    line-height: 0.9;
-    color: var(--bp-buoy);
+    color: var(--c-accent);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    line-height: 3rem;
+  }
+
+  .st__steps h3 {
+    margin: 0;
+    font-size: 1.45rem;
+    line-height: 3rem;
   }
 
   .st__body {
     display: grid;
-    grid-template-columns: minmax(10rem, 0.32fr) minmax(0, 1fr);
-    gap: 0.6rem 2rem;
-    align-items: center;
-  }
-
-  .st__body h3 {
-    margin: 0;
-    font-size: 1.6rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.6rem;
   }
 
   .st__body p {
-    grid-column: 2;
-    color: var(--bp-muted);
-    font-size: 0.92rem;
+    color: var(--c-text);
+    font-size: 0.98rem;
   }
 
   .st__docs {
-    margin-top: clamp(4rem, 9vw, 6.5rem);
+    margin-top: clamp(4rem, 8vw, 6rem);
   }
 
   .st__doc-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin-top: 1.4rem;
+    gap: 1px;
+    margin-top: 1rem;
+    padding: 1px;
+    background: var(--c-line-strong);
   }
 
   .st__doc {
     display: grid;
     align-content: start;
     gap: 0.35rem;
-    padding: 1.1rem 1.15rem 1.25rem;
-    border: 1px solid var(--bp-line);
-    border-radius: 14px;
-    transition: border-color 0.25s ease, background 0.25s ease, transform 0.25s ease;
+    padding: 1.2rem 1.25rem 1.35rem;
+    background: var(--c-bg);
+    transition: background 0.2s ease;
   }
 
   .st__doc:hover {
-    border-color: var(--bp-buoy);
-    background: var(--bp-card);
-    transform: translateY(-2px);
+    background: var(--c-panel);
   }
 
   .st__doc span {
-    color: var(--bp-buoy);
+    color: var(--c-soft);
     font-family: var(--font-mono);
-    font-size: 0.56rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 0.72rem;
   }
 
   .st__doc strong {
+    color: var(--c-accent);
     font-family: var(--font-heading);
     font-size: 1.25rem;
     font-weight: 400;
   }
 
   .st__doc small {
-    color: var(--bp-muted);
-    font-size: 0.82rem;
+    color: var(--c-text);
+    font-size: 0.9rem;
     line-height: 1.45;
   }
 
+  /* Closing band */
+
+  .sail {
+    --pb-hull: #ffffff;
+    --pb-keel: #929fd3;
+    --pb-deck: #e0e3f2;
+    --pb-cabin: #ffffff;
+    --pb-win: #263fa9;
+    --pb-flag: #c2c9e6;
+    --pb-lamp: #fff6c8;
+    --pb-lamp-off: #6b7cc4;
+    background: #263fa9;
+    color: #fff;
+  }
+
+  .sail__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 2rem 4rem;
+    align-items: center;
+    padding: clamp(4rem, 8vw, 6rem) 0 clamp(3rem, 6vw, 4rem);
+  }
+
+  .sail h2 {
+    color: #fff;
+  }
+
+  .sail p {
+    margin-top: 0.6rem;
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .sail__cta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: 0.75rem;
+  }
+
+  .sail__cmd {
+    width: 100%;
+    background: #1e3180;
+    color: #fff;
+  }
+
+  .sail__cmd .bp-cmd__prompt,
+  .sail__cmd .bp-copy {
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .sail__cmd .bp-copy:hover {
+    color: #fff;
+  }
+
+  .sail__docs {
+    display: inline-flex;
+    align-items: center;
+    min-height: 3rem;
+    padding: 0 1.5rem;
+    background: #fff;
+    color: #263fa9;
+  }
+
+  .sail__docs:hover {
+    background: #e0e3f2;
+  }
+
+  .sail__sea {
+    position: relative;
+    margin-top: 3rem;
+  }
+
+  .sail__pier {
+    position: absolute;
+    bottom: calc(100% - 6px);
+    left: 30%;
+    width: 16%;
+    height: 8px;
+    background: #162358;
+  }
+
+  .sail__pier i {
+    position: absolute;
+    top: 8px;
+    width: 6px;
+    height: 18px;
+    background: #162358;
+  }
+
+  .sail__pier i:nth-child(1) { left: 4%; }
+  .sail__pier i:nth-child(2) { left: 34%; }
+  .sail__pier i:nth-child(3) { left: 64%; }
+  .sail__pier i:nth-child(4) { right: 4%; }
+
+  .sail__boat {
+    position: absolute;
+    bottom: calc(100% - 14px);
+    left: calc(46% + 1rem);
+    z-index: 1;
+    animation: sail-bob 2.4s steps(2) infinite;
+  }
+
+  @keyframes sail-bob {
+    50% {
+      transform: translateY(-2px);
+    }
+  }
+
   @media (max-width: 900px) {
-    .st__body {
-      grid-template-columns: minmax(0, 1fr);
+    .st__steps li {
+      grid-template-columns: 2rem minmax(0, 1fr);
     }
 
-    .st__body p {
-      grid-column: 1;
+    .st__body {
+      grid-column: 1 / -1;
     }
 
     .st__doc-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .sail__inner {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sail__pier {
+      left: 8%;
+      width: 30%;
+    }
+
+    .sail__boat {
+      left: 42%;
+    }
   }
 
   @media (max-width: 560px) {
-    .st__steps li {
-      grid-template-columns: 2.6rem minmax(0, 1fr);
-    }
-
-    .st__num {
-      font-size: 2.2rem;
-    }
-
     .st__doc-grid {
       grid-template-columns: minmax(0, 1fr);
     }

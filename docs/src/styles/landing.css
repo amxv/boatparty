@@ -1,130 +1,152 @@
 /*
- * boatparty landing page: a nautical chart at night (dark) or on paper (light).
- * Tokens are scoped to pages that contain `.bp`, and the ZueDocs header and
- * footer tokens are remapped on those pages so the whole page reads as one.
+ * boatparty landing page: cobalt sea, pixel waves, quiet type.
+ * Tokens are scoped to pages that contain `.bp`; the ZueDocs header and footer
+ * tokens are remapped on those pages so the whole page reads as one.
  */
 
 :root:has(.bp),
 :root[data-theme="light"]:has(.bp) {
-  --bp-sea: #f2ede1;
-  --bp-deep: #ebe4d4;
-  --bp-deep-2: #e2d9c5;
-  --bp-card: #f8f4ea;
-  --bp-ink: #10202c;
-  --bp-ink-soft: #2c3d49;
-  --bp-muted: #5e6b72;
-  --bp-faint: #8a958f;
-  --bp-line: rgba(16, 32, 44, 0.13);
-  --bp-line-strong: rgba(16, 32, 44, 0.26);
-  --bp-buoy: #b7410e;
-  --bp-buoy-soft: rgba(183, 65, 14, 0.12);
-  --bp-lamp: #a86a12;
-  --bp-lamp-soft: rgba(168, 106, 18, 0.14);
-  --bp-run: #17785a;
-  --bp-run-soft: rgba(23, 120, 90, 0.13);
-  --bp-cold: #6f8494;
-  --bp-term: #0f1d28;
-  --bp-term-ink: #e6dfcf;
-  --bp-term-muted: #7f939f;
-  --bp-grid: rgba(16, 32, 44, 0.05);
-  --bp-shadow: 0 30px 80px -40px rgba(16, 32, 44, 0.45);
+  --c-bg: #fefefe;
+  --c-ink: #060606;
+  --c-text: #4d4d4d;
+  --c-soft: #6f6f6f;
+  --c-accent: #263fa9;
+  --c-cobalt: #263fa9;
+  --c-deep: #1e3180;
+  --c-abyss: #162358;
+  --c-t1: #6b7cc4;
+  --c-t2: #929fd3;
+  --c-t3: #c2c9e6;
+  --c-t4: #e0e3f2;
+  --c-panel: #f1f3f9;
+  --c-line: #e0e3f2;
+  --c-line-strong: #c2c9e6;
+  /* The sea under the hero, from the horizon down into the page. */
+  --sea-1: #2a44ae;
+  --sea-2: #3550b6;
+  --sea-3: #4a63bf;
+  --sea-4: #6b7cc4;
+  --sea-5: #929fd3;
+  --sea-6: #c2c9e6;
+  --sea-7: #e0e3f2;
+  --sea-8: #f1f3f9;
+  --sea-9: var(--c-bg);
+  /* Small scenes: a pale sky over a sea that deepens downward. */
+  --scene-sky: #f1f3f9;
+  --scene-1: #e0e3f2;
+  --scene-2: #c2c9e6;
+  --scene-3: #929fd3;
+  --scene-4: #6b7cc4;
+  --scene-5: #4a63bf;
+  --scene-6: #3550b6;
 
-  --bg: var(--bp-sea);
-  --surface: var(--bp-card);
-  --surface-muted: var(--bp-deep);
-  --surface-subtle: var(--bp-deep);
-  --surface-hover: var(--bp-deep-2);
-  --surface-strong: var(--bp-deep);
-  --ink: var(--bp-ink);
-  --muted: var(--bp-muted);
-  --line: var(--bp-line);
-  --signal: var(--bp-buoy);
-  --font-sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-heading: "Gloock", ui-serif, Georgia, serif;
-  --font-mono: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --bg: var(--c-bg);
+  --surface: var(--c-bg);
+  --surface-muted: var(--c-panel);
+  --surface-subtle: var(--c-panel);
+  --surface-hover: var(--c-panel);
+  --surface-strong: var(--c-panel);
+  --ink: var(--c-ink);
+  --muted: var(--c-soft);
+  --line: var(--c-line);
+  --signal: var(--c-cobalt);
+  --font-sans: "Funnel Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Funnel Display", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 :root[data-theme="dark"]:has(.bp) {
-  --bp-sea: #07121b;
-  --bp-deep: #0b1a25;
-  --bp-deep-2: #11232f;
-  --bp-card: #0d1d29;
-  --bp-ink: #ece5d6;
-  --bp-ink-soft: #c9c3b5;
-  --bp-muted: #8c9ea9;
-  --bp-faint: #5b6f7c;
-  --bp-line: rgba(170, 200, 215, 0.12);
-  --bp-line-strong: rgba(170, 200, 215, 0.24);
-  --bp-buoy: #f5844c;
-  --bp-buoy-soft: rgba(245, 132, 76, 0.13);
-  --bp-lamp: #f4c25e;
-  --bp-lamp-soft: rgba(244, 194, 94, 0.13);
-  --bp-run: #6be0b0;
-  --bp-run-soft: rgba(107, 224, 176, 0.12);
-  --bp-cold: #4f6c82;
-  --bp-term: #050d14;
-  --bp-term-ink: #e6dfcf;
-  --bp-term-muted: #6f8593;
-  --bp-grid: rgba(170, 200, 215, 0.045);
-  --bp-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.8);
+  --c-bg: #0a1030;
+  --c-ink: #eef0fa;
+  --c-text: #b4bbdb;
+  --c-soft: #8e97c2;
+  --c-accent: #9fb0f5;
+  --c-cobalt: #2f4bc0;
+  --c-deep: #1e3180;
+  --c-abyss: #121c4c;
+  --c-t1: #6b7cc4;
+  --c-t2: #4e60b0;
+  --c-t3: #2c3a85;
+  --c-t4: #1d2862;
+  --c-panel: #0f1740;
+  --c-line: #1d2862;
+  --c-line-strong: #2c3a85;
+  --sea-1: #2a44ae;
+  --sea-2: #2840a3;
+  --sea-3: #223891;
+  --sea-4: #1d307d;
+  --sea-5: #182869;
+  --sea-6: #132055;
+  --sea-7: #0f1843;
+  --sea-8: #0c1338;
+  --scene-sky: #0f1740;
+  --scene-1: #131d4f;
+  --scene-2: #18265f;
+  --scene-3: #1d2f76;
+  --scene-4: #22388c;
+  --scene-5: #2942a3;
+  --scene-6: #3150bd;
 }
 
 :root:has(.bp) .shell {
-  width: min(1160px, calc(100vw - 3rem));
+  width: min(1248px, calc(100vw - 3rem));
 }
 
 :root:has(.bp) body {
-  background: var(--bp-sea);
+  background: var(--c-bg);
 }
+
+/* The header sits on the hero's cobalt sky. */
 
 :root:has(.bp) .site-header {
-  border-bottom-color: transparent;
-  background: color-mix(in srgb, var(--bp-sea) 82%, transparent);
+  border-bottom: 0;
+  background: var(--c-cobalt);
+  backdrop-filter: none;
+  color: #fff;
 }
 
-:root:has(.bp) .brand__name {
+:root:has(.bp) .site-header .brand__name {
+  color: #fff;
   font-family: var(--font-heading);
-  font-size: 1.3rem;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+:root:has(.bp) .site-header .brand__strapline {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:root:has(.bp) .site-header .site-nav,
+:root:has(.bp) .site-header .site-nav__link,
+:root:has(.bp) .site-header .theme-toggle,
+:root:has(.bp) .site-header button {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: #fff;
+}
+
+:root:has(.bp) .site-header .site-nav__link:hover,
+:root:has(.bp) .site-header .theme-toggle:hover,
+:root:has(.bp) .site-header button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:root:has(.bp) .site-header .site-nav__index,
+:root:has(.bp) .site-header kbd {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 :root:has(.bp) .site-footer {
-  background: var(--bp-deep);
+  border-top: 0;
 }
 
-/* Page frame and atmosphere */
+/* Page */
 
 .bp {
-  position: relative;
-  isolation: isolate;
-  color: var(--bp-ink);
+  color: var(--c-ink);
   font-family: var(--font-sans);
-  font-size: 1.08rem;
-}
-
-.bp::before {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  background-image:
-    linear-gradient(var(--bp-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px);
-  background-size: 72px 72px;
-  content: "";
-  mask-image: linear-gradient(to bottom, #000 0%, #000 70%, transparent 100%);
-  pointer-events: none;
-}
-
-.bp::after {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.55'/></svg>");
-  content: "";
-  mix-blend-mode: overlay;
-  opacity: 0.11;
-  pointer-events: none;
+  font-size: 1.12rem;
 }
 
 .bp a:hover {
@@ -133,134 +155,82 @@
 
 .bp-section {
   position: relative;
-  padding: clamp(4.5rem, 8vw, 6.5rem) 0;
+  padding: clamp(4.5rem, 9vw, 7rem) 0;
 }
 
-.bp-section + .bp-section {
-  border-top: 1px solid var(--bp-line);
-}
-
-/* Type */
-
-.bp-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.7rem;
-  color: var(--bp-muted);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  font-weight: 400;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.bp-eyebrow b {
-  color: var(--bp-buoy);
-  font-weight: 500;
-}
-
-.bp-eyebrow::before {
-  width: 1.6rem;
-  height: 1px;
-  background: currentColor;
-  content: "";
-  opacity: 0.6;
+.bp-section--panel {
+  background: var(--c-panel);
 }
 
 .bp h1,
 .bp h2,
 .bp h3 {
-  color: var(--bp-ink);
+  color: var(--c-ink);
   font-family: var(--font-heading);
   font-weight: 400;
+  letter-spacing: -0.02em;
 }
 
 .bp h2 {
-  max-width: 16ch;
-  margin-top: 1.1rem;
-  font-size: clamp(2.3rem, 5.2vw, 4rem);
-  letter-spacing: -0.025em;
-  line-height: 1.02;
+  max-width: 22ch;
+  font-size: clamp(2.2rem, 4.4vw, 3.3rem);
+  line-height: 1.08;
 }
 
-.bp h2 em,
-.bp h1 em {
-  color: var(--bp-buoy);
-  font-style: italic;
+.bp-sub {
+  max-width: 40rem;
+  margin-top: 0.9rem;
+  color: var(--c-text);
+  font-size: 1.12rem;
+  line-height: 1.55;
 }
 
-.bp-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  align-items: end;
-  gap: 2.5rem 4rem;
-  margin-bottom: clamp(2.8rem, 6vw, 4.5rem);
+.bp-head {
+  margin-bottom: clamp(2.5rem, 5vw, 3.75rem);
 }
 
-.bp-intro > p {
-  max-width: 34rem;
-  color: var(--bp-muted);
-  font-size: 1.08rem;
-  line-height: 1.6;
+.bp-label {
+  color: var(--c-soft);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
 }
 
 .bp code,
 .bp-mono {
   font-family: var(--font-mono);
-  font-size: 0.82em;
-  font-stretch: 87.5%;
+  font-size: 0.86em;
 }
 
 .bp p code {
-  padding: 0.08em 0.38em;
-  border: 1px solid var(--bp-line);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--bp-deep) 70%, transparent);
-  color: var(--bp-ink-soft);
+  color: var(--c-ink);
 }
 
-/* Buttons and the install line */
+/* Buttons and command lines: square, like signal flags. */
 
 .bp-button {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   min-height: 3rem;
-  padding: 0 1.3rem;
-  border: 1px solid var(--bp-line-strong);
-  border-radius: 999px;
-  color: var(--bp-ink);
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
+  padding: 0 1.5rem;
+  background: var(--c-cobalt);
+  color: #fff;
+  font-size: 1rem;
+  transition: background 0.2s ease;
 }
 
 .bp-button:hover {
-  border-color: var(--bp-ink);
-  transform: translateY(-1px);
+  background: var(--c-deep);
 }
 
-.bp-button--solid {
-  border-color: var(--bp-buoy);
-  background: var(--bp-buoy);
-  color: #fff8ef;
+.bp-button--ghost {
+  border: 1px solid var(--c-cobalt);
+  background: transparent;
+  color: var(--c-accent);
 }
 
-:root[data-theme="dark"] .bp-button--solid {
-  color: #1a0b03;
-}
-
-.bp-button--solid:hover {
-  border-color: var(--bp-buoy);
-  background: color-mix(in srgb, var(--bp-buoy) 86%, var(--bp-ink));
-}
-
-.bp-button span {
-  transition: transform 0.2s ease;
-}
-
-.bp-button:hover span {
-  transform: translateX(3px);
+.bp-button--ghost:hover {
+  background: var(--c-panel);
 }
 
 .bp-cmd {
@@ -268,20 +238,18 @@
   align-items: center;
   gap: 0.9rem;
   max-width: 100%;
-  padding: 0.55rem 0.55rem 0.55rem 1.1rem;
-  border: 1px solid var(--bp-line-strong);
-  border-radius: 12px;
-  background: var(--bp-term);
-  color: var(--bp-term-ink);
+  min-height: 3rem;
+  padding: 0 1rem;
+  background: var(--c-panel);
+  color: var(--c-ink);
   font-family: var(--font-mono);
-  font-size: 0.74rem;
-  font-stretch: 87.5%;
+  font-size: 0.86rem;
 }
 
 .bp-cmd > code {
   overflow-x: auto;
   flex: 1;
-  padding: 0.35rem 0;
+  padding: 0.85rem 0;
   font-size: inherit;
   white-space: nowrap;
   scrollbar-width: none;
@@ -292,68 +260,40 @@
 }
 
 .bp-cmd__prompt {
-  color: var(--bp-buoy);
+  color: var(--c-soft);
   user-select: none;
 }
 
 .bp-copy {
   flex-shrink: 0;
-  min-width: 4.4rem;
-  padding: 0.5rem 0.7rem;
-  border: 1px solid rgba(230, 223, 207, 0.18);
-  border-radius: 8px;
+  border: 0;
   background: transparent;
-  color: var(--bp-term-muted);
+  color: var(--c-soft);
   cursor: pointer;
   font: inherit;
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: color 0.2s ease, border-color 0.2s ease;
+  font-size: 0.82rem;
 }
 
 .bp-copy:hover,
 .bp-copy.is-copied {
-  border-color: var(--bp-buoy);
-  color: var(--bp-term-ink);
+  color: var(--c-accent);
 }
 
-/* Terminal surfaces */
+/* Terminal panels */
 
 .bp-term {
-  overflow: hidden;
-  border: 1px solid var(--bp-line-strong);
-  border-radius: 16px;
-  background: var(--bp-term);
-  box-shadow: var(--bp-shadow);
-  color: var(--bp-term-ink);
+  background: var(--c-abyss);
+  color: #e9ecf8;
   font-family: var(--font-mono);
-  font-size: 0.74rem;
-  font-stretch: 87.5%;
+  font-size: 0.82rem;
   line-height: 1.75;
 }
 
 .bp-term__bar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(230, 223, 207, 0.08);
-  color: var(--bp-term-muted);
-  font-size: 0.64rem;
-  letter-spacing: 0.06em;
-}
-
-.bp-term__lights {
-  display: inline-flex;
-  gap: 0.35rem;
-}
-
-.bp-term__lights i {
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  background: rgba(230, 223, 207, 0.16);
+  padding: 0.6rem 1rem;
+  background: var(--c-deep);
+  color: #aab5e6;
+  font-size: 0.74rem;
 }
 
 .bp-term__body {
@@ -366,32 +306,32 @@
   word-break: break-word;
 }
 
-.t-p {
-  color: #f5844c;
+.t-dim {
+  color: #8f9bd0;
 }
 
-.t-dim {
-  color: var(--bp-term-muted);
+.t-p {
+  color: #8f9bd0;
 }
 
 .t-ok {
-  color: #6be0b0;
+  color: #c8f0dc;
 }
 
 .t-bad {
-  color: #ff8a7a;
+  color: #ffb3a8;
 }
 
 .t-note {
-  color: #f4c25e;
+  color: #fff;
 }
 
 /* Scroll reveal, enabled only once the page script runs */
 
 .bp-js .bp-reveal {
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform: translateY(14px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
   transition-delay: var(--d, 0s);
 }
 
@@ -400,18 +340,11 @@
   transform: none;
 }
 
-@media (max-width: 860px) {
-  .bp-intro {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .bp *,
   .bp *::before,
   .bp *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
+    animation: none !important;
     transition-duration: 0.001ms !important;
   }
 
@@ -419,4 +352,19 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* The footer continues the closing night sea. */
+
+:root:has(.bp) .site-footer {
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.72);
+  --line: rgba(255, 255, 255, 0.16);
+  margin-top: 0;
+  background: #1a2b70;
+  color: #fff;
+}
+
+:root:has(.bp) .site-footer a {
+  color: #fff;
 }

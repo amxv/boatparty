@@ -1,0 +1,91 @@
+---
+// A pixel sea: stepped color bands with rows of drifting wave dashes. Colors
+// come from --sea-1 (horizon) to --sea-8 (deepest band shown), so the same
+// sea fades into white on the light theme and into night on the dark one.
+interface Props {
+  bands?: number;
+  band?: number;
+  px?: number;
+  seed?: number;
+  class?: string;
+  // Band colors from top to bottom; defaults to --sea-1 .. --sea-N.
+  colors?: string[];
+  // Which neighbouring band colors the wave dashes: the next (lighter, for
+  // a sea that fades out downward) or the previous one.
+  dash?: "next" | "prev";
+}
+
+const { bands = 8, band = 26, px = 4, seed = 7, class: className, dash: dashFrom = "next" } = Astro.props;
+const colors = Astro.props.colors ?? Array.from({ length: bands }, (_, i) => `var(--sea-${i + 1})`);
+const count = colors.length;
+const dashColor = (level: number) =>
+  dashFrom === "next" ? (colors[level + 2] ?? colors[count - 1]) : (colors[Math.max(level - 1, 0)] ?? colors[0]);
+
+// Small deterministic generator, so the sea is the same on every build.
+let state = seed;
+const rand = () => {
+  state = (state * 1103515245 + 12345) % 2147483648;
+  return state / 2147483648;
+};
+
+const rowsPerBand = Math.floor(band / px);
+const rows = Array.from({ length: count * rowsPerBand }, (_, index) => {
+  const level = Math.floor(index / rowsPerBand);
+  const dash = px * (2 + Math.floor(rand() * 8 + level));
+  const gap = px * (6 + Math.floor(rand() * 26));
+  const dash2 = px * (1 + Math.floor(rand() * 4));
+  const gap2 = px * (8 + Math.floor(rand() * 30));
+  const period = dash + gap + dash2 + gap2;
+  const tint = dashColor(level);
+  const show = rand() < 0.55;
+  return {
+    top: index * px,
+    show,
+    period,
+    style: [
+      `--period:${period}px`,
+      `--speed:${(18 + rand() * 40).toFixed(1)}s`,
+      `--dir:${rand() < 0.5 ? -1 : 1}`,
+      `--offset:${Math.floor(rand() * period)}px`,
+      `background-image:linear-gradient(90deg, ${tint} 0 ${dash}px, transparent ${dash}px ${dash + gap}px, ${tint} ${dash + gap}px ${dash + gap + dash2}px, transparent ${dash + gap + dash2}px)`
+    ].join(";")
+  };
+});
+
+const bandStyle = colors.map((color, i) => `${color} ${i * band}px ${(i + 1) * band}px`).join(", ");
+---
+
+<div
+  class:list={["sea", className]}
+  style={`height:${count * band}px;background:linear-gradient(180deg, ${bandStyle});--px:${px}px`}
+  aria-hidden="true"
+>
+  {rows.filter((row) => row.show).map((row) => (
+    <i style={`top:${row.top}px;${row.style}`}></i>
+  ))}
+</div>
+
+<style>
+  .sea {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .sea i {
+    position: absolute;
+    right: 0;
+    left: 0;
+    height: var(--px);
+    background-position-x: var(--offset);
+    background-repeat: repeat-x;
+    background-size: var(--period) 100%;
+    opacity: 0.85;
+    animation: sea-drift var(--speed) linear infinite;
+  }
+
+  @keyframes sea-drift {
+    to {
+      background-position-x: calc(var(--offset) + var(--period) * var(--dir) * 4);
+    }
+  }
+</style>

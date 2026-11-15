@@ -1,5 +1,5 @@
-// Behaviour for the landing page: scroll reveals, copy buttons, the voyage
-// diagram's sequence and the harbor's acquisition ladder. Everything here is
+// Behaviour for the landing page: scroll reveals, copy buttons and the
+// harbor's acquisition ladder. Everything here is
 // progressive: without it the page shows every element in its final state.
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -27,79 +27,16 @@ function initCopy() {
       const text = button.dataset.copy ?? "";
       try {
         await navigator.clipboard.writeText(text);
-        button.textContent = "Copied";
+        button.textContent = "copied";
         button.classList.add("is-copied");
       } catch {
-        button.textContent = "Select";
+        button.textContent = "select";
       }
       window.setTimeout(() => {
-        button.textContent = "Copy";
+        button.textContent = "copy";
         button.classList.remove("is-copied");
       }, 1600);
     });
-  });
-}
-
-// Step -> phase for the voyage. Steps advance every TICK ms and loop.
-const TICK = 750;
-const LAST_STEP = 17;
-
-function phaseFor(step: number) {
-  if (step >= 2 && step <= 3) return "mirror";
-  if (step >= 4 && step <= 7) return "run";
-  if (step >= 8 && step <= 9) return "copy";
-  if (step >= 10) return "done";
-  return "idle";
-}
-
-function initVoyage() {
-  const root = document.querySelector<HTMLElement>("[data-voyage]");
-  if (!root || reducedMotion) return;
-
-  const timed = Array.from(root.querySelectorAll<HTMLElement>("[data-at]"));
-  const lanes = Array.from(root.querySelectorAll<HTMLElement>("[data-lane]"));
-  let step = 0;
-  let timer: number | undefined;
-
-  const render = () => {
-    const phase = phaseFor(step);
-    root.dataset.phase = phase;
-    for (const element of timed) {
-      element.classList.toggle("is-on", step >= Number(element.dataset.at));
-    }
-    for (const lane of lanes) {
-      lane.classList.toggle("is-on", lane.dataset.lane === phase);
-    }
-  };
-
-  const tick = () => {
-    step = step >= LAST_STEP ? 0 : step + 1;
-    render();
-  };
-
-  const start = () => {
-    if (timer !== undefined) return;
-    timer = window.setInterval(tick, TICK);
-  };
-
-  const stop = () => {
-    if (timer === undefined) return;
-    window.clearInterval(timer);
-    timer = undefined;
-  };
-
-  root.classList.add("is-live");
-  render();
-
-  new IntersectionObserver((entries) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) start();
-      else stop();
-    }
-  }).observe(root);
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stop();
   });
 }
 
@@ -143,5 +80,4 @@ function initHarbor() {
 
 initReveal();
 initCopy();
-initVoyage();
 initHarbor();

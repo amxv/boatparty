@@ -1,0 +1,104 @@
+---
+// boatparty's pixel party boat: a cabin cruiser with a pennant and a string
+// of lights. Colors come from CSS variables set by the parent, so one drawing
+// serves the hero, the harbor and the dark bands.
+interface Props {
+  px?: number;
+  class?: string;
+  style?: string;
+  label?: string;
+}
+
+const { px = 4, class: className, style, label } = Astro.props;
+
+const art = [
+  "..........M.......",
+  "........FFM.L.....",
+  "......FFFFM...L...",
+  "........FFM.....L.",
+  "..........M.......",
+  "...CCCCCC.M.......",
+  "...CWWCWWCM.......",
+  "..DDDDDDDDDD......",
+  "HHHHHHHHHHHHHHHHHH",
+  ".HHHHHHHHHHHHHHHH.",
+  "..KKKKKKKKKKKKKK.."
+];
+
+const kinds: Record<string, string> = {
+  M: "mast",
+  F: "flag",
+  L: "lamp",
+  C: "cabin",
+  W: "win",
+  D: "deck",
+  H: "hull",
+  K: "keel"
+};
+
+const cells = art.flatMap((row, y) =>
+  [...row].flatMap((ch, x) => (kinds[ch] ? [{ x, y, kind: kinds[ch] }] : []))
+);
+const width = art[0].length;
+const height = art.length;
+---
+
+<svg
+  class:list={["pb", className]}
+  style={style}
+  viewBox={`0 0 ${width} ${height}`}
+  width={width * px}
+  height={height * px}
+  shape-rendering="crispEdges"
+  role={label ? "img" : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : "true"}
+>
+  {cells.map((cell) => (
+    <rect x={cell.x} y={cell.y} width="1" height="1" class={`pb-${cell.kind}`} style={cell.kind === "lamp" ? `--n:${cell.x}` : undefined} />
+  ))}
+</svg>
+
+<style>
+  .pb {
+    display: block;
+    overflow: visible;
+  }
+
+  .pb-hull {
+    fill: var(--pb-hull, #fff);
+  }
+
+  .pb-keel {
+    fill: var(--pb-keel, #c2c9e6);
+  }
+
+  .pb-deck {
+    fill: var(--pb-deck, #e0e3f2);
+  }
+
+  .pb-cabin,
+  .pb-mast {
+    fill: var(--pb-cabin, #fff);
+  }
+
+  .pb-win {
+    fill: var(--pb-win, #263fa9);
+  }
+
+  .pb-flag {
+    fill: var(--pb-flag, #929fd3);
+  }
+
+  .pb-lamp {
+    fill: var(--pb-lamp, #fff);
+    animation: pb-blink var(--pb-blink, 1.8s) steps(1) infinite;
+    animation-delay: calc(var(--n) * -0.3s);
+  }
+
+  @keyframes pb-blink {
+    50% {
+      fill: var(--pb-lamp-off, transparent);
+    }
+  }
+</style>

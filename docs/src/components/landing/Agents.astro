@@ -9,12 +9,9 @@ const traits = [
 
 <section class="bp-section ag">
   <div class="shell">
-    <div class="bp-intro">
-      <div class="bp-reveal">
-        <p class="bp-eyebrow">Built for coding agents</p>
-        <h2>Give your agents <em>a real Linux machine.</em></h2>
-      </div>
-      <p class="bp-reveal" style="--d:0.1s">
+    <div class="bp-head bp-reveal">
+      <h2>Give your coding agents a real Linux machine</h2>
+      <p class="bp-sub">
         Agents edit files locally and run every build, test and server on the sandbox. One rule
         tells them what a failure means: retry on 125, fix the code on anything else.
       </p>
@@ -23,10 +20,7 @@ const traits = [
     <div class="ag__grid">
       <div class="ag__log bp-reveal">
         <div class="bp-term">
-          <div class="bp-term__bar">
-            <span class="bp-term__lights"><i></i><i></i><i></i></span>
-            <span>agent session</span>
-          </div>
+          <div class="bp-term__bar">agent session</div>
           <div class="bp-term__body">
             <span><span class="t-p">›</span> boatparty cheers test</span>
             <span class="t-dim">test parser::tests::empty_input ... <span class="t-bad">FAILED</span></span>
@@ -77,28 +71,27 @@ const traits = [
     align-items: center;
     gap: 0.4rem 0.8rem;
     margin-top: 0.35rem;
-    color: var(--bp-term-muted);
+    color: #8f9bd0;
   }
 
   .ag__exit b {
-    padding: 0.05rem 0.55rem;
-    border-radius: 6px;
+    padding: 0 0.5rem;
     font-weight: 500;
   }
 
   .ag__exit .is-bad {
-    background: rgba(255, 138, 122, 0.16);
-    color: #ff8a7a;
+    background: #ffb3a8;
+    color: #3a0d06;
   }
 
   .ag__exit .is-infra {
-    background: rgba(244, 194, 94, 0.16);
-    color: #f4c25e;
+    background: #fff;
+    color: var(--c-abyss);
   }
 
   .ag__exit .is-ok {
-    background: rgba(107, 224, 176, 0.16);
-    color: #6be0b0;
+    background: #c8f0dc;
+    color: #06301c;
   }
 
   .ag__traits {
@@ -113,7 +106,7 @@ const traits = [
     grid-template-columns: auto 1fr;
     gap: 1.1rem;
     padding: 1.3rem 0;
-    border-top: 1px solid var(--bp-line);
+    border-top: 1px solid var(--c-line);
   }
 
   .ag__traits li:first-child {
@@ -122,7 +115,7 @@ const traits = [
   }
 
   .ag__idx {
-    color: var(--bp-buoy);
+    color: var(--c-accent);
     font-family: var(--font-mono);
     font-size: 0.62rem;
     line-height: 2.4;
@@ -130,11 +123,11 @@ const traits = [
 
   .ag__traits h3 {
     margin: 0 0 0.35rem;
-    font-size: 1.45rem;
+    font-size: 1.35rem;
   }
 
   .ag__traits p {
-    color: var(--bp-muted);
+    color: var(--c-text);
     font-size: 0.95rem;
     line-height: 1.55;
   }
