@@ -149,7 +149,7 @@ fn the_end_of_the_input_does_not_end_the_command() {
         .args([
             "pipe",
             "--sh",
-            "cat > got.txt; sleep 1; echo done; wc -c < got.txt",
+            "cat > got.txt; sleep 1; echo done; wc -c < got.txt | tr -d ' '",
         ])
         .write_stdin("abc")
         .output()

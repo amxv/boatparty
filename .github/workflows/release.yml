@@ -79,7 +79,7 @@ jobs:
       - name: Install zig and cargo-zigbuild
         run: scripts/release/install-zigbuild.sh
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
       - name: Build and package
         run: |
           mkdir -p dist
@@ -109,7 +109,7 @@ jobs:
           rustup toolchain install
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked --no-fail-fast
       - name: Build and package
         run: |
           mkdir -p dist
