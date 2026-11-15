@@ -559,3 +559,77 @@ fn maintenance_bounds_the_pack_count_and_keeps_a_shallow_repository_whole() {
     assert!(!next.full_retry);
     assert_head_mirror(&local, &host.repo);
 }
+
+#[test]
+fn the_daily_prune_drops_old_snapshots_and_keeps_what_the_client_counts_on() {
+    let root = TempDir::new("seed-prune");
+    let (local, _) = pushed_repo(root.path());
+    let host = LocalRunner::new(root.path(), "remote");
+    // Syncs never start a background prune here; the test runs it.
+    host.env.borrow_mut().extend([
+        (
+            "BOATPARTY_RUNNER_PRUNE_MINUTES".to_string(),
+            "100000".to_string(),
+        ),
+        ("BOATPARTY_RUNNER_MAX_PACKS".to_string(), "1000".to_string()),
+    ]);
+    let mut member = Member::default();
+    load(&local, &host, &mut member, History::Head, Some(&config()));
+    for n in 0..8 {
+        write(
+            &local.join("a.txt"),
+            &format!("edit {n}\n{}\n", noise(300 + n, 4096)),
+        );
+        if n % 2 == 0 {
+            commit(&local, &format!("step {n}"));
+        }
+        load(&local, &host, &mut member, History::Head, Some(&config()));
+    }
+    let all = |repo: &Path| {
+        git(
+            repo,
+            &[
+                "cat-file",
+                "--batch-all-objects",
+                "--batch-check=%(objectname)",
+            ],
+        )
+        .lines()
+        .count()
+    };
+    let reachable = |repo: &Path| {
+        git(repo, &["rev-list", "--objects", "--all"])
+            .lines()
+            .count()
+    };
+    let before = all(&host.repo);
+    assert!(before > reachable(&host.repo), "nothing to prune");
+    // Due (the stamp is gone) with no grace period.
+    let _ = fs::remove_file(host.state.join("pruned-app"));
+    let status = host
+        .command(&["maintain".to_string(), "app".to_string()])
+        .env("BOATPARTY_RUNNER_PRUNE_GRACE", "now")
+        .env("BOATPARTY_RUNNER_PRUNE_MINUTES", "0")
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(host.state.join("pruned-app").exists());
+    let after = all(&host.repo);
+    assert!(after < before, "{after} objects, {before} before");
+    assert_eq!(after, reachable(&host.repo));
+    git(&host.repo, &["fsck", "--no-progress"]);
+    // Every remaining shallow boundary names a commit that is still there.
+    let shallow = fs::read_to_string(host.repo.join(".git/shallow")).unwrap();
+    for sha in shallow.lines() {
+        git(
+            &host.repo,
+            &["cat-file", "-e", &format!("{sha}^{{commit}}")],
+        );
+    }
+    assert_head_mirror(&local, &host.repo);
+    // The next sync is still thin: what the client knows is still there.
+    write(&local.join("a.txt"), "after the prune\n");
+    let (next, _) = load(&local, &host, &mut member, History::Head, Some(&config()));
+    assert!(!next.full_retry);
+    assert_head_mirror(&local, &host.repo);
+}

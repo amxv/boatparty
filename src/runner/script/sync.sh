@@ -180,30 +180,60 @@ mode_seed() {
   fi
 }
 
-# Keeps the repository's pack and loose-object count bounded: every sync
-# adds a pack and every command's changes add loose objects. When either
-# passes its limit, a detached `maintain` runs, so nothing waits for it and
-# no lock is held across it.
+# Keeps the repository bounded: every sync adds a pack and a snapshot
+# commit, and every command's changes add loose objects. When the pack or
+# loose-object count passes its limit, or the last prune is more than a day
+# old, a detached `maintain` runs, so nothing waits for it and no lock is
+# held across it.
 maybe_maintain() {
   local packs loose
   [[ -d "$repo/.git/objects/pack" ]] || return 0
   packs="$(find "$repo/.git/objects/pack" -maxdepth 1 -name '*.pack' 2>/dev/null | wc -l | tr -d ' ')"
   loose="$(git -C "$repo" count-objects 2>/dev/null | awk '{ print $1 }')"
-  if [[ "$packs" -gt "${BOATPARTY_RUNNER_MAX_PACKS:-8}" || "${loose:-0}" -gt "${BOATPARTY_RUNNER_MAX_LOOSE:-2000}" ]]; then
+  if [[ "$packs" -gt "${BOATPARTY_RUNNER_MAX_PACKS:-8}" || "${loose:-0}" -gt "${BOATPARTY_RUNNER_MAX_LOOSE:-2000}" ]] ||
+    prune_due; then
     perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash "$0" maintain "$project" \
       </dev/null >/dev/null 2>&1 9>&- &
   fi
   return 0
 }
 
+# The prune stamp, and whether it is missing or older than the prune
+# interval (minutes; a day by default).
+prune_stamp() { printf '%s/pruned-%s' "$state" "$project"; }
+prune_due() {
+  local stamp
+  stamp="$(prune_stamp)"
+  [[ ! -f "$stamp" ]] && return 0
+  [[ -n "$(find "$stamp" -mmin "+${BOATPARTY_RUNNER_PRUNE_MINUTES:-1440}" 2>/dev/null)" ]]
+}
+
 # maintain: roll small packs and loose objects into bigger packs (a
-# geometric repack). It never drops an object, so the shallow boundaries
-# and every object the client counts on stay intact. One at a time.
+# geometric repack), and once a day drop what nothing needs any more: the
+# snapshot commits and trees of old syncs, old commands' results, history
+# the checkout's reflogs kept, and shallow boundaries of commits that are
+# gone. Only objects unreachable from every ref (refs/boatparty/wip, the
+# checked-out branch, the mirrored refs) and older than the grace period
+# (an hour by default) go, so the latest sync, everything the client counts
+# on (its `known` commits are refs), and whatever a running command or sync
+# is writing stay. One at a time.
 mode_maintain() {
   [[ -d "$repo/.git" ]] || return 0
   exec 6>"$state/maintain.lock"
   if command -v flock >/dev/null 2>&1; then flock -n 6 || return 0; fi
-  nice -n 10 git -C "$repo" repack -d -q --geometric=2 || true
+  if prune_due; then
+    local grace="${BOATPARTY_RUNNER_PRUNE_GRACE:-1.hour.ago}"
+    nice -n 10 git -C "$repo" reflog expire --all --expire="$grace" --expire-unreachable="$grace" 2>/dev/null || true
+    # Prunes unreachable objects past the grace period and the shallow
+    # entries of commits that are gone, then repacks what is left.
+    if nice -n 10 git -C "$repo" -c gc.auto=0 -c gc.autoDetach=false -c gc.reflogExpire=never \
+      -c gc.reflogExpireUnreachable=never -c gc.rerereResolved=never -c gc.rerereUnresolved=never \
+      gc --quiet --prune="$grace" 2>/dev/null; then
+      date +%s >"$(prune_stamp)"
+    fi
+  else
+    nice -n 10 git -C "$repo" repack -d -q --geometric=2 || true
+  fi
   date +%s >"$state/maintained"
 }
 

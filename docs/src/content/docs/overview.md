@@ -15,7 +15,7 @@ boatparty cheers -- cargo test --locked
 ## What happens on a command
 
 1. **Lease.** The checkout (a *workspace*) takes its sandbox from the project's *pool*: the one it used last, else a free one, else a new one below the project's cap. When that sandbox is already up, nothing talks to boat before the command starts.
-2. **Sync.** The working tree (tracked and untracked files, minus ignored ones) travels as a thin Git pack. By default only HEAD's commit travels, not its history. Only files whose content changed are rewritten on the sandbox, so build tools see unchanged mtimes.
+2. **Sync.** The working tree (tracked and untracked files, minus ignored ones) travels as a thin Git pack. By default only HEAD's commit travels, not its history. Only files whose content changed are rewritten on the sandbox, so build tools see unchanged mtimes. The sandbox's repository stays bounded: its packs are rolled up as they accumulate, and once a day objects that no ref needs any more (old snapshots and results) are pruned.
 3. **Run.** The command runs in `/home/user/<project>` with the project's environment and dependency steps. stdout passes through byte for byte.
 4. **Copy back.** Files the command changed in the checkout are applied to your working tree. If the same lines changed locally meanwhile, nothing is touched and the patch is kept.
 5. **Idle.** The sandbox stops by itself `idle_minutes` (default 5) after the last command ends. Its disk is kept, and the next command resumes it.
