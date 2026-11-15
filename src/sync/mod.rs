@@ -10,6 +10,7 @@
 //! sandbox records HEAD as a shallow boundary; `full` also sends every local
 //! branch, tag and the default remote branch with their history.
 
+pub mod credentials;
 pub mod exchange;
 pub mod mirror;
 pub mod pack;
@@ -24,12 +25,14 @@ use std::process::{Command, Output, Stdio};
 
 use crate::error::AppError;
 
+pub use credentials::RunCredentials;
 pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
 pub use mirror::{
     MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
+    run_command_with,
 };
 pub use pullback::{PullBack, apply_pullback};
-pub use seed::{SeedConfig, SeedReport, SeedRoute};
+pub use seed::{SeedConfig, SeedReport, SeedRoute, TokenSource};
 pub use snapshot::{Snapshot, snapshot};
 
 /// How much Git history a sync sends.

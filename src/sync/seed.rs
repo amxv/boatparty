@@ -67,6 +67,30 @@ pub enum TokenSource {
     Gh,
 }
 
+impl TokenSource {
+    /// `BOATPARTY_GITHUB_TOKEN` when set, else `gh auth token`; `None` when
+    /// the project does not want a token. Nothing is read or run here.
+    pub fn from_env(wanted: bool) -> Self {
+        match std::env::var(TOKEN_ENV) {
+            _ if !wanted => Self::None,
+            Ok(value) if !value.trim().is_empty() => {
+                Self::Fixed(Secret::new(value.trim().to_string()))
+            }
+            _ => Self::Gh,
+        }
+    }
+
+    /// The token itself: `gh` runs only here, and its answer stays in memory.
+    /// `None` when there is no source or no usable token.
+    pub fn fetch(&self) -> Option<Secret> {
+        match self {
+            Self::None => None,
+            Self::Fixed(secret) => Some(secret.clone()),
+            Self::Gh => gh_token(),
+        }
+    }
+}
+
 /// The project's and environment's seeding settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeedConfig {
@@ -90,13 +114,7 @@ impl SeedConfig {
                 .and_then(|value| value.trim().parse().ok())
                 .unwrap_or(default)
         };
-        let token = match std::env::var(TOKEN_ENV) {
-            _ if !github_token => TokenSource::None,
-            Ok(value) if !value.trim().is_empty() => {
-                TokenSource::Fixed(Secret::new(value.trim().to_string()))
-            }
-            _ => TokenSource::Gh,
-        };
+        let token = TokenSource::from_env(github_token);
         Self {
             enabled,
             allow_file: std::env::var(ALLOW_FILE_ENV).is_ok_and(|value| value == "1"),
@@ -368,13 +386,13 @@ fn head_bytes(root: &Path) -> Option<u64> {
 /// github.com, and its answer stays in memory.
 pub fn token(source: &TokenSource, url: &str) -> Option<Secret> {
     match source {
-        TokenSource::None => None,
-        TokenSource::Fixed(secret) => Some(secret.clone()),
         // A file:// URL only exists when tests allow it.
-        TokenSource::Gh if url.starts_with("https://github.com/") || url.starts_with("file://") => {
-            gh_token()
+        TokenSource::Gh
+            if !url.starts_with("https://github.com/") && !url.starts_with("file://") =>
+        {
+            None
         }
-        TokenSource::Gh => None,
+        source => source.fetch(),
     }
 }
 

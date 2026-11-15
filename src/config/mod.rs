@@ -51,7 +51,12 @@ pub const HELP: &str = "boatparty.toml (version = 1). Every key is optional exce
   [sandbox]   machine (small|default|large|xlarge), remote_path (/home/user/<name>; other values \
 are not supported yet), environment (a boat environment for new sandboxes; unset = no account secrets)
   [sync]      history (\"head\"|\"full\"), copy_back, seed, github_token (true|false)
-  [run]       ram_tmp (true|false), script (the script runner for `cheers <name>`, e.g. \"bun run\")
+  [run]       ram_tmp (true|false), script (the script runner for `cheers <name>`, e.g. \"bun run\"), \
+git_identity (true|false: commands commit as the local user.name and user.email), github_token \
+(true|false: git in commands authenticates to github.com over HTTPS with BOATPARTY_GITHUB_TOKEN or \
+`gh auth token`, served for the command's lifetime only, never stored on the sandbox; a project \
+whose [sandbox] environment has GitHub access can use that instead, but boat then stores the login \
+on the sandbox)
   [run.env]   NAME = \"value\": exported before steps and commands; values are expanded by bash \
 in the checkout ($HOME, $PATH, $PWD); a value that names its own variable (\"/x/bin:$PATH\" for PATH) \
 extends the value from earlier layers instead of replacing it
@@ -158,6 +163,12 @@ pub struct Run {
     pub env: BTreeMap<String, String>,
     /// The script runner for `cheers <name>`, for example `"bun run"`.
     pub script: Option<String>,
+    /// Commands commit as the local repository's `user.name` and
+    /// `user.email`.
+    pub git_identity: bool,
+    /// Commands get a GitHub token for github.com over HTTPS (private
+    /// dependencies), served for the command's lifetime only.
+    pub github_token: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -386,7 +397,7 @@ fn defaults(project: &str) -> Table {
     let text = format!(
         "[sandbox]\nremote_path = {remote}\n\
          [sync]\nhistory = \"head\"\ncopy_back = true\nseed = true\ngithub_token = true\n\
-         [run]\nram_tmp = true\n\
+         [run]\nram_tmp = true\ngit_identity = true\ngithub_token = false\n\
          [build]\noutput_dirs = []\nfloor_mtimes = true\ncache_dirs = []\n",
         remote = Value::String(default_remote_path(project))
     );

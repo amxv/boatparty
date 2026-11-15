@@ -355,7 +355,8 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
         .spawn()
         .unwrap();
     let mut stdin = runner.stdin.take().unwrap();
-    stdin.write_all(b"\n").unwrap();
+    // An empty credentials block, then an empty refs block.
+    stdin.write_all(b"\n\n").unwrap();
     let pid_file = host.state.join("out/ndeath.pid");
     assert!(eventually(Duration::from_secs(10), || {
         child_file.exists() && pid_file.exists()

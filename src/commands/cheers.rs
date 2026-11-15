@@ -30,8 +30,8 @@ use crate::state::{LeaseKind, Member, Store, SyncState};
 use crate::stream::Stream;
 use crate::sync::pack::usable_known;
 use crate::sync::{
-    self, History, MirrorRequest, PackRoute, PullBack, RunEnd, RunOutcome, SeedConfig, SeedRoute,
-    Sink, WorktreeInfo,
+    self, History, MirrorRequest, PackRoute, PullBack, RunCredentials, RunEnd, RunOutcome,
+    SeedConfig, SeedRoute, Sink, TokenSource, WorktreeInfo,
 };
 use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
@@ -145,7 +145,9 @@ impl Cheers<'_> {
         let spec = RunnerSpec::new(project.config());
         let name = project.name().to_string();
         let history = project.history();
-        let seed = project.seed_config();
+        let mut seed = project.seed_config();
+        let identity = project.git_identity();
+        let token_source = project.run_token_source();
         // Local checks first: a repository without a commit fails before
         // anything remote happens.
         let info = WorktreeInfo::read(&workspace.root)?;
@@ -156,6 +158,20 @@ impl Cheers<'_> {
         self.record["workspace"] = json!(workspace.key());
 
         let mut conn = connect(ctx, &store, &name, &workspace, &self.line)?;
+        // Read only now that a command is about to run; held in memory.
+        let credentials = RunCredentials::gather(&workspace.root, identity, &token_source);
+        if token_source != TokenSource::None && credentials.github_token.is_none() {
+            stream.note(
+                "[run] github_token is on but no GitHub token was found (set \
+                 BOATPARTY_GITHUB_TOKEN or run `gh auth login`); the command runs without one",
+            );
+        }
+        if let (Some(token), TokenSource::Gh) = (&credentials.github_token, &seed.token) {
+            // One `gh auth token` serves the seed too.
+            seed.token = TokenSource::Fixed(token.clone());
+        }
+        self.record["git_identity"] = json!(credentials.has_identity());
+        self.record["github_token"] = json!(credentials.github_token.is_some());
         let interrupts = Interrupts::install()?;
         let mut heartbeat = None;
         let ran = self.drive(
@@ -165,11 +181,15 @@ impl Cheers<'_> {
             history,
             &seed,
             &spec,
+            &credentials,
             &mut conn,
             times,
             &interrupts,
             &mut heartbeat,
         );
+        // The token is not kept past the command.
+        drop(credentials);
+        drop(seed);
         self.record["member"] = json!(conn.member.name);
         self.record["sandbox"] = json!(conn.id());
         self.record["warm"] = json!(conn.warm);
@@ -254,6 +274,7 @@ impl Cheers<'_> {
         history: History,
         seed: &SeedConfig,
         spec: &RunnerSpec,
+        credentials: &RunCredentials,
         conn: &mut Conn,
         times: LeaseTimes,
         interrupts: &Interrupts,
@@ -284,7 +305,14 @@ impl Cheers<'_> {
                 started: None,
                 failed_step: None,
             };
-            let outcome = sync::run_command(&host, &request, &self.line, &mut sink, interrupts)?;
+            let outcome = sync::run_command_with(
+                &host,
+                &request,
+                &self.line,
+                credentials,
+                &mut sink,
+                interrupts,
+            )?;
             let prep_seconds = sink
                 .started
                 .map(|at| round(at.duration_since(self.began).as_secs_f64()));
@@ -425,6 +453,8 @@ impl Cheers<'_> {
                 "full_retry": ran.outcome.full_retry,
                 "runner_installed": ran.outcome.installed,
                 "failed_step": ran.failed_step,
+                "git_identity": self.record["git_identity"],
+                "github_token": self.record["github_token"],
                 "copy_back": copy_back,
             }));
             return;

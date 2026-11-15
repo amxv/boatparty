@@ -125,6 +125,17 @@ impl ProjectConfig {
         crate::sync::SeedConfig::from_env(sync.seed, sync.github_token)
     }
 
+    /// `[run] git_identity`: commands commit as the local Git identity.
+    pub fn git_identity(&self) -> bool {
+        self.config().run.git_identity
+    }
+
+    /// Where a command's GitHub token comes from (`[run] github_token`);
+    /// nothing is read until the token is fetched.
+    pub fn run_token_source(&self) -> crate::sync::TokenSource {
+        crate::sync::TokenSource::from_env(self.config().run.github_token)
+    }
+
     /// How much Git history a sync sends.
     pub fn history(&self) -> History {
         History::parse(&self.config().sync.history).unwrap_or_default()

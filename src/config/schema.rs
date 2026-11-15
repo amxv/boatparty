@@ -47,6 +47,8 @@ pub const RUN: &[Field] = &[
     field("ram_tmp", Kind::Bool),
     field("env", Kind::StrMap),
     field("script", Kind::Str),
+    field("git_identity", Kind::Bool),
+    field("github_token", Kind::Bool),
 ];
 
 pub const SETUP: &[Field] = &[

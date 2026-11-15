@@ -7,6 +7,7 @@
 use std::io::Write;
 use std::process::Stdio;
 
+use super::credentials::RunCredentials;
 use super::exchange::{self, CancelProbe, Exchange, NeverCancel, PackInput, Sink, Spec};
 use super::pack::{self, Built, Revs};
 use super::seed::{self, SeedConfig, SeedReport, SeedRoute};
@@ -139,7 +140,32 @@ pub fn run_command(
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<RunOutcome, AppError> {
-    let session = session(host, request, Some(command), sink, cancel)?;
+    run_command_with(
+        host,
+        request,
+        command,
+        &RunCredentials::none(),
+        sink,
+        cancel,
+    )
+}
+
+/// [`run_command`] with build credentials for the command (and its steps):
+/// a Git identity and a GitHub token, sent at the head of the runner's
+/// stdin.
+pub fn run_command_with(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    credentials: &RunCredentials,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
+    let run = RunInput {
+        command,
+        credentials,
+    };
+    let session = session(host, request, Some(&run), sink, cancel)?;
     let exchange = &session.exchange;
     let end = match &exchange.trailer {
         Some(Trailer::Done {
@@ -209,6 +235,12 @@ struct Session {
     seed: SeedReport,
 }
 
+/// The command a `run` invocation carries, and its credentials.
+struct RunInput<'a> {
+    command: &'a str,
+    credentials: &'a RunCredentials,
+}
+
 /// Invoke the runner until it answers: install it (and the project's spec)
 /// once when either is missing,
 /// and send a full pack once when the thin one assumed too much. Neither
@@ -217,7 +249,7 @@ struct Session {
 fn session(
     host: &dyn RunnerHost,
     request: &MirrorRequest<'_>,
-    command: Option<&str>,
+    command: Option<&RunInput<'_>>,
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<Session, AppError> {
@@ -427,7 +459,7 @@ fn attempt(
     request: &MirrorRequest<'_>,
     nonce: &str,
     want: Want<'_>,
-    command: Option<&str>,
+    command: Option<&RunInput<'_>>,
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<Attempt, AppError> {
@@ -463,14 +495,15 @@ fn attempt(
     ]
     .map(String::from)
     .to_vec();
-    if let Some(command) = command {
-        args.push(command.to_string());
+    // run: the credentials block comes first on stdin, then the refs.
+    let mut header = Vec::new();
+    if let Some(run) = command {
+        args.push(run.command.to_string());
+        header = run.credentials.header();
     }
-    let mut header = if send_refs {
-        refs_text(request.refs).into_bytes()
-    } else {
-        Vec::new()
-    };
+    if send_refs {
+        header.extend_from_slice(refs_text(request.refs).as_bytes());
+    }
     header.push(b'\n');
     let exchange = exchange::run(
         host,

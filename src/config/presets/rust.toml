@@ -14,6 +14,10 @@ version = 1
 CARGO_HOME = "/usr/local/cargo"
 RUSTUP_HOME = "/usr/local/rustup"
 PATH = "/usr/local/cargo/bin:$PATH"
+# Cargo fetches git dependencies with the git CLI, so a private GitHub
+# dependency authenticates through the credential helper that
+# `[run] github_token = true` gives each command.
+CARGO_NET_GIT_FETCH_WITH_CLI = "true"
 
 [[ensure]]
 # Install the toolchain (and its components and targets) that
