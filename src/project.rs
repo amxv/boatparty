@@ -102,6 +102,12 @@ pub struct ProjectConfig {
 pub struct SyncSection {
     /// `"head"` (the default) or `"full"`.
     pub history: Option<String>,
+    /// Seed a member's first sync from the project's GitHub remote (default
+    /// true).
+    pub seed: Option<bool>,
+    /// Pass a GitHub token (`BOATPARTY_GITHUB_TOKEN` or `gh auth token`) for
+    /// a private remote's seed fetch (default true).
+    pub github_token: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -133,6 +139,14 @@ impl ProjectConfig {
 
     pub fn name(&self) -> &str {
         &self.project.name
+    }
+
+    /// How seeding from the GitHub remote is set up for this project.
+    pub fn seed_config(&self) -> crate::sync::SeedConfig {
+        crate::sync::SeedConfig::from_env(
+            self.sync.seed.unwrap_or(true),
+            self.sync.github_token.unwrap_or(true),
+        )
     }
 
     /// How much Git history a sync sends.
@@ -254,6 +268,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(head.history(), History::Head);
+        assert!(head.seed_config().enabled);
+        let off = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nseed = false\ngithub_token = false\n",
+            path,
+        )
+        .unwrap();
+        let seed = off.seed_config();
+        assert!(!seed.enabled);
+        assert_eq!(seed.token, crate::sync::seed::TokenSource::None);
+        assert!(
+            ProjectConfig::parse(
+                "version = 1\n[project]\nname = \"a\"\n[sync]\nseed = \"no\"\n",
+                path
+            )
+            .is_err()
+        );
         let error = ProjectConfig::parse(
             "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"deep\"\n",
             path,

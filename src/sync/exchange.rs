@@ -38,6 +38,8 @@ pub trait Sink {
     fn stderr(&mut self, bytes: &[u8]);
     /// An event frame, such as `started`.
     fn event(&mut self, _name: &str) {}
+    /// One of boatparty's own log lines, such as a seed falling back.
+    fn note(&mut self, _message: &str) {}
 }
 
 /// What a cancel request looks like to an exchange.

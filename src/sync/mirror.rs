@@ -9,6 +9,7 @@ use std::process::Stdio;
 
 use super::exchange::{self, CancelProbe, Exchange, NeverCancel, PackInput, Sink, Spec};
 use super::pack::{self, Built, Revs};
+use super::seed::{self, SeedConfig, SeedReport, SeedRoute};
 use super::{History, LocalRef, Snapshot, WorktreeInfo, refs_text};
 use crate::error::AppError;
 use crate::runner::{EXIT_MISSING, EXIT_NEEDFULL, RunnerHost, Trailer};
@@ -25,6 +26,8 @@ pub struct MirrorRequest<'a> {
     pub known: &'a [String],
     /// How much history to send.
     pub history: History,
+    /// Seed from the GitHub remote when the sandbox holds nothing yet.
+    pub seed: Option<&'a SeedConfig>,
 }
 
 /// How a sync's pack reached the sandbox.
@@ -65,6 +68,8 @@ pub struct MirrorOutcome {
     pub pack_route: PackRoute,
     /// Why a signed upload failed and the pack went over SSH instead.
     pub upload_fallback: Option<String>,
+    /// What seeding from the GitHub remote did.
+    pub seed: SeedReport,
 }
 
 /// Mirror the snapshot to the runner. Runner stderr (minus its frames) is
@@ -85,6 +90,7 @@ pub fn mirror(
             known: confirmed(request),
             pack_route: session.pack_route,
             upload_fallback: session.upload_fallback,
+            seed: session.seed,
         }),
         _ => Err(failed(&session.exchange)),
     }
@@ -119,6 +125,7 @@ pub struct RunOutcome {
     pub known: Vec<String>,
     pub pack_route: PackRoute,
     pub upload_fallback: Option<String>,
+    pub seed: SeedReport,
 }
 
 /// Sync the snapshot and run `command` (one shell line) in the checkout.
@@ -164,6 +171,7 @@ pub fn run_command(
         known,
         pack_route: session.pack_route,
         upload_fallback: session.upload_fallback.clone(),
+        seed: session.seed.clone(),
     })
 }
 
@@ -198,6 +206,7 @@ struct Session {
     installed: bool,
     pack_route: PackRoute,
     upload_fallback: Option<String>,
+    seed: SeedReport,
 }
 
 /// Invoke the runner until it answers: install it once when it is missing,
@@ -211,12 +220,17 @@ fn session(
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<Session, AppError> {
-    let mut installed = false;
     let mut full_retry = false;
     let mut pack_bytes = 0;
     let mut pack_route = PackRoute::None;
     let mut upload_fallback = None;
     let mut known: Vec<String> = request.known.to_vec();
+    let seed = match request.seed {
+        Some(config) if known.is_empty() => seed_first(host, request, config, sink),
+        _ => SeedReport::default(),
+    };
+    known.extend(seed.commits.iter().cloned());
+    let mut installed = seed.installed;
     let mut send_refs = request.send_refs;
     // A pack uploaded for an attempt that found the runner missing is still
     // on the sandbox, and the retry would send the same pack.
@@ -258,6 +272,7 @@ fn session(
                 installed,
                 pack_route,
                 upload_fallback,
+                seed,
             });
         }
         if exchange.runner_missing && !installed {
@@ -288,10 +303,60 @@ fn session(
                     installed,
                     pack_route,
                     upload_fallback,
+                    seed,
                 });
             }
         }
     }
+}
+
+/// Seed a sandbox that holds nothing yet from the project's GitHub remote.
+/// A failure is reported, never raised: the pack then carries everything.
+fn seed_first(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    config: &SeedConfig,
+    sink: &mut dyn Sink,
+) -> SeedReport {
+    let started = std::time::Instant::now();
+    let mut report = SeedReport::default();
+    if !config.enabled {
+        report.skipped = Some("seeding is off ([sync] seed = false)".to_string());
+        return report;
+    }
+    let plan = match seed::plan(request.info, request.history, request.refs, config) {
+        Ok(plan) => plan,
+        Err(reason) => {
+            report.skipped = Some(reason);
+            return report;
+        }
+    };
+    let token = seed::token(&config.token, &plan.url);
+    let fetched = seed::fetch(
+        host,
+        request.project,
+        request.history,
+        &plan,
+        token.as_ref(),
+        config.timeout_secs,
+    );
+    drop(token);
+    report.millis = started.elapsed().as_millis() as u64;
+    match fetched {
+        Ok(installed) => {
+            report.route = SeedRoute::Github;
+            report.commits = plan.commits;
+            report.installed = installed;
+        }
+        Err(reason) => {
+            sink.note(&format!(
+                "seeding from {} failed ({reason}); sending every object instead",
+                plan.url
+            ));
+            report.fallback = Some(reason);
+        }
+    }
+    report
 }
 
 /// Runner stdout to this process's stderr, runner stderr to the log.
@@ -306,6 +371,11 @@ impl Sink for LogSink<'_> {
 
     fn stderr(&mut self, bytes: &[u8]) {
         let _ = self.log.write_all(bytes);
+        let _ = self.log.flush();
+    }
+
+    fn note(&mut self, message: &str) {
+        let _ = writeln!(self.log, "boatparty: {message}");
         let _ = self.log.flush();
     }
 }

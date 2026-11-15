@@ -25,6 +25,7 @@ fn load(local: &Path, host: &LocalRunner, known: &[String], history: History) ->
         send_refs: true,
         known,
         history,
+        seed: None,
     };
     let mut log = Vec::new();
     sync::mirror(host, &request, &mut log)

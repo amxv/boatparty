@@ -77,6 +77,7 @@ fn cheers(local: &Path, host: &LocalRunner, known: &mut Vec<String>, command: &s
         send_refs: true,
         known,
         history: History::Full,
+        seed: None,
     };
     let mut printed = Collect::default();
     let outcome =
@@ -254,6 +255,7 @@ fn a_cancel_stops_the_command_and_brings_nothing_back() {
         send_refs: true,
         known: &[],
         history: History::Full,
+        seed: None,
     };
     let started = Cell::new(false);
     struct Watch<'a> {

@@ -33,6 +33,7 @@ fn load(local: &Path, host: &LocalRunner, member: &mut Member) -> (MirrorOutcome
         send_refs: member.digest.as_deref() != Some(digest.as_str()),
         known: &member.known,
         history: History::Full,
+        seed: None,
     };
     let mut log = Vec::new();
     let outcome = sync::mirror(host, &request, &mut log).unwrap();

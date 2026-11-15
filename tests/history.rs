@@ -36,6 +36,7 @@ fn load(local: &Path, host: &LocalRunner, member: &mut Member, history: History)
         send_refs: member.digest.as_deref() != Some(digest.as_str()),
         known: usable_known(history, &member.mode, &member.known),
         history,
+        seed: None,
     };
     let mut log = Vec::new();
     let outcome = sync::mirror(host, &request, &mut log)
@@ -383,6 +384,7 @@ fn copy_back_diffs_against_the_latest_snapshot_in_head_mode() {
         send_refs: member.digest.as_deref() != Some(digest.as_str()),
         known: &member.known,
         history: History::Head,
+        seed: None,
     };
     let mut sink = Collect::default();
     let outcome = sync::run_command(

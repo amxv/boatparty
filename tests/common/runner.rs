@@ -1,7 +1,7 @@
 //! The runner as a local child against scratch repositories, for tests of
 //! the mirror and of commands, without SSH.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -46,6 +46,10 @@ pub struct LocalRunner {
     pub upload_threshold: Cell<Option<u64>>,
     pub uploads: Cell<u32>,
     pub fail_uploads: Cell<bool>,
+    /// Extra environment for every runner process.
+    pub env: RefCell<Vec<(String, String)>>,
+    /// The arguments of every runner process started.
+    pub spawned: RefCell<Vec<Vec<String>>>,
 }
 
 impl LocalRunner {
@@ -58,6 +62,8 @@ impl LocalRunner {
             upload_threshold: Cell::new(None),
             uploads: Cell::new(0),
             fail_uploads: Cell::new(false),
+            env: RefCell::new(Vec::new()),
+            spawned: RefCell::new(Vec::new()),
         }
     }
 }
@@ -69,12 +75,17 @@ impl RunnerHost for LocalRunner {
             command.args(["-c", "echo boatparty-runner-missing >&2; exit 96"]);
             return command;
         }
+        self.spawned.borrow_mut().push(args.to_vec());
         let mut command = Command::new("bash");
         command
             .arg(SCRIPT)
             .args(args)
             .env("BOATPARTY_RUNNER_REPO", &self.repo)
-            .env("BOATPARTY_RUNNER_STATE", &self.state);
+            .env("BOATPARTY_RUNNER_STATE", &self.state)
+            .env("BOATPARTY_RUNNER_SEED_FILE", "1");
+        for (name, value) in self.env.borrow().iter() {
+            command.env(name, value);
+        }
         command
     }
 

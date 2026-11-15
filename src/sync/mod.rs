@@ -14,6 +14,7 @@ pub mod exchange;
 pub mod mirror;
 pub mod pack;
 pub mod pullback;
+pub mod seed;
 pub mod snapshot;
 
 use std::ffi::OsStr;
@@ -28,6 +29,7 @@ pub use mirror::{
     MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
 };
 pub use pullback::{PullBack, apply_pullback};
+pub use seed::{SeedConfig, SeedReport, SeedRoute};
 pub use snapshot::{Snapshot, snapshot};
 
 /// How much Git history a sync sends.

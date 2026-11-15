@@ -18,7 +18,8 @@ use crate::project::Workspace;
 use crate::state::{Member, Store, SyncState};
 use crate::sync::pack::usable_known;
 use crate::sync::{
-    self, History, LocalRef, MirrorOutcome, MirrorRequest, PackRoute, Snapshot, WorktreeInfo,
+    self, History, LocalRef, MirrorOutcome, MirrorRequest, PackRoute, SeedConfig, SeedRoute,
+    Snapshot, WorktreeInfo,
 };
 use crate::system;
 use crate::transport::ssh::SshTarget;
@@ -34,6 +35,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let history = project.history();
     let snapshot = sync::snapshot(&info)?;
     let (refs, digest) = sync::mirrored_refs(&info, history)?;
+    let seed = project.seed_config();
 
     let (mut member, mut target, warm) = match warm_member(&ctx.paths, name, &workspace.key())? {
         Some((member, target)) => (member, target, true),
@@ -49,6 +51,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         refs: &refs,
         digest: &digest,
         history,
+        seed: &seed,
     };
     let send = |member: &Member, target: &SshTarget| send(ctx, &local, member, target);
     let outcome = match send(&member, &target) {
@@ -77,6 +80,7 @@ struct Local<'a> {
     refs: &'a [LocalRef],
     digest: &'a str,
     history: History,
+    seed: &'a SeedConfig,
 }
 
 fn bring_up(ctx: &Context) -> Result<(Member, SshTarget), AppError> {
@@ -99,6 +103,7 @@ fn send(
         send_refs: member.sync.refs_digest.as_deref() != Some(local.digest),
         known: usable_known(local.history, &member.sync.mode, &member.sync.known),
         history: local.history,
+        seed: Some(local.seed),
     };
     let host = super::runner_host(ctx, target, member);
     sync::mirror(&host, &request, &mut std::io::stderr())
@@ -156,6 +161,10 @@ fn report(
             "pack_bytes": outcome.pack_bytes,
             "pack_route": outcome.pack_route.as_str(),
             "upload_fallback": outcome.upload_fallback,
+            "seed_route": outcome.seed.route.as_str(),
+            "seed_fallback": outcome.seed.fallback,
+            "seed_skipped": outcome.seed.skipped,
+            "seed_seconds": outcome.seed.seconds(),
             "full_retry": outcome.full_retry,
             "runner_installed": outcome.installed,
             "seconds": (seconds * 1000.0).round() / 1000.0,
@@ -166,10 +175,16 @@ fn report(
         Some(branch) => format!("{branch} at {}", short(&info.head)),
         None => format!("detached at {}", short(&info.head)),
     };
-    let route = match outcome.pack_route {
-        PackRoute::SignedUrl => " by signed upload",
-        _ => "",
+    let mut route = match outcome.pack_route {
+        PackRoute::SignedUrl => " by signed upload".to_string(),
+        _ => String::new(),
     };
+    if outcome.seed.route == SeedRoute::Github {
+        route.push_str(&format!(
+            " after seeding from GitHub in {:.1}s",
+            outcome.seed.seconds()
+        ));
+    }
     ctx.out.text(format_args!(
         "loaded {at} into {} ({id}) {}: sent {}{route}, {seconds:.1}s",
         member.name,

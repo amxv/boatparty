@@ -30,7 +30,8 @@ use crate::state::{LeaseKind, Member, Store, SyncState};
 use crate::stream::Stream;
 use crate::sync::pack::usable_known;
 use crate::sync::{
-    self, History, MirrorRequest, PackRoute, PullBack, RunEnd, RunOutcome, Sink, WorktreeInfo,
+    self, History, MirrorRequest, PackRoute, PullBack, RunEnd, RunOutcome, SeedConfig, SeedRoute,
+    Sink, WorktreeInfo,
 };
 use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
@@ -117,6 +118,7 @@ impl Cheers<'_> {
         let project = workspace.load_project()?;
         let name = project.name().to_string();
         let history = project.history();
+        let seed = project.seed_config();
         // Local checks first: a repository without a commit fails before
         // anything remote happens.
         let info = WorktreeInfo::read(&workspace.root)?;
@@ -135,6 +137,7 @@ impl Cheers<'_> {
             &name,
             &info,
             history,
+            &seed,
             &mut conn,
             &store,
             times,
@@ -198,6 +201,8 @@ impl Cheers<'_> {
         self.record["prep_seconds"] = json!(ran.prep_seconds);
         self.record["pack_bytes"] = json!(ran.outcome.pack_bytes);
         self.record["pack_route"] = json!(ran.outcome.pack_route.as_str());
+        self.record["seed_route"] = json!(ran.outcome.seed.route.as_str());
+        self.record["seed_fallback"] = json!(ran.outcome.seed.fallback);
         self.record["copy_back"] = copy_back["status"].clone();
         self.report(
             stream,
@@ -219,6 +224,7 @@ impl Cheers<'_> {
         name: &str,
         info: &WorktreeInfo,
         history: History,
+        seed: &SeedConfig,
         conn: &mut Conn,
         store: &Store,
         times: LeaseTimes,
@@ -238,6 +244,7 @@ impl Cheers<'_> {
                 send_refs: sync_state.refs_digest.as_deref() != Some(digest.as_str()),
                 known: usable_known(history, &sync_state.mode, &sync_state.known),
                 history,
+                seed: Some(seed),
             };
             let host = super::runner_host(self.ctx, &conn.target, &conn.member);
             let mut sink = StartWatch {
@@ -376,6 +383,10 @@ impl Cheers<'_> {
                 "pack_bytes": ran.outcome.pack_bytes,
                 "pack_route": ran.outcome.pack_route.as_str(),
                 "upload_fallback": ran.outcome.upload_fallback,
+                "seed_route": ran.outcome.seed.route.as_str(),
+                "seed_fallback": ran.outcome.seed.fallback,
+                "seed_skipped": ran.outcome.seed.skipped,
+                "seed_seconds": ran.outcome.seed.seconds(),
                 "full_retry": ran.outcome.full_retry,
                 "runner_installed": ran.outcome.installed,
                 "copy_back": copy_back,
@@ -391,6 +402,12 @@ impl Cheers<'_> {
         }
         if ran.retried {
             notes.push("ran again after a lost connection".to_string());
+        }
+        if ran.outcome.seed.route == SeedRoute::Github {
+            notes.push(format!(
+                "seeded from GitHub in {:.1}s",
+                ran.outcome.seed.seconds()
+            ));
         }
         if ran.outcome.pack_route == PackRoute::SignedUrl {
             notes.push("pack sent by signed upload".to_string());
@@ -432,6 +449,10 @@ impl Sink for StartWatch<'_> {
 
     fn stderr(&mut self, bytes: &[u8]) {
         self.stream.stderr(bytes);
+    }
+
+    fn note(&mut self, message: &str) {
+        self.stream.note(message);
     }
 
     fn event(&mut self, name: &str) {
