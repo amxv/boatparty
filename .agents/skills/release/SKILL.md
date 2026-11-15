@@ -13,7 +13,7 @@ allowed-tools: Bash, Read, Write, Edit
 - macOS arm64 and x86_64 are tested and built natively on `macos-latest`; they are signed ad hoc.
 - The release holds `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`.
 
-The repository is private. Users install with the GitHub CLI: `gh release download -R amxv/boatparty -p install.sh -O - | bash` (see `scripts/install.sh`). There is no npm or crates.io publication.
+Users install with `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh` (`docs/public/install.sh`, also attached to each release; it downloads through a signed-in `gh` while the repository is private). There is no npm or crates.io publication.
 
 ## 1. Inspect release state
 
@@ -61,7 +61,7 @@ gh run watch <run-id> --exit-status
 gh release view "v<version>" -R amxv/boatparty --json tagName,url,assets
 ```
 
-Expect four archives, `install.sh` and `SHA256SUMS`. Verify the installer on a clean location: `bash scripts/install.sh --version v<version> --dir "$(mktemp -d)"`. It downloads, checks the checksum and runs `boatparty --version`.
+Expect four archives, `install.sh` and `SHA256SUMS`. Verify the installer on a clean location: `sh docs/public/install.sh --version v<version> --dir "$(mktemp -d)"`. It downloads, checks the checksum and runs `boatparty --version`.
 
 GitHub-hosted runners end with their jobs; nothing needs cleaning up.
 

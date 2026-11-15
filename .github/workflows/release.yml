@@ -18,7 +18,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release.yml"
-      - "scripts/install.sh"
+      - "docs/public/install.sh"
       - "scripts/release/**"
   workflow_dispatch:
 
@@ -144,7 +144,7 @@ jobs:
           merge-multiple: true
       - name: Checksums and installer
         run: |
-          cp scripts/install.sh dist/install.sh
+          cp docs/public/install.sh dist/install.sh
           (cd dist && sha256sum boatparty-*.tar.gz install.sh > SHA256SUMS && cat SHA256SUMS)
           scripts/release/notes.sh "${{ needs.plan.outputs.version }}" > "$RUNNER_TEMP/notes.md"
       - name: Create the GitHub Release

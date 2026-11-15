@@ -91,9 +91,11 @@ on `macos-latest`, and signed ad hoc.
 and no npm package). A tag `vX.Y.Z` matching `Cargo.toml` publishes a GitHub
 Release with `boatparty-<version>-<target>.tar.gz` archives, `install.sh` and
 `SHA256SUMS`; a pull request touching the release machinery runs the same
-builds as a dry run. The repository is private, so users install with
-`gh release download -R amxv/boatparty -p install.sh -O - | bash`
-(`scripts/install.sh`, checksum-verified, into `~/.local/bin`). The release
+builds as a dry run. Users install with
+`curl -fsSL https://boatparty.ashray.xyz/install.sh | sh`: `docs/public/install.sh`,
+served by the docs site and attached to every release, checksum-verified,
+into `~/.local/bin`; it downloads through a signed-in `gh` while the
+repository is private, else with `curl`. The release
 needs no secret besides the workflow's own `GITHUB_TOKEN`.
 
 For any request to cut or ship a release, read and follow `.agents/skills/release/SKILL.md`.

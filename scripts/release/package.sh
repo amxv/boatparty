@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Package one release binary as boatparty-<version>-<target>.tar.gz with the
-# README and LICENSE, the layout scripts/install.sh expects.
+# README and LICENSE, the layout docs/public/install.sh expects.
 #
 # Usage: scripts/release/package.sh VERSION TARGET BINARY OUTDIR
 set -euo pipefail

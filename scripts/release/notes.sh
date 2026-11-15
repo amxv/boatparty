@@ -24,7 +24,7 @@ cat <<'INSTALL'
 ## Install
 
 ```bash
-gh release download -R amxv/boatparty -p install.sh -O - | bash
+curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
 Downloads the archive for this machine, checks it against `SHA256SUMS` and installs `boatparty` into `~/.local/bin`.

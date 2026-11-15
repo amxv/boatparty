@@ -74,7 +74,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
     || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends shellcheck >/dev/null; }
 fi
 shopt -s nullglob globstar
-scripts=(scripts/**/*.sh)
+scripts=(scripts/**/*.sh docs/public/install.sh)
 if [ ${#scripts[@]} -gt 0 ]; then shellcheck "${scripts[@]}"; fi'
 
 docs_step='step "docs: bun install, test:vercel, astro check"

@@ -5,7 +5,7 @@ import PixelSea from "./PixelSea.astro";
 
 const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
 
-const install = "gh release download -R amxv/boatparty -p install.sh -O - | bash";
+const install = "curl -fsSL https://boatparty.ashray.xyz/install.sh | sh";
 
 const steps = [
   {

@@ -62,7 +62,7 @@ boat-build-macos *args:
 
 # Install the latest (or --version vX.Y.Z) release into ~/.local/bin.
 install *args:
-    scripts/install.sh "$@"
+    sh docs/public/install.sh "$@"
 
 # Build and package every release target without publishing (needs release.yml on main).
 release-dry-run:

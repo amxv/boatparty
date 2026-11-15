@@ -30,4 +30,4 @@ First published release: warm boat.dev sandbox pools for any Git project. (Tags 
 - GitHub seeding: a sandbox fetches pushed commits from GitHub itself on its first sync and after large pulls; `BOATPARTY_GITHUB_TOKEN` or `BOATPARTY_GITHUB_TOKEN_COMMAND` can supply a narrower token than the `gh` login.
 - Self-repair: sandboxes whose file restore stalls are replaced, build caches a restore left unreadable are dropped, and member repositories are pruned daily.
 - `--json` on every command (`docs/json.md`), `doctor`, `log`, and `boatparty skill` for coding agents.
-- Install with `gh release download -R amxv/boatparty -p install.sh -O - | bash` (macOS and Linux, arm64 and x86_64).
+- Install with `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh` (macOS and Linux, arm64 and x86_64).

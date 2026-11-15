@@ -9,7 +9,7 @@ summary: Install, log in, doctor, init, cheers.
 ## Install
 
 ```bash
-gh release download -R amxv/boatparty -p install.sh -O - | bash
+curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
 This installs `boatparty` into `~/.local/bin`; see [Releases and installation](/docs/releases) for options. boatparty needs `ssh`, `ssh-keygen` and `git` on `PATH`, on macOS or Linux.

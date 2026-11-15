@@ -19,13 +19,13 @@ That one command mirrors your working tree to the sandbox, runs the command ther
 
 ## Install
 
-macOS or Linux, with `ssh`, `ssh-keygen` and `git` on `PATH`. The repository is private, so installation goes through the GitHub CLI:
+macOS or Linux, with `ssh`, `ssh-keygen` and `git` on `PATH`:
 
 ```bash
-gh release download -R amxv/boatparty -p install.sh -O - | bash
+curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
-This installs `boatparty` into `~/.local/bin`, checked against the release's `SHA256SUMS`. Run it again to upgrade.
+This installs `boatparty` into `~/.local/bin`, checked against the release's `SHA256SUMS`. Run it again to upgrade; `| sh -s -- --version v0.1.5` installs a given release. While the repository is private, the script downloads through a signed-in GitHub CLI (`gh auth login`).
 
 ## First run
 
