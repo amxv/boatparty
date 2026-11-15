@@ -1,6 +1,6 @@
 # boatparty JSON output
 
-This file is the contract for `--json`. Scripts (gg-desktop's app layer, release scripts) and the agent skill rely on it. A shape changes only together with this file, in the same commit, and `tests/json.rs` checks every command's output against the examples below: the top-level fields must be exactly the documented ones, and nested objects may hold only documented fields. A `"*"` key marks an object whose keys are free (a map). Values in the examples are illustrative; `null` stands for "absent or not known".
+This file is the contract for `--json`. Scripts, tools built on boatparty and the agent skill rely on it. A shape changes only together with this file, in the same commit, and `tests/json.rs` checks every command's output against the examples below: the top-level fields must be exactly the documented ones, and nested objects may hold only documented fields. A `"*"` key marks an object whose keys are free (a map). Values in the examples are illustrative; `null` stands for "absent or not known".
 
 ## Conventions
 

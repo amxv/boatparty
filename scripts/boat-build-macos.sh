@@ -18,7 +18,7 @@
 # Uses the boatparty binary in $BOATPARTY (default: `boatparty` on PATH, else
 # ~/.local/bin/boatparty) with the caller's BOATPARTY_HOME (default: the shared login), and
 # needs a boatparty.toml in the worktree. The binary is not run or tested on
-# macOS here; use scripts/build-macos.sh (NoMac) for macOS tests.
+# macOS here; the release workflow runs the test suite on macOS.
 #
 # Exit status: the remote build's; 125 when boatparty itself failed.
 set -euo pipefail
