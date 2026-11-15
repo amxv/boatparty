@@ -143,6 +143,9 @@ pub struct Pool<'a> {
     pub project: String,
     pub workspace: Workspace,
     pub limits: PoolLimits,
+    /// The boat environment new members attach to (`[sandbox] environment`).
+    /// `None`: they get none of the account's secrets.
+    pub environment: Option<String>,
 }
 
 impl<'a> Pool<'a> {
@@ -162,6 +165,7 @@ impl<'a> Pool<'a> {
             project,
             workspace,
             limits,
+            environment: None,
         }
     }
 

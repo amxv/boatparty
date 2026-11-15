@@ -9,14 +9,16 @@ use super::load_account;
 use crate::Context;
 use crate::account;
 use crate::cli::InitArgs;
+use crate::config::detect;
 use crate::error::AppError;
 use crate::project::{self, Workspace};
 
 pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
     let workspace = Workspace::current()?;
     let path = workspace.project_file();
+    let mut detected = None;
     let (name, wrote) = if path.exists() {
-        let existing = workspace.load_project()?;
+        let existing = workspace.load_project(&ctx.paths)?;
         if let Some(asked) = &args.name
             && asked != existing.name()
         {
@@ -35,7 +37,10 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
             }
             None => default_name(&workspace)?,
         };
-        write_new(&path, &project::render_project_file(&name))?;
+        // Stacks are detected here, once; nothing is detected at run time.
+        let found = detect::detect(&workspace.root);
+        write_new(&path, &detect::render_project_file(&name, &found))?;
+        detected = Some(found);
         (name, true)
     };
     load_account(ctx)?;
@@ -48,6 +53,15 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
             "workspace": workspace.key(),
             "file": path.display().to_string(),
             "file_created": wrote,
+            "presets": detected.as_ref().map(|found| found.presets.clone()),
+            "commands": detected.as_ref().map(|found| {
+                found
+                    .commands
+                    .iter()
+                    .map(|(name, line)| (name.clone(), json!(line)))
+                    .collect::<serde_json::Map<_, _>>()
+            }),
+            "detected_from": detected.as_ref().map(|found| found.markers.clone()),
             "registered": registered,
             "account_file": ctx.paths.account_file().display().to_string(),
         }));
@@ -55,6 +69,24 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
         if wrote {
             ctx.out
                 .text(format_args!("wrote {} for project {name}", path.display()));
+            if let Some(found) = &detected {
+                if found.presets.is_empty() {
+                    ctx.out.text(
+                        "no stack detected; add presets to [project] presets (`boatparty preset list`)",
+                    );
+                } else {
+                    ctx.out.text(format_args!(
+                        "presets: {} (from {})",
+                        found.presets.join(", "),
+                        found.markers.join(", ")
+                    ));
+                }
+                for (name, line) in &found.commands {
+                    ctx.out.text(format_args!(
+                        "command: `boatparty cheers {name}` runs `{line}`"
+                    ));
+                }
+            }
         } else {
             ctx.out.text(format_args!(
                 "{} already exists (project {name})",

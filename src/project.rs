@@ -5,11 +5,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Deserialize;
-
+use crate::config::presets::PresetDirs;
+use crate::config::{self, Config};
 use crate::error::AppError;
+use crate::paths::Paths;
 use crate::provider::MachineSize;
 use crate::sync::History;
+use crate::transport::ssh::shell_quote;
 
 pub const PROJECT_FILE: &str = "boatparty.toml";
 pub const PROJECT_FILE_VERSION: u32 = 1;
@@ -64,136 +66,134 @@ impl Workspace {
         self.root.join(PROJECT_FILE)
     }
 
-    /// Read this workspace's `boatparty.toml`.
-    pub fn load_project(&self) -> Result<ProjectConfig, AppError> {
-        let path = self.project_file();
-        let text = match fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(AppError::config(format!(
-                    "{} does not exist; run `boatparty init` in {} first",
-                    path.display(),
-                    self.root.display()
-                )));
-            }
-            Err(error) => {
-                return Err(AppError::io(
-                    format!("cannot read {}", path.display()),
-                    error,
-                ));
-            }
+    /// Read this workspace's `boatparty.toml` and apply its presets, for the
+    /// commands that use a sandbox.
+    pub fn load_project(&self, paths: &Paths) -> Result<ProjectConfig, AppError> {
+        let project = ProjectConfig {
+            resolved: config::load(&self.root, paths)?,
         };
-        ProjectConfig::parse(&text, &path)
+        project.require_supported()?;
+        Ok(project)
     }
 }
 
-/// The parts of `boatparty.toml` read so far. Sections and keys this
-/// version does not know are ignored, so a file written for a later version
-/// still loads.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// A project's effective configuration: `boatparty.toml` with its presets
+/// applied.
+#[derive(Debug, Clone)]
 pub struct ProjectConfig {
-    pub version: u32,
-    pub project: ProjectSection,
-    #[serde(default)]
-    pub sandbox: SandboxSection,
-    #[serde(default)]
-    pub sync: SyncSection,
-}
-
-/// `[sandbox]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct SandboxSection {
-    /// The machine size this project asks for: small, default, large or
-    /// xlarge. At most the project's `max_machine` in account.toml.
-    pub machine: Option<String>,
-}
-
-/// `[sync]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct SyncSection {
-    /// `"head"` (the default) or `"full"`.
-    pub history: Option<String>,
-    /// Seed a member's first sync from the project's GitHub remote (default
-    /// true).
-    pub seed: Option<bool>,
-    /// Pass a GitHub token (`BOATPARTY_GITHUB_TOKEN` or `gh auth token`) for
-    /// a private remote's seed fetch (default true).
-    pub github_token: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProjectSection {
-    pub name: String,
+    pub resolved: config::Resolved,
 }
 
 impl ProjectConfig {
+    /// Resolve a project file's text with the built-in presets only.
     pub fn parse(text: &str, path: &Path) -> Result<Self, AppError> {
-        let config: Self = toml::from_str(text)
-            .map_err(|error| AppError::config(format!("{}: {error}", path.display())))?;
-        if config.version != PROJECT_FILE_VERSION {
-            return Err(AppError::config(format!(
-                "{}: version {} is not supported (expected {PROJECT_FILE_VERSION})",
-                path.display(),
-                config.version
-            )));
-        }
-        validate_name(&config.project.name)
-            .map_err(|message| AppError::config(format!("{}: {message}", path.display())))?;
-        if let Some(machine) = &config.sandbox.machine {
-            machine.parse::<MachineSize>().map_err(|message| {
-                AppError::config(format!("{}: [sandbox] machine: {message}", path.display()))
-            })?;
-        }
-        if let Some(history) = &config.sync.history {
-            History::parse(history).map_err(|message| {
-                AppError::config(format!("{}: [sync] history: {message}", path.display()))
-            })?;
-        }
-        Ok(config)
+        let dirs = PresetDirs {
+            user: PathBuf::from("/nonexistent/boatparty/presets"),
+            project: None,
+        };
+        Ok(Self {
+            resolved: config::resolve(text, path, &dirs)?,
+        })
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.resolved.config
     }
 
     pub fn name(&self) -> &str {
-        &self.project.name
+        &self.config().project.name
     }
 
     /// The machine size `[sandbox] machine` asks for, if any.
     pub fn requested_machine(&self) -> Option<MachineSize> {
-        self.sandbox
+        self.config()
+            .sandbox
             .machine
             .as_deref()
             .and_then(|value| value.parse().ok())
     }
 
+    /// The boat environment `[sandbox] environment` names, if any. Without
+    /// one, new sandboxes get none of the account's secrets.
+    pub fn environment(&self) -> Option<&str> {
+        self.config().sandbox.environment.as_deref()
+    }
+
     /// How seeding from the GitHub remote is set up for this project.
     pub fn seed_config(&self) -> crate::sync::SeedConfig {
-        crate::sync::SeedConfig::from_env(
-            self.sync.seed.unwrap_or(true),
-            self.sync.github_token.unwrap_or(true),
-        )
+        let sync = &self.config().sync;
+        crate::sync::SeedConfig::from_env(sync.seed, sync.github_token)
     }
 
     /// How much Git history a sync sends.
     pub fn history(&self) -> History {
-        self.sync
-            .history
-            .as_deref()
-            .and_then(|value| History::parse(value).ok())
-            .unwrap_or_default()
+        History::parse(&self.config().sync.history).unwrap_or_default()
     }
-}
 
-/// The text `init` writes.
-pub fn render_project_file(name: &str) -> String {
-    format!(
-        "# boatparty project configuration. Check this file in.\n\
-         # The project name names this project's sandbox pool and its limits in\n\
-         # the per-user account.toml, so keep it stable.\n\
-         version = {PROJECT_FILE_VERSION}\n\
-         \n\
-         [project]\n\
-         name = \"{name}\"\n"
-    )
+    /// Whether a command's file changes are applied locally.
+    pub fn copy_back(&self) -> bool {
+        self.config().sync.copy_back
+    }
+
+    /// Settings that are stored but that this version cannot honor yet.
+    fn require_supported(&self) -> Result<(), AppError> {
+        let remote = &self.config().sandbox.remote_path;
+        let default = config::default_remote_path(self.name());
+        if remote.trim_end_matches('/') != default {
+            return Err(AppError::config(format!(
+                "{}: sandbox.remote_path = {remote:?} is not supported yet; the checkout is \
+                 always {default}",
+                self.resolved.file.display()
+            ))
+            .with_hint("remove sandbox.remote_path"));
+        }
+        Ok(())
+    }
+
+    /// The shell line `cheers <name> [args...]` runs: the `[commands]`
+    /// entry with the arguments appended, else the script runner
+    /// (`[run] script`) with the name and arguments.
+    pub fn named_command(&self, name: &str, args: &[String]) -> Result<String, AppError> {
+        let config = self.config();
+        let quoted = || {
+            args.iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let join = |head: &str| {
+            let tail = quoted();
+            if tail.is_empty() {
+                head.to_string()
+            } else {
+                format!("{head} {tail}")
+            }
+        };
+        if let Some(line) = config.commands.get(name) {
+            return Ok(join(line.trim_end()));
+        }
+        if let Some(script) = &config.run.script {
+            return Ok(join(&format!("{} {}", script.trim(), shell_quote(name))));
+        }
+        let known: Vec<&str> = config.commands.keys().map(String::as_str).collect();
+        let known = if known.is_empty() {
+            "none".to_string()
+        } else {
+            known.join(", ")
+        };
+        Err(AppError::new(
+            "unknown_command",
+            format!(
+                "no command named {name:?}: [commands] has {known} and no script runner \
+                 ([run] script) is set"
+            ),
+        )
+        .with_hint(format!(
+            "add `{name} = \"...\"` under [commands] in {}, or run a command line with \
+             `boatparty cheers -- <command>`",
+            self.resolved.file.display()
+        )))
+    }
 }
 
 /// Project names must match `^[a-z0-9][a-z0-9-]{0,40}$`, so every name
@@ -256,8 +256,8 @@ mod tests {
 
     #[test]
     fn the_written_file_parses() {
-        let config =
-            ProjectConfig::parse(&render_project_file("app"), Path::new(PROJECT_FILE)).unwrap();
+        let text = config::detect::render_project_file("app", &Default::default());
+        let config = ProjectConfig::parse(&text, Path::new(PROJECT_FILE)).unwrap();
         assert_eq!(config.name(), "app");
         assert!(
             ProjectConfig::parse(
@@ -277,15 +277,24 @@ mod tests {
     }
 
     #[test]
-    fn sync_history_is_read_and_unknown_sections_are_ignored() {
+    fn sync_history_is_read_and_unknown_keys_are_errors() {
         let path = Path::new(PROJECT_FILE);
         let full = ProjectConfig::parse(
-            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"full\"\nlater = 1\n\
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"full\"\n\
              [commands]\ntest = \"cargo test\"\n",
             path,
         )
         .unwrap();
         assert_eq!(full.history(), History::Full);
+        let error = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"full\"\nlater = 1\n",
+            path,
+        )
+        .unwrap_err();
+        assert!(
+            error.message().contains("unknown key sync.later"),
+            "{error}"
+        );
         let head = ProjectConfig::parse(
             "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"head\"\n",
             path,
@@ -328,5 +337,60 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.message().contains("history"), "{error}");
+    }
+
+    #[test]
+    fn a_phase_3_minimal_file_and_this_repositorys_file_load_as_before() {
+        let path = Path::new(PROJECT_FILE);
+        let minimal = ProjectConfig::parse(
+            "# boatparty project configuration. Check this file in.\n\
+             version = 1\n\n[project]\nname = \"app\"\n",
+            path,
+        )
+        .unwrap();
+        assert_eq!(minimal.name(), "app");
+        assert_eq!(minimal.history(), History::Head);
+        assert_eq!(minimal.requested_machine(), None);
+        assert_eq!(minimal.environment(), None);
+        assert!(minimal.copy_back());
+        assert!(minimal.seed_config().enabled);
+        assert!(minimal.require_supported().is_ok());
+        assert!(minimal.config().setup.is_empty() && minimal.config().ensure.is_empty());
+        let own = ProjectConfig::parse(include_str!("../boatparty.toml"), path).unwrap();
+        assert_eq!(own.name(), "boatparty");
+    }
+
+    #[test]
+    fn named_commands_prefer_the_commands_table_then_the_script_runner() {
+        let path = Path::new(PROJECT_FILE);
+        let both = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\npresets = [\"bun\"]\n\
+             [commands]\ntest = \"cargo test --locked\"\n",
+            path,
+        )
+        .unwrap();
+        assert_eq!(
+            both.named_command("test", &["it's".into(), "-q".into()])
+                .unwrap(),
+            "cargo test --locked 'it'\\''s' -q"
+        );
+        assert_eq!(
+            both.named_command("check:rust", &[]).unwrap(),
+            "bun run check:rust"
+        );
+        let plain = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[commands]\nlint = \"x\"\ntest = \"y\"\n",
+            path,
+        )
+        .unwrap();
+        let error = plain.named_command("build", &[]).unwrap_err();
+        assert_eq!(error.code(), "unknown_command");
+        assert!(error.message().contains("lint, test"), "{error}");
+        let custom = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sandbox]\nremote_path = \"/home/user/x\"\n",
+            path,
+        )
+        .unwrap();
+        assert!(custom.require_supported().is_err());
     }
 }

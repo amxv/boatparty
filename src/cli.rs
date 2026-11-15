@@ -50,6 +50,10 @@ pub enum Command {
     Status,
     /// Show every project's sandboxes: state, workspace, leases, last use.
     Pool(PoolArgs),
+    /// Show or check this project's configuration (boatparty.toml and its presets).
+    Config(ConfigArgs),
+    /// List, print or copy the presets a boatparty.toml can name.
+    Preset(PresetArgs),
     /// Let go of this workspace's sandbox so another workspace may use it.
     #[command(
         after_help = "The sandbox keeps running or stays stopped; only the record that ties it to \
@@ -77,10 +81,18 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 #[command(
-    group(ArgGroup::new("what").required(true).args(["sh", "command"])),
+    group(ArgGroup::new("what").required(true).multiple(true).args(["sh", "command", "words"])),
     after_help = "Examples:\n  \
                   boatparty cheers -- cargo test --locked     each word after -- is quoted\n  \
-                  boatparty cheers --sh 'cargo test 2>&1 | tail -n 20'   one shell line\n\n\
+                  boatparty cheers --sh 'cargo test 2>&1 | tail -n 20'   one shell line\n  \
+                  boatparty cheers test -q                    [commands] test, with -q appended\n  \
+                  boatparty cheers check:rust                 or the script runner: `bun run check:rust`\n\n\
+                  A NAME runs the line `[commands] NAME` from boatparty.toml (after presets apply) \
+                  with ARGS quoted and appended. Without such an entry it runs `[run] script NAME \
+                  ARGS` when the project sets a script runner (the node, pnpm and bun presets do); \
+                  otherwise it fails and lists the known names. Options such as --json go before \
+                  NAME; everything after NAME is passed on, `--` included \
+                  (`boatparty cheers test -- --nocapture` appends `-- --nocapture`).\n\n\
                   The working tree is synced first (as `boatparty load` does). stdout is passed through \
                   byte for byte. Files the command changes in the checkout are applied to this working \
                   tree afterwards; if the same lines changed here meanwhile, nothing is changed and the \
@@ -91,8 +103,16 @@ pub enum Command {
 )]
 pub struct CheersArgs {
     /// Run this shell line as given instead of a quoted argument list.
-    #[arg(long, value_name = "LINE")]
+    #[arg(long, value_name = "LINE", conflicts_with = "command")]
     pub sh: Option<String>,
+
+    /// A command named in boatparty.toml, then its arguments.
+    #[arg(
+        value_name = "NAME [ARGS]",
+        allow_hyphen_values = true,
+        conflicts_with = "sh"
+    )]
+    pub words: Vec<String>,
 
     /// The command to run, after `--`. Every word is quoted.
     #[arg(last = true, value_name = "COMMAND")]
@@ -290,4 +310,107 @@ pub struct DockArgs {
 pub struct RmArgs {
     /// The sandbox to delete (name or id); defaults to this workspace's.
     pub member: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(after_help = crate::config::HELP)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub action: ConfigAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigAction {
+    /// Print boatparty.toml as parsed, or with --resolved the effective
+    /// configuration after presets and defaults.
+    Show(ConfigShowArgs),
+    /// Check boatparty.toml, the presets it names and every preset file in
+    /// the user and project presets directories.
+    Validate,
+}
+
+#[derive(Debug, Args)]
+pub struct ConfigShowArgs {
+    /// The effective configuration: defaults, then the presets in order,
+    /// then boatparty.toml.
+    #[arg(long)]
+    pub resolved: bool,
+
+    /// Note where each value came from (implies --resolved).
+    #[arg(long)]
+    pub origin: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Presets live in three places, from least to most specific: built into \
+                  boatparty, ~/.config/boatparty/presets/<name>.toml (the user's) and \
+                  .boatparty/presets/<name>.toml in the project. A file in a more specific place \
+                  replaces the one of the same name below it entirely. `preset eject` copies a \
+                  built-in there so it can be edited as plain text."
+)]
+pub struct PresetArgs {
+    #[command(subcommand)]
+    pub action: PresetAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PresetAction {
+    /// List every preset, where it comes from and whether this project uses it.
+    List,
+    /// Print a preset's text (the one a project would get).
+    Show {
+        /// The preset's name.
+        name: String,
+    },
+    /// Copy a built-in preset into the project's .boatparty/presets/ (or,
+    /// with --user, the user's presets directory) for editing.
+    Eject(PresetEjectArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct PresetEjectArgs {
+    /// The built-in preset to copy.
+    pub name: String,
+
+    /// Copy it to the user's presets directory instead, for every project.
+    #[arg(long)]
+    pub user: bool,
+
+    /// Replace an existing file.
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cheers(args: &[&str]) -> Result<CheersArgs, clap::Error> {
+        let mut argv = vec!["boatparty", "cheers"];
+        argv.extend_from_slice(args);
+        Cli::try_parse_from(argv).map(|cli| match cli.command {
+            Command::Cheers(args) => args,
+            other => panic!("parsed {other:?}"),
+        })
+    }
+
+    #[test]
+    fn cheers_takes_a_name_with_arguments_a_quoted_argv_or_a_shell_line() {
+        let named = cheers(&["test", "-q", "--nocapture"]).unwrap();
+        assert_eq!(named.words, ["test", "-q", "--nocapture"]);
+        assert!(named.command.is_empty() && named.sh.is_none());
+        let argv = cheers(&["--", "cargo", "test"]).unwrap();
+        assert!(argv.words.is_empty());
+        assert_eq!(argv.command, ["cargo", "test"]);
+        let line = cheers(&["--sh", "a | b"]).unwrap();
+        assert_eq!(line.sh.as_deref(), Some("a | b"));
+        // After NAME everything is passed on, `--` included.
+        let both = cheers(&["test", "--", "--nocapture"]).unwrap();
+        assert_eq!(both.words, ["test", "--", "--nocapture"]);
+        assert!(both.command.is_empty());
+        assert!(cheers(&[]).is_err());
+        assert!(cheers(&["--sh", "x", "--", "y"]).is_err());
+        assert!(cheers(&["--sh", "x", "test"]).is_err());
+    }
 }

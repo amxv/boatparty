@@ -126,6 +126,8 @@ pub struct CreateSandbox {
     pub labels: BTreeMap<String, String>,
     /// Withhold every account secret from the sandbox.
     pub no_env: bool,
+    /// The provider environment to attach instead (only with `no_env` off).
+    pub environment: Option<String>,
     /// Exactly-once key: a retry with the same key returns the same sandbox.
     pub idempotency_key: String,
 }

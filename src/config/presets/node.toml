@@ -1,0 +1,29 @@
+# Node.js with npm: node_modules installed once per package-lock.json, npm run as the script runner.
+#
+# boat's image already has Node.js 24 and npm. npm keeps its download cache
+# in ~/.npm, which survives a resume (only ~/.cache does not), so nothing is
+# moved.
+version = 1
+
+[run]
+# `boatparty cheers <name>` runs `npm run <name>` when [commands] has no <name>.
+script = "npm run"
+
+[[ensure]]
+# Install node_modules when the lockfile or Node.js changes, or when a
+# restore left packages without their files.
+name = "npm-install"
+key_files = ["package-lock.json", "npm-shrinkwrap.json"]
+key_command = "node --version"
+check = '''
+test -d node_modules && perl -e '
+  my @packages = grep { !m{/\@[^/]*$} } glob("node_modules/*");
+  push @packages, glob("node_modules/\@*/*");
+  exit((grep { !-f "$_/package.json" } @packages) ? 1 : 0);
+'
+'''
+run = "if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then npm ci; else npm install; fi"
+
+[base]
+warm = "npm run build --if-present"
+stale_inputs = ["package-lock.json", "npm-shrinkwrap.json"]

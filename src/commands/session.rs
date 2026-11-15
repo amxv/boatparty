@@ -39,7 +39,7 @@ pub(crate) fn with_session<T>(
     work: impl FnOnce(&Held<'_>) -> Result<T, AppError>,
 ) -> Result<Ended<T>, AppError> {
     let workspace = Workspace::current()?;
-    let project = workspace.load_project()?;
+    let project = workspace.load_project(&ctx.paths)?;
     let name = project.name();
     let store = Store::new(&ctx.paths);
     let (member, target) = connect(ctx, &store, name, &workspace, LeaseKind::Session, label)?;

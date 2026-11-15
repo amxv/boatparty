@@ -410,7 +410,8 @@ fn create(
                 size: options.size,
                 ttl_seconds: options.ttl_seconds,
                 labels: member_labels(&pool.project, Role::Pool),
-                no_env: true,
+                no_env: pool.environment.is_none(),
+                environment: pool.environment.clone(),
                 idempotency_key: record.borrow().create_key.clone(),
             };
             let result = wait::retry(CREATE_RETRY, create_retryable, || {

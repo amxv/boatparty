@@ -5,3 +5,10 @@ version = 1
 
 [project]
 name = "boatparty"
+
+# `boatparty cheers <name> [args...]` runs one of these in the sandbox's
+# checkout with the arguments appended.
+[commands]
+test = "cargo test --locked"
+clippy = "cargo clippy --locked --all-targets -- -D warnings"
+fmt = "cargo fmt --all -- --check"

@@ -250,13 +250,19 @@ pub fn get(http: &Http, id: &str) -> Result<Sandbox, ProviderError> {
 }
 
 pub fn create_body(request: &CreateSandbox) -> Value {
-    json!({
+    let mut body = json!({
         "name": request.name,
         "type": request.size.as_str(),
         "ttlSeconds": request.ttl_seconds,
         "labels": request.labels,
         "noEnv": request.no_env,
-    })
+    });
+    if let Some(environment) = &request.environment
+        && !request.no_env
+    {
+        body["environment"] = json!(environment);
+    }
+    body
 }
 
 pub fn create(http: &Http, request: &CreateSandbox) -> Result<Sandbox, ProviderError> {
@@ -529,6 +535,7 @@ mod tests {
                 ("boatparty.role".to_string(), "pool".to_string()),
             ]),
             no_env: true,
+            environment: None,
             idempotency_key: "k".into(),
         };
         let body = create_body(&request);
@@ -537,6 +544,15 @@ mod tests {
         assert_eq!(body["ttlSeconds"], 900);
         assert_eq!(body["labels"]["boatparty.project"], "app");
         assert!(body.get("env").is_none());
+        assert!(body.get("environment").is_none());
+        let named = CreateSandbox {
+            no_env: false,
+            environment: Some("ci-secrets".into()),
+            ..request
+        };
+        let body = create_body(&named);
+        assert_eq!(body["noEnv"], false);
+        assert_eq!(body["environment"], "ci-secrets");
     }
 
     #[test]

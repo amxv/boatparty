@@ -1,0 +1,34 @@
+# Node.js with pnpm: node_modules installed once per pnpm-lock.yaml, pnpm run as the script runner.
+#
+# boat's image already has Node.js 24 and pnpm 10. pnpm's package store
+# (~/.local/share/pnpm/store) survives a resume.
+version = 1
+
+[run]
+# `boatparty cheers <name>` runs `pnpm run <name>` when [commands] has no <name>.
+script = "pnpm run"
+
+[run.env]
+# pnpm keeps package metadata in ~/.cache/pnpm, which a resume onto a new
+# machine loses. Moving the XDG cache home moves it (and other tools'
+# caches) somewhere that survives, for pnpm 10 and 11 alike.
+XDG_CACHE_HOME = "/home/user/.boatparty/cache/xdg"
+
+[[ensure]]
+# Install node_modules when the lockfile or Node.js changes, or when a
+# restore left packages without their files.
+name = "pnpm-install"
+key_files = ["pnpm-lock.yaml", "pnpm-workspace.yaml"]
+key_command = "node --version; pnpm --version"
+check = '''
+test -d node_modules && perl -e '
+  my @packages = grep { !m{/\@[^/]*$} } glob("node_modules/*");
+  push @packages, glob("node_modules/\@*/*");
+  exit((grep { !-f "$_/package.json" } @packages) ? 1 : 0);
+'
+'''
+run = "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi"
+
+[base]
+warm = "pnpm run --if-present build"
+stale_inputs = ["pnpm-lock.yaml", "pnpm-workspace.yaml"]

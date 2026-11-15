@@ -1,0 +1,25 @@
+# Go modules: dependencies downloaded once per go.sum, build cache kept across resumes.
+#
+# boat's image already has Go. A toolchain that go.mod asks for is
+# downloaded by Go itself into the module cache.
+version = 1
+
+[run.env]
+# Go's build cache defaults to ~/.cache/go-build, which a resume onto a new
+# machine loses. The module cache (~/go/pkg/mod) already survives.
+GOCACHE = "/home/user/.boatparty/cache/go-build"
+
+[[ensure]]
+# Download every module go.sum names.
+name = "go-mod-download"
+key_files = ["go.mod", "go.sum"]
+key_command = "go version"
+run = "go mod download"
+
+[base]
+# Compile the packages and their tests into the build cache.
+warm = '''
+go build ./...
+go test -run '^$' ./... >/dev/null
+'''
+stale_inputs = ["go.mod", "go.sum"]

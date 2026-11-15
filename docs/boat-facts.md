@@ -250,6 +250,25 @@ Also seen: the new-machine resume's `snapshotCompletedAt` was `22:34:30.366Z`, a
 
 **Conclusion:** on a new machine, `~/.cache` (including `~/.cache/pip`), `/var/tmp` and `/tmp` are lost. `~/keep`, `/opt` and an apt-installed package survive, as does a home file written 0.6 s before the stop. A reclaimed machine keeps everything, including `/tmp` and running processes, which explains gg-desktop's belief that `~/.cache` "outlives" Docker state (C2 row 2). The docs are right about `~/.cache`. `/var/tmp` is not saved although `/var` in general is (C2 row 1, only partly). In this one sample the late write was kept (C2 row 3).
 
+### 4b. `/usr/local/rustup` and `/usr/local/cargo` across a new machine (Phase 9)
+
+Run on 2026-11-15 with a scratch `default` sandbox (`bx_atdh43k7`, project `bp9-dur`), deleted afterwards. Before the stop, with `CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup`: `rustup toolchain install 1.95.0 --profile minimal`, `cargo fetch` of a crate depending on `itoa`, and marker files in both homes and in `~`. Then `boatparty dock --wait` (hydration complete, stopped). A resume with `--type default` (the size it already had) reclaimed the same machine (`status: running`, same IP), so it was stopped again and resumed with `--type small`, which landed on a new machine (`status: resuming`, new IP, new boot id):
+
+```text
+before: boot_id 4bf1f846-b381-4749-a5c7-b503969005c1  box-node-3f838b1c4d88a171
+after:  boot_id e5a5ffd7-b2e1-442b-afb5-3cf243542ac3  box-node-b5194b61d11ebe3c
+/usr/local/cargo/bp9-marker: cargo-marker
+/usr/local/rustup/bp9-marker: rustup-marker
+/home/user/keep-bp9: opt-check
+itoa-1.0.19.crate                       (in /usr/local/cargo/registry/cache)
+1.95.0-x86_64-unknown-linux-gnu         (rustup toolchain list)
+585M /usr/local/rustup/toolchains/1.95.0-x86_64-unknown-linux-gnu
+rustc 1.95.0 (59807616e 2026-04-14)
+offline-build-ok                        (cargo build --offline)
+```
+
+**Conclusion:** changes under `/usr/local/rustup` and `/usr/local/cargo` (installed toolchains, the registry) survive a resume onto a new machine, as the docs' "your changes in /usr" says. The `rust` preset keeps `CARGO_HOME=/usr/local/cargo` and `RUSTUP_HOME=/usr/local/rustup`. Also seen: a resume that names the sandbox's current type does not force a new machine; only a different type does.
+
 ## 5. Start accounting
 
 `GET /limits` `starts.*.used` around each start (`minute/hour/day`), with response headers. The counts are account-wide; the `minute` count also slides with time.

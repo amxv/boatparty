@@ -28,7 +28,7 @@ use crate::transport::ssh::SshTarget;
 pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let started = Instant::now();
     let workspace = Workspace::current()?;
-    let project = workspace.load_project()?;
+    let project = workspace.load_project(&ctx.paths)?;
     let name = project.name();
     // Local work first: a repository without a commit fails before any
     // provider call.

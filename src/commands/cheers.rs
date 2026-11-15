@@ -37,11 +37,16 @@ use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
-    let line = command_line(args);
     let mut stream = Stream::new(ctx.out.is_json());
     let mut cheers = Cheers {
         ctx,
-        line,
+        // A named command's line is known once the project is loaded.
+        line: command_line(args).unwrap_or_default(),
+        named: args
+            .words
+            .split_first()
+            .map(|(name, rest)| (name.clone(), rest.to_vec())),
+        copy_back: true,
         began: Instant::now(),
         at: system::now_ms(),
         record: json!({}),
@@ -56,6 +61,9 @@ pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
         }
     };
     cheers.record["at"] = json!(runs::rfc3339(cheers.at));
+    if cheers.line.is_empty() {
+        cheers.line = args.words.join(" ");
+    }
     cheers.record["command"] = json!(cheers.line);
     cheers.record["kind"] = json!("run");
     cheers.record["seconds"] = json!(round(cheers.began.elapsed().as_secs_f64()));
@@ -65,22 +73,32 @@ pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
     Ok(status)
 }
 
-/// The shell line to run: `--sh` as given, or every word quoted.
-pub fn command_line(args: &CheersArgs) -> String {
-    match &args.sh {
-        Some(line) => line.clone(),
-        None => args
-            .command
+/// The shell line to run: `--sh` as given, or every word after `--`
+/// quoted. `None` for the named form, which needs the project's
+/// configuration.
+pub fn command_line(args: &CheersArgs) -> Option<String> {
+    if let Some(line) = &args.sh {
+        return Some(line.clone());
+    }
+    if !args.words.is_empty() {
+        return None;
+    }
+    Some(
+        args.command
             .iter()
             .map(|word| shell_quote(word))
             .collect::<Vec<_>>()
             .join(" "),
-    }
+    )
 }
 
 struct Cheers<'a> {
     ctx: &'a Context,
     line: String,
+    /// `cheers <name> [args...]`: the name and its arguments.
+    named: Option<(String, Vec<String>)>,
+    /// `[sync] copy_back`.
+    copy_back: bool,
     began: Instant,
     at: u64,
     /// The runs.jsonl record, filled in as the run goes.
@@ -115,7 +133,12 @@ impl Cheers<'_> {
     fn execute(&mut self, stream: &mut Stream) -> Result<u8, AppError> {
         let ctx = self.ctx;
         let workspace = Workspace::current()?;
-        let project = workspace.load_project()?;
+        let project = workspace.load_project(&ctx.paths)?;
+        if let Some((command, args)) = &self.named {
+            self.record["name"] = json!(command);
+            self.line = project.named_command(command, args)?;
+        }
+        self.copy_back = project.copy_back();
         let name = project.name().to_string();
         let history = project.history();
         let seed = project.seed_config();
@@ -315,6 +338,10 @@ impl Cheers<'_> {
         };
         if cancelled.is_some() || patch_bytes == 0 {
             return (Some(exit_code), json!({"status": "none"}));
+        }
+        if !self.copy_back {
+            stream.note("the command changed files in the checkout; [sync] copy_back = false leaves them there");
+            return (Some(exit_code), json!({"status": "off"}));
         }
         let host = SshRunner::ssh_only(conn.target.clone());
         let applied = sync::fetch_patch(&host, name, &ran.outcome.nonce)
@@ -535,13 +562,27 @@ mod tests {
     fn argv_words_are_quoted_and_a_shell_line_is_passed_as_is() {
         let argv = CheersArgs {
             sh: None,
+            words: Vec::new(),
             command: vec!["sh".into(), "-c".into(), "echo out; exit 7".into()],
         };
-        assert_eq!(command_line(&argv), "sh -c 'echo out; exit 7'");
+        assert_eq!(
+            command_line(&argv).as_deref(),
+            Some("sh -c 'echo out; exit 7'")
+        );
         let line = CheersArgs {
             sh: Some("cargo test | tail -n 3".into()),
+            words: Vec::new(),
             command: Vec::new(),
         };
-        assert_eq!(command_line(&line), "cargo test | tail -n 3");
+        assert_eq!(
+            command_line(&line).as_deref(),
+            Some("cargo test | tail -n 3")
+        );
+        let named = CheersArgs {
+            sh: None,
+            words: vec!["test".into(), "-q".into()],
+            command: Vec::new(),
+        };
+        assert_eq!(command_line(&named), None);
     }
 }

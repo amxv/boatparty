@@ -1,0 +1,44 @@
+# Python: a .venv in the checkout, installed once per uv.lock or requirements file.
+#
+# boat's image already has Python 3.12, pip, venv and uv. Commands see the
+# project's .venv first on PATH.
+version = 1
+
+[run.env]
+# pip and uv cache downloads in ~/.cache, which a resume onto a new machine
+# loses.
+PIP_CACHE_DIR = "/home/user/.boatparty/cache/pip"
+UV_CACHE_DIR = "/home/user/.boatparty/cache/uv"
+# Values are expanded in the checkout, so $PWD is the checkout.
+VIRTUAL_ENV = "$PWD/.venv"
+PATH = "$PWD/.venv/bin:$PATH"
+
+[[ensure]]
+# uv.lock: `uv sync`. Otherwise a .venv with requirements.txt (and
+# requirements-dev.txt) installed, or the project itself when there is no
+# requirements file.
+name = "python-deps"
+key_files = ["uv.lock", "requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg"]
+key_command = "python3 --version"
+check = "test -x .venv/bin/python"
+run = '''
+set -e
+if [ -f uv.lock ]; then
+  uv sync --frozen
+  exit 0
+fi
+[ -x .venv/bin/python ] || python3 -m venv .venv
+if [ -f requirements.txt ] || [ -f requirements-dev.txt ]; then
+  for file in requirements.txt requirements-dev.txt; do
+    if [ -f "$file" ]; then .venv/bin/pip install -q -r "$file"; fi
+  done
+elif [ -f pyproject.toml ] || [ -f setup.py ]; then
+  .venv/bin/pip install -q -e .
+fi
+'''
+
+[base]
+# Dependency installation (the ensure step above) is the warm-up; byte
+# compiling the project's own modules saves the first import a little more.
+warm = "python3 -m compileall -q -x '/[.]venv/' . >/dev/null"
+stale_inputs = ["uv.lock", "requirements.txt", "requirements-dev.txt", "pyproject.toml"]

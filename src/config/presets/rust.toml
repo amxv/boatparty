@@ -1,0 +1,50 @@
+# Rust with Cargo: toolchain from rust-toolchain.toml, dependencies fetched once per Cargo.lock.
+#
+# boat's image already has rustup, cargo and a stable toolchain, so this
+# preset installs none of them. It adds only what the image lacks.
+version = 1
+
+[run.env]
+# boat sets RUSTUP_HOME=/usr/local/rustup but leaves CARGO_HOME unset, so
+# cargo and rustup would fall back to ~/.cargo (and `rustup target add`
+# fails there). Both homes under /usr/local survive a resume onto a new
+# machine: on 2026-11-15 a toolchain installed with rustup and a crate
+# fetched into the registry were still present after one. ~/.cache would
+# not have survived.
+CARGO_HOME = "/usr/local/cargo"
+RUSTUP_HOME = "/usr/local/rustup"
+PATH = "/usr/local/cargo/bin:$PATH"
+
+[[ensure]]
+# Install the toolchain (and its components and targets) that
+# rust-toolchain.toml or rust-toolchain pins. rustup would also do it on the
+# first cargo call, in the middle of the command's own output.
+name = "rust-toolchain"
+key_files = ["rust-toolchain.toml", "rust-toolchain"]
+run = "if [ -f rust-toolchain.toml ] || [ -f rust-toolchain ]; then rustup toolchain install; fi"
+
+[[ensure]]
+# Download every crate Cargo.lock names into CARGO_HOME's registry, again
+# only when the lockfile or the toolchain changes.
+name = "cargo-fetch"
+key_files = ["Cargo.lock", "rust-toolchain.toml", "rust-toolchain"]
+run = "if [ -f Cargo.lock ]; then cargo fetch --locked; fi"
+
+[build]
+# Cargo's output stays in the checkout (CARGO_TARGET_DIR is not set), so it
+# is kept with the checkout across resumes. Its mtimes are floored to whole
+# seconds after each command so a restore that truncates them does not make
+# Cargo rebuild.
+output_dirs = ["target"]
+floor_mtimes = true
+
+[base]
+# Build everything the usual commands build, so a new sandbox made from the
+# base compiles only what changed since.
+warm = '''
+locked=
+if [ -f Cargo.lock ]; then locked=--locked; fi
+cargo build $locked --all-targets
+cargo test $locked --no-run
+'''
+stale_inputs = ["Cargo.lock", "rust-toolchain.toml", "rust-toolchain"]

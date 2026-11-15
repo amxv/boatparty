@@ -1,0 +1,18 @@
+# boatparty project configuration. Check this file in.
+# The project name names this project's sandbox pool and its limits in
+# the per-user account.toml, so keep it stable.
+# `boatparty config show --resolved --origin` prints the effective
+# configuration and where each value comes from.
+version = 1
+
+[project]
+name = "app"
+# Chosen by `boatparty init` from pyproject.toml, requirements.txt.
+# Presets apply in this order and this file overrides them;
+# `boatparty preset show <name>` prints one.
+presets = ["python"]
+
+[commands]
+# `boatparty cheers <name> [args...]` runs one of these lines in the
+# sandbox's checkout with the arguments appended.
+test = ".venv/bin/python -m pytest"

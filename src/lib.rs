@@ -1,6 +1,7 @@
 pub mod account;
 pub mod cli;
 pub mod commands;
+pub mod config;
 pub mod error;
 pub mod output;
 pub mod paths;
@@ -68,6 +69,8 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Fetch(args) => commands::fetch::run(&ctx, &args),
         Command::Status => commands::status::run(&ctx),
         Command::Pool(args) => commands::pool::run(&ctx, &args),
+        Command::Config(args) => commands::config::run(&ctx, &args),
+        Command::Preset(args) => commands::preset::run(&ctx, &args),
         Command::Release => commands::pin::release(&ctx),
         Command::Assign(args) => commands::pin::assign(&ctx, &args),
         Command::Dock(args) => commands::dock::run(&ctx, &args),

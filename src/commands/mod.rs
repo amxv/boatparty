@@ -1,5 +1,6 @@
 pub mod board;
 pub mod cheers;
+pub mod config;
 pub mod dock;
 pub mod doctor;
 pub mod fetch;
@@ -11,6 +12,7 @@ pub mod log;
 pub mod login;
 pub mod pin;
 pub mod pool;
+pub mod preset;
 pub mod rm;
 mod session;
 pub mod status;
@@ -85,7 +87,7 @@ pub(crate) struct WorkspaceContext {
 impl WorkspaceContext {
     pub fn open(ctx: &Context) -> Result<Self, AppError> {
         let workspace = Workspace::current()?;
-        let project = workspace.load_project()?;
+        let project = workspace.load_project(&ctx.paths)?;
         let mut account = load_account(ctx)?;
         if !account.config.projects.contains_key(project.name()) {
             account::config::register_project(&ctx.paths, project.name())?;
@@ -114,14 +116,16 @@ impl WorkspaceContext {
     }
 
     pub fn pool<'a>(&'a self, ctx: &'a Context) -> crate::pool::Pool<'a> {
-        crate::pool::Pool::new(
+        let mut pool = crate::pool::Pool::new(
             &ctx.paths,
             self.provider.as_ref(),
             ctx.out,
             self.project.name().to_string(),
             self.workspace.clone(),
             crate::pool::PoolLimits::from_settings(&self.settings),
-        )
+        );
+        pool.environment = self.project.environment().map(str::to_string);
+        pool
     }
 
     /// How `launch` and `board` bring a member up.

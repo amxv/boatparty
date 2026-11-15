@@ -19,7 +19,7 @@ fn named(member: &Member) -> serde_json::Value {
 /// Drop this workspace's affinity so another workspace may use its member.
 pub fn release(ctx: &Context) -> Result<u8, AppError> {
     let workspace = Workspace::current()?;
-    let project = workspace.load_project()?;
+    let project = workspace.load_project(&ctx.paths)?;
     let name = project.name();
     let key = workspace.key();
     let released = Store::new(&ctx.paths).update(|state| acquire::release(state, name, &key))?;
@@ -49,7 +49,7 @@ pub fn release(ctx: &Context) -> Result<u8, AppError> {
 /// Pin a free member of this project to this workspace.
 pub fn assign(ctx: &Context, args: &AssignArgs) -> Result<u8, AppError> {
     let workspace = Workspace::current()?;
-    let project = workspace.load_project()?;
+    let project = workspace.load_project(&ctx.paths)?;
     let name = project.name();
     let key = workspace.key();
     let assigned = Store::new(&ctx.paths).update(|state| {
