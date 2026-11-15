@@ -277,6 +277,10 @@ pub struct AccountLimits {
     pub overage: OveragePrices,
     /// What the next start costs now: 0 inside every limit, `None` when it would be refused.
     pub next_start_dollars: Option<f64>,
+    /// The account pays for starts past its plan's limits (boat's extra
+    /// starts are on and below their monthly cap), so a full window does not
+    /// stop a start; the provider still refuses past its own hard caps.
+    pub extra_starts: bool,
 }
 
 /// The outcome of checking a credential.

@@ -71,7 +71,7 @@ A streaming command's failure is its result frame:
 
 ### limits
 
-Provider figures first (`starts` per window, `sandboxes` running against the account's cap, included VM time, sizes), then boatparty's own: `account` (its limits and the starts boatparty made) and one entry per project. `projects[].starts.*.cap` is the project's `starts_per_hour` or `starts_per_day`; `cost` is this month's machine cost from the provider.
+Provider figures first (`starts` per window, `sandboxes` running against the account's cap, included VM time, sizes), then boatparty's own: `account` (its limits and the starts boatparty made) and one entry per project. `projects[].starts.*.cap` is the project's `starts_per_hour` or `starts_per_day`; `cost` is this month's machine cost from the provider. `extra_starts` is true when boat bills starts past the plan's limits instead of refusing them (extra starts on, below their monthly cap); `next_start_dollars` is then what the next start costs. `account.paid_starts` is `[account] paid_starts` (default true): whether boatparty uses such paid starts.
 
 <!-- shape: limits -->
 ```json
@@ -90,12 +90,14 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
   "included_vm_time": { "hours": 555.56, "hours_remaining": 450.5, "period_end": "2026-12-01T00:00:00.000Z" },
   "sizes": [ { "size": "xlarge", "available": false, "reason": "needs the $100/month plan or higher" } ],
   "next_start_dollars": 0.0,
+  "extra_starts": false,
   "overage": { "vm_hour_dollars": 0.036, "saved_snapshot_day_dollars": 0.056 },
   "account": {
     "file": "/Users/me/.config/boatparty/account.toml",
     "max_running": null,
     "reserve_starts_per_hour": 0,
     "reserve_starts_per_day": 0,
+    "paid_starts": true,
     "boatparty_starts": { "hour": 0, "day": 0 }
   },
   "projects": [

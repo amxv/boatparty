@@ -57,6 +57,11 @@ acquire_wait_seconds = 900
 # and for starts made by hand. boatparty waits rather than use them.
 reserve_starts_per_hour = 0
 reserve_starts_per_day = 0
+# When boat's extra starts are on (`boat billing extra-starts on`), a start
+# past the plan's included starts is billed instead of refused. boatparty
+# then starts anyway, with a note, and the reserves above no longer hold it
+# back. Set false to never use a paid start.
+# paid_starts = true
 
 # Projects registered by `boatparty init`, one [projects.<name>] table each,
 # appended below. A project's table may lower its own limits:
@@ -96,6 +101,9 @@ pub struct AccountLimitsSection {
     pub reserve_starts_per_hour: u32,
     /// Starts per rolling day boatparty leaves to others.
     pub reserve_starts_per_day: u32,
+    /// Whether boatparty may use starts the provider bills past the plan's
+    /// included ones (boat's extra starts). Unset: yes, when they are on.
+    pub paid_starts: Option<bool>,
 }
 
 /// One registered project and its own limits. `lease_minutes` can only

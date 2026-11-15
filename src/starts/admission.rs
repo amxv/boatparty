@@ -32,6 +32,40 @@ pub struct Budget {
     pub project_per_day: Option<u32>,
     pub reserve_per_hour: u32,
     pub reserve_per_day: u32,
+    /// `[account] paid_starts`: boatparty may start past the account's
+    /// included starts when the provider bills extra starts.
+    pub paid_starts: bool,
+}
+
+/// Whether the account's own windows (and the reserves kept in them) hold a
+/// start back. Not when the provider bills starts past them and the account
+/// lets boatparty use that: the provider's hard caps still refuse.
+fn account_windows_apply(budget: &Budget, cache: &LimitsCache) -> bool {
+    !(budget.paid_starts && cache.extra_starts)
+}
+
+/// Whether a start now would be paid: the provider bills extra starts, the
+/// account allows them, and one of its windows has no included start left.
+pub fn paid_start(ledger: &[StartRecord], budget: &Budget, cache: &LimitsCache, now: u64) -> bool {
+    if account_windows_apply(budget, cache) || cache.unlimited {
+        return false;
+    }
+    [StartWindow::Minute, StartWindow::Hour, StartWindow::Day]
+        .into_iter()
+        .any(|window| {
+            let Some(figures) = cache.window(window) else {
+                return false;
+            };
+            let span = span_ms(window);
+            if cache.fetched_at + span <= now {
+                return false;
+            }
+            let unseen = ledger
+                .iter()
+                .filter(|record| record.at + span > now && !reflected(record, cache.fetched_at))
+                .count() as u64;
+            figures.remaining.saturating_sub(unseen) == 0
+        })
 }
 
 /// The limit that holds a start back.
@@ -123,7 +157,9 @@ pub fn admit(
         );
     }
 
-    if let Some(cache) = account.filter(|cache| !cache.unlimited) {
+    if let Some(cache) =
+        account.filter(|cache| !cache.unlimited && account_windows_apply(budget, cache))
+    {
         for (window, reserve) in [
             (StartWindow::Minute, 0),
             (StartWindow::Hour, budget.reserve_per_hour),
@@ -220,10 +256,62 @@ mod tests {
             running: 0,
             max_running: 100,
             window_full: None,
+            extra_starts: false,
+            next_start_mills: None,
         }
     }
 
     const ROOMY: ((u64, u64), (u64, u64), (u64, u64)) = ((12, 0), (60, 0), (200, 0));
+
+    #[test]
+    fn extra_starts_let_a_full_account_window_start_as_paid_unless_opted_out() {
+        let mut full = cache(1_000, (12, 0), (60, 25), (200, 200));
+        let ledger = [start("app", 10 * MINUTE_MS)];
+        let paying = Budget {
+            paid_starts: true,
+            reserve_per_day: 10,
+            ..Budget::default()
+        };
+        // Extra starts off at the provider: refused, as before.
+        assert!(matches!(
+            admit(&ledger, "app", &paying, Some(&full), NOW),
+            Admission::Refuse { .. }
+        ));
+        assert!(!paid_start(&ledger, &paying, &full, NOW));
+        // On: admitted, and known to be paid.
+        full.extra_starts = true;
+        assert_eq!(
+            admit(&ledger, "app", &paying, Some(&full), NOW),
+            Admission::Admit
+        );
+        assert!(paid_start(&ledger, &paying, &full, NOW));
+        // Opted out in account.toml: refused.
+        let strict = Budget {
+            paid_starts: false,
+            ..paying
+        };
+        assert!(matches!(
+            admit(&ledger, "app", &strict, Some(&full), NOW),
+            Admission::Refuse { .. }
+        ));
+        assert!(!paid_start(&ledger, &strict, &full, NOW));
+        // Inside the included starts nothing is paid.
+        let mut roomy = cache(1_000, ROOMY.0, ROOMY.1, ROOMY.2);
+        roomy.extra_starts = true;
+        assert!(!paid_start(&ledger, &paying, &roomy, NOW));
+        // The project's own caps still hold.
+        let capped = Budget {
+            project_per_day: Some(1),
+            ..paying
+        };
+        assert!(matches!(
+            admit(&ledger, "app", &capped, Some(&full), NOW),
+            Admission::Refuse {
+                limit: Limit::Project { .. },
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn nothing_blocks_an_empty_ledger() {

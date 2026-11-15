@@ -44,6 +44,7 @@ impl Budget {
             project_per_day: settings.starts_per_day,
             reserve_per_hour: settings.reserve_starts_per_hour,
             reserve_per_day: settings.reserve_starts_per_day,
+            paid_starts: settings.paid_starts,
         }
     }
 }
@@ -192,6 +193,10 @@ impl StartGate<'_> {
                     cache.as_ref(),
                     now,
                 );
+                let paid = cache.as_ref().and_then(|cache| {
+                    admission::paid_start(&state.starts, &self.budget, cache, now)
+                        .then_some(cache.next_start_mills)
+                });
                 if admission == Admission::Admit {
                     state.starts.push(StartRecord {
                         at: now,
@@ -201,10 +206,30 @@ impl StartGate<'_> {
                         done_at: None,
                     });
                 }
-                Ok(admission)
+                Ok((admission, paid))
             })?;
+            let (outcome, paid) = outcome;
             let (limit, wait_ms) = match outcome {
-                Admission::Admit => return Ok(id),
+                Admission::Admit => {
+                    if let Some(mills) = paid {
+                        let price = mills
+                            .filter(|mills| *mills > 0)
+                            .map(|mills| {
+                                format!(
+                                    " (about ${:.2} on boat's next invoice)",
+                                    mills as f64 / 1000.0
+                                )
+                            })
+                            .unwrap_or_default();
+                        self.out.note(format_args!(
+                            "starting {what} is a paid start{price}: the account's included \
+                             starts are used up and its extra starts are on; set \
+                             `[account] paid_starts = false` in {} to never pay",
+                            self.account_file()
+                        ));
+                    }
+                    return Ok(id);
+                }
                 Admission::Refuse { limit, frees_in_ms } => {
                     // Figures that may be old get one more look first.
                     if matches!(limit, Limit::Account { .. })
@@ -365,9 +390,10 @@ impl StartGate<'_> {
                 ),
             )
             .with_hint(
-                "running sandboxes keep working; boatparty never pays for extra starts, so wait, \
-                 lower the reserve with `boatparty limits set account reserve_starts_per_day=N`, \
-                 or raise the plan",
+                "running sandboxes keep working; wait, lower the reserve with `boatparty limits \
+                 set account reserve_starts_per_day=N`, turn on boat's extra starts (`boat \
+                 billing extra-starts on`, which boatparty then uses unless `[account] \
+                 paid_starts = false`), or raise the plan",
             ),
         }
     }
@@ -427,7 +453,10 @@ fn provider_day_error(error: &ProviderError, refusal: &StartRefusal) -> AppError
         "daily_start_limit",
         format!("the provider's daily start limit{limit} is full{next} ({error})"),
     )
-    .with_hint("running sandboxes keep working; boatparty never pays for extra starts")
+    .with_hint(
+        "running sandboxes keep working; with boat's extra starts on (`boat billing \
+         extra-starts on`) such starts are billed instead of refused",
+    )
 }
 
 fn per(window: StartWindow) -> &'static str {

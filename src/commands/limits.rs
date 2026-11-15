@@ -67,6 +67,7 @@ fn show(ctx: &Context) -> Result<u8, AppError> {
             "max_running": settings.max_running,
             "reserve_starts_per_hour": settings.reserve_starts_per_hour,
             "reserve_starts_per_day": settings.reserve_starts_per_day,
+            "paid_starts": settings.paid_starts.unwrap_or(true),
             "boatparty_starts": {"hour": hour, "day": day},
         });
         document["projects"] = Value::Array(projects.iter().map(project_json).collect());
@@ -75,13 +76,18 @@ fn show(ctx: &Context) -> Result<u8, AppError> {
         let mut text = render(&limits);
         let _ = writeln!(
             text,
-            "account      max_running {}; reserve {} starts/hour, {} starts/day; \
+            "account      max_running {}; reserve {} starts/hour, {} starts/day; paid starts {}; \
              boatparty started {hour} in the last hour, {day} in the last day",
             settings
                 .max_running
                 .map_or_else(|| "unset".to_string(), |max| max.to_string()),
             settings.reserve_starts_per_hour,
             settings.reserve_starts_per_day,
+            if settings.paid_starts.unwrap_or(true) {
+                "allowed"
+            } else {
+                "off"
+            },
         );
         if !projects.is_empty() {
             let _ = writeln!(text);
@@ -328,6 +334,7 @@ pub fn document(limits: &AccountLimits) -> Value {
             "saved_snapshot_day_dollars": limits.overage.saved_snapshot_day_dollars,
         },
         "next_start_dollars": limits.next_start_dollars,
+        "extra_starts": limits.extra_starts,
     })
 }
 
@@ -416,6 +423,12 @@ pub fn render(limits: &AccountLimits) -> String {
         text,
         "can start    {}",
         match (&limits.can_start, &limits.start_blocked_reason) {
+            (true, _)
+                if limits.extra_starts && limits.next_start_dollars.is_some_and(|d| d > 0.0) =>
+                format!(
+                    "yes, as a paid extra start (${:.2} on boat's next invoice)",
+                    limits.next_start_dollars.unwrap_or_default()
+                ),
             (true, _) => "yes".to_string(),
             (false, Some(reason)) => format!("no ({reason})"),
             (false, None) => "no".to_string(),

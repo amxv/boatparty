@@ -27,6 +27,18 @@ pub struct LimitsBody {
     overage_prices: Option<OveragePricesBody>,
     #[serde(default)]
     next_start_dollars: Option<f64>,
+    #[serde(default)]
+    keep_going: Option<KeepGoingBody>,
+}
+
+/// boat's extra (paid) starts setting.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeepGoingBody {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    cap_reached: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +168,12 @@ impl From<LimitsBody> for AccountLimits {
             sizes,
             overage,
             next_start_dollars: body.next_start_dollars,
+            // A start past a plan limit is still allowed, and billed.
+            extra_starts: body.can_start
+                && body
+                    .keep_going
+                    .as_ref()
+                    .is_some_and(|keep| keep.enabled && !keep.cap_reached),
         }
     }
 }

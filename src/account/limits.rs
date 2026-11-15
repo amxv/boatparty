@@ -29,6 +29,8 @@ pub struct ProjectSettings {
     pub account_max_running: Option<u32>,
     pub reserve_starts_per_hour: u32,
     pub reserve_starts_per_day: u32,
+    /// `[account] paid_starts` (default true).
+    pub paid_starts: bool,
 }
 
 impl ProjectSettings {
@@ -62,6 +64,7 @@ impl ProjectSettings {
             account_max_running: config.account.max_running,
             reserve_starts_per_hour: config.account.reserve_starts_per_hour,
             reserve_starts_per_day: config.account.reserve_starts_per_day,
+            paid_starts: config.account.paid_starts.unwrap_or(true),
         }
     }
 

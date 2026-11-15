@@ -43,6 +43,13 @@ pub struct LimitsCache {
     pub max_running: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_full: Option<CachedFull>,
+    /// The provider bills starts past a full window instead of refusing them.
+    #[serde(default)]
+    pub extra_starts: bool,
+    /// What the next start costs, in thousandths of a dollar, when the
+    /// provider said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_start_mills: Option<u64>,
 }
 
 fn cached(window: Option<WindowUsage>) -> Option<CachedWindow> {
@@ -70,6 +77,11 @@ impl LimitsCache {
                 window: full.window.as_str().to_string(),
                 frees_at: full.frees_at.as_deref().and_then(parse_rfc3339),
             }),
+            extra_starts: limits.extra_starts,
+            next_start_mills: limits
+                .next_start_dollars
+                .filter(|dollars| dollars.is_finite() && *dollars >= 0.0)
+                .map(|dollars| (dollars * 1000.0).round() as u64),
         }
     }
 

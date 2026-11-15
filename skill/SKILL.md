@@ -52,6 +52,8 @@ Every create or resume is a start, and the account has a few per minute,
 hour and day. Do not `dock` between commands: a sandbox stops by itself 5
 minutes after its last command ends and costs nothing while stopped. Do not
 start one only to check that it works. `boatparty limits` shows what is left.
+When the account's included starts are used up and boat's extra starts are
+on, starts cost money (boatparty prints a `paid start` note); avoid them.
 
 ## Secrets
 

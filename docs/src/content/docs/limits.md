@@ -32,6 +32,7 @@ boat counts every create and every resume onto a new machine as a start, per min
 
 - A start that would exceed a project's `starts_per_hour` or `starts_per_day`, or use the account's `reserve_starts_per_hour` and `reserve_starts_per_day`, waits with one log line.
 - boat's own rate limit for the minute or hour window is retried after the delay boat names. Only the daily window fails, with a message that says so.
+- **Paid starts.** When boat's extra starts are on (`boat billing extra-starts on`), boat bills a start past the plan's included starts ($0.03 to $0.07 each, at most a monthly cap) instead of refusing it. boatparty then starts anyway and says so on stderr (`starting ... is a paid start (about $0.03 on boat's next invoice)`); the account's reserves no longer hold it back, the projects' own caps still do, and boat still refuses past its hard caps. `[account] paid_starts = false` (or `boatparty limits set account paid_starts=false`) makes boatparty never use a paid start. `boatparty limits` shows whether the next start would be paid.
 - `max_running` (for the account, and per project) caps sandboxes running at once; at the cap, an idle running sandbox is reassigned rather than another one started.
 
 ## Idle and lease times
@@ -50,7 +51,7 @@ A sandbox whose files are still being restored after a resume is never stopped b
 | --- | --- |
 | `[provider]` | `name` ("boat"), `api_url` |
 | `[defaults]` | `machine`, `max_sandboxes`, `steal_after_minutes`, `lease_minutes`, `idle_minutes`, `heartbeat_minutes`, `acquire_wait_seconds` |
-| `[account]` | `max_running`, `reserve_starts_per_hour`, `reserve_starts_per_day` |
+| `[account]` | `max_running`, `reserve_starts_per_hour`, `reserve_starts_per_day`, `paid_starts` |
 | `[projects.NAME]` | `max_sandboxes`, `max_running`, `max_machine`, `starts_per_hour`, `starts_per_day`, `idle_minutes`, `lease_minutes` |
 
 A project's `boatparty.toml` may ask for less than its limits, never more: a `[sandbox] machine` above `max_machine` is an error naming both files.

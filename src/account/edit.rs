@@ -27,6 +27,8 @@ enum Kind {
     Count { min: u32 },
     /// A machine size.
     Size,
+    /// true or false.
+    Bool,
 }
 
 /// The keys `limits set account` changes, with their table.
@@ -34,6 +36,7 @@ const ACCOUNT_KEYS: &[(&str, &str, Kind)] = &[
     ("account", "max_running", Kind::Count { min: 1 }),
     ("account", "reserve_starts_per_hour", Kind::Count { min: 0 }),
     ("account", "reserve_starts_per_day", Kind::Count { min: 0 }),
+    ("account", "paid_starts", Kind::Bool),
     ("defaults", "machine", Kind::Size),
     ("defaults", "max_sandboxes", Kind::Count { min: 1 }),
     ("defaults", "steal_after_minutes", Kind::Count { min: 0 }),
@@ -215,6 +218,14 @@ fn parse_value(key: &str, kind: Kind, raw: &str) -> Result<Option<Value>, AppErr
             })?;
             Ok(Some(Value::from(size.as_str())))
         }
+        Kind::Bool => match raw {
+            "true" => Ok(Some(Value::from(true))),
+            "false" => Ok(Some(Value::from(false))),
+            _ => Err(AppError::new(
+                "invalid_limit",
+                format!("{key} must be true or false, not {raw:?}"),
+            )),
+        },
     }
 }
 
