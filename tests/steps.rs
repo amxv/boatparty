@@ -521,9 +521,15 @@ fn directory_mtimes_are_saved_and_restored_only_while_hydrating() {
 
 #[test]
 fn an_unreadable_cache_entry_left_by_a_restore_is_dropped_whole() {
-    // Root opens any file, so permissions cannot stand in for a broken one.
-    let uid = std::process::Command::new("id").arg("-u").output().unwrap();
-    if String::from_utf8_lossy(&uid.stdout).trim() == "0" {
+    // Root, or a user with CAP_DAC_OVERRIDE (as on some CI runners), opens
+    // any file, so permissions cannot stand in for a broken one there.
+    let probe = std::env::temp_dir().join(format!("boatparty-unreadable-{}", std::process::id()));
+    fs::write(&probe, "x").unwrap();
+    fs::set_permissions(&probe, fs::Permissions::from_mode(0o000)).unwrap();
+    let opens = fs::File::open(&probe).is_ok();
+    let _ = fs::remove_file(&probe);
+    if opens {
+        eprintln!("skipped: this user opens files with mode 000");
         return;
     }
     let mut member = Member::new(
