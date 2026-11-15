@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Write, Edit
 
 - Releases run only on GitHub-hosted runners, never on boat or the developer's machine.
 - Linux x86_64 and aarch64 are tested and built on `ubuntu-latest` with cargo-zigbuild against glibc 2.28.
-- macOS arm64 and x86_64 are tested and built natively on `macos-latest`; Apple's linker signs them ad hoc.
+- macOS arm64 and x86_64 are tested and built natively on `macos-latest`; they are signed ad hoc.
 - The release holds `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`.
 
 The repository is private. Users install with the GitHub CLI: `gh release download -R amxv/boatparty -p install.sh -O - | bash` (see `scripts/install.sh`). There is no npm or crates.io publication.

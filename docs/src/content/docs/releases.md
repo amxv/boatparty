@@ -23,8 +23,8 @@ Nothing is compiled on a developer machine.
 | Output | Built on | How |
 | --- | --- | --- |
 | Linux x86_64 and aarch64 releases | GitHub's `ubuntu-latest` | the test suite, then `cargo zigbuild` against glibc 2.28, so the binaries run on older distributions. aarch64 is built, not test-run |
-| macOS arm64 and x86_64 releases | GitHub's `macos-latest` | the test suite on macOS, then a native `cargo build` per target; Apple's linker signs both binaries ad hoc |
-| CI checks (fmt, clippy, tests, docs) | a boat.dev sandbox per job | `.github/workflows/ci.yml` and `docs.yml`, on every branch |
+| macOS arm64 and x86_64 releases | GitHub's `macos-latest` | the test suite on macOS, then a native `cargo build` per target; both binaries are signed ad hoc |
+| CI checks (fmt, clippy, tests, docs) | GitHub's `ubuntu-latest` | `.github/workflows/ci.yml` and `docs.yml`, on every branch |
 | Development checks and macOS binaries of a working tree | this workspace's boat sandbox, through boatparty | `just remote-check`, `just boat-build-macos` |
 
 ## The release workflow

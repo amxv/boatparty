@@ -85,7 +85,7 @@ Development compiles, checks and tests run on boat through boatparty;
 releases run only on GitHub-hosted runners. Linux release binaries (x86_64,
 aarch64) are tested and cross-built with cargo-zigbuild against glibc 2.28 on
 `ubuntu-latest`; macOS binaries (arm64, x86_64) are tested and built natively
-on `macos-latest`, where Apple's linker signs them ad hoc.
+on `macos-latest`, and signed ad hoc.
 
 `.github/workflows/release.yml` is maintained by hand (there is no cargo-dist
 and no npm package). A tag `vX.Y.Z` matching `Cargo.toml` publishes a GitHub

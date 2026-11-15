@@ -6,7 +6,7 @@ name: Release
 #   with cargo-zigbuild against glibc 2.28 so the binaries run on older
 #   distributions too;
 # - macOS (arm64, x86_64) natively on macos-latest, which also runs the test
-#   suite on macOS; Apple's linker signs both binaries ad hoc.
+#   suite on macOS; both binaries are signed ad hoc.
 # A pushed tag vX.Y.Z publishes a GitHub Release with tar.gz archives,
 # SHA256SUMS and install.sh. A manual run, or a pull request that touches the
 # release machinery, builds and packages without publishing (a dry run).
@@ -115,6 +115,8 @@ jobs:
           mkdir -p dist
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --release --locked --target "$target"
+            # Apple's linker signs arm64 output ad hoc but not x86_64.
+            codesign --force --sign - "target/$target/release/boatparty"
             codesign --verify "target/$target/release/boatparty"
             scripts/release/package.sh "${{ needs.plan.outputs.version }}" "$target" \
               "target/$target/release/boatparty" dist
