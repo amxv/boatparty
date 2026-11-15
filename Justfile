@@ -44,6 +44,22 @@ docs-build:
 docs-test:
     cd docs && bun run test:vercel
 
+# Full gate (fmt, clippy, test, shellcheck, docs) on this workspace's boat sandbox via boatparty cheers.
+remote-check *args:
+    scripts/remote-check.sh check "$@"
+
+# fmt --check and clippy on this workspace's boat sandbox.
+remote-fast:
+    scripts/remote-check.sh fast
+
+# cargo test --locked [ARGS] on this workspace's boat sandbox.
+remote-test *args:
+    scripts/remote-check.sh test "$@"
+
+# Cross-compile this tree's macOS binary on this workspace's boat sandbox (zigbuild) and fetch it.
+boat-build-macos *args:
+    scripts/boat-build-macos.sh "$@"
+
 # Build this tree's macOS binary and run the tests on a one-shot NoMac Mac (output in target/nomac/).
 build-macos *args:
     scripts/build-macos.sh "$@"
