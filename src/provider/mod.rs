@@ -11,6 +11,7 @@ pub mod error;
 pub mod sandbox;
 
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 pub use error::{
@@ -63,6 +64,17 @@ pub trait Provider {
     /// Authorize an OpenSSH public key on a running sandbox and say how to
     /// reach it, including the host key to pin.
     fn authorize_ssh_key(&self, id: &str, public_key: &str) -> Result<SshAccess, ProviderError>;
+
+    /// Write a local file to `remote_path` on a running sandbox by the
+    /// provider's bulk route. Any URL or token involved stays inside the
+    /// provider and never appears in an error.
+    fn upload_file(&self, id: &str, remote_path: &str, file: &Path) -> Result<(), ProviderError>;
+
+    /// Read `remote_path` on a running sandbox into the local `file` by the
+    /// provider's bulk route; returns the bytes written. The same secrecy
+    /// rule as [`Provider::upload_file`] holds.
+    fn download_file(&self, id: &str, remote_path: &str, file: &Path)
+    -> Result<u64, ProviderError>;
 }
 
 /// Open the provider described by the account settings with this key.

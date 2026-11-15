@@ -35,12 +35,17 @@ pub fn write(path: &Path, text: &str) {
 }
 
 /// The runner as a local child, with its checkout and state directories
-/// overridden. Until `install` is called it can pretend to be missing.
+/// overridden. Until `install` is called it can pretend to be missing. With
+/// an upload threshold set it offers an upload route that copies packs into
+/// the state directory, as the provider's signed upload does on a sandbox.
 pub struct LocalRunner {
     pub repo: PathBuf,
     pub state: PathBuf,
     pub missing: Cell<bool>,
     pub installs: Cell<u32>,
+    pub upload_threshold: Cell<Option<u64>>,
+    pub uploads: Cell<u32>,
+    pub fail_uploads: Cell<bool>,
 }
 
 impl LocalRunner {
@@ -50,6 +55,9 @@ impl LocalRunner {
             state: root.join(format!("{name}-state")),
             missing: Cell::new(false),
             installs: Cell::new(0),
+            upload_threshold: Cell::new(None),
+            uploads: Cell::new(0),
+            fail_uploads: Cell::new(false),
         }
     }
 }
@@ -73,6 +81,24 @@ impl RunnerHost for LocalRunner {
     fn install(&self) -> Result<(), boatparty::error::AppError> {
         self.missing.set(false);
         self.installs.set(self.installs.get() + 1);
+        Ok(())
+    }
+
+    fn upload_threshold(&self) -> Option<u64> {
+        self.upload_threshold.get()
+    }
+
+    fn upload(&self, name: &str, file: &Path) -> Result<(), boatparty::error::AppError> {
+        if self.fail_uploads.get() {
+            return Err(boatparty::error::AppError::new(
+                "connection",
+                "the signed upload failed: connection failed",
+            ));
+        }
+        self.uploads.set(self.uploads.get() + 1);
+        let dir = self.state.join("in");
+        fs::create_dir_all(&dir).unwrap();
+        fs::copy(file, dir.join(name)).unwrap();
         Ok(())
     }
 }

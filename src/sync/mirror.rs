@@ -1,15 +1,15 @@
 //! Sending a snapshot to the runner, alone (`load`) or followed by a command
 //! (`cheers`): the thin pack, streamed from `git pack-objects` straight into
-//! the runner's stdin, the exit-96 install handshake, and the one `needfull`
-//! retry with a pack that assumes nothing.
+//! the runner's stdin (or, above the host's upload threshold, uploaded by a
+//! faster route and read from a file), the exit-96 install handshake, and
+//! the one `needfull` retry with a pack that assumes nothing.
 
-use std::collections::BTreeSet;
 use std::io::Write;
-use std::path::Path;
 use std::process::Stdio;
 
-use super::exchange::{self, CancelProbe, Exchange, NeverCancel, Sink, Spec};
-use super::{LocalRef, Snapshot, WorktreeInfo, git, refs_text};
+use super::exchange::{self, CancelProbe, Exchange, NeverCancel, PackInput, Sink, Spec};
+use super::pack::{self, Built, Revs};
+use super::{History, LocalRef, Snapshot, WorktreeInfo, refs_text};
 use crate::error::AppError;
 use crate::runner::{EXIT_MISSING, EXIT_NEEDFULL, RunnerHost, Trailer};
 
@@ -23,6 +23,30 @@ pub struct MirrorRequest<'a> {
     pub send_refs: bool,
     /// Objects the sandbox is believed to have.
     pub known: &'a [String],
+    /// How much history to send.
+    pub history: History,
+}
+
+/// How a sync's pack reached the sandbox.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PackRoute {
+    /// Nothing needed sending.
+    #[default]
+    None,
+    /// Over the runner's stdin.
+    Ssh,
+    /// Uploaded through a signed URL, then read from a file.
+    SignedUrl,
+}
+
+impl PackRoute {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Ssh => "ssh",
+            Self::SignedUrl => "signed_url",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +61,10 @@ pub struct MirrorOutcome {
     pub installed: bool,
     /// The objects now confirmed present on the sandbox.
     pub known: Vec<String>,
+    /// How the pack travelled.
+    pub pack_route: PackRoute,
+    /// Why a signed upload failed and the pack went over SSH instead.
+    pub upload_fallback: Option<String>,
 }
 
 /// Mirror the snapshot to the runner. Runner stderr (minus its frames) is
@@ -55,6 +83,8 @@ pub fn mirror(
             full_retry: session.full_retry,
             installed: session.installed,
             known: confirmed(request),
+            pack_route: session.pack_route,
+            upload_fallback: session.upload_fallback,
         }),
         _ => Err(failed(&session.exchange)),
     }
@@ -87,6 +117,8 @@ pub struct RunOutcome {
     /// The objects now confirmed present on the sandbox (empty unless the
     /// sync was confirmed).
     pub known: Vec<String>,
+    pub pack_route: PackRoute,
+    pub upload_fallback: Option<String>,
 }
 
 /// Sync the snapshot and run `command` (one shell line) in the checkout.
@@ -130,6 +162,8 @@ pub fn run_command(
         installed: session.installed,
         cancelled: exchange.cancelled,
         known,
+        pack_route: session.pack_route,
+        upload_fallback: session.upload_fallback.clone(),
     })
 }
 
@@ -162,6 +196,8 @@ struct Session {
     pack_bytes: u64,
     full_retry: bool,
     installed: bool,
+    pack_route: PackRoute,
+    upload_fallback: Option<String>,
 }
 
 /// Invoke the runner until it answers: install it once when it is missing,
@@ -178,14 +214,41 @@ fn session(
     let mut installed = false;
     let mut full_retry = false;
     let mut pack_bytes = 0;
+    let mut pack_route = PackRoute::None;
+    let mut upload_fallback = None;
     let mut known: Vec<String> = request.known.to_vec();
     let mut send_refs = request.send_refs;
+    // A pack uploaded for an attempt that found the runner missing is still
+    // on the sandbox, and the retry would send the same pack.
+    let mut reuse: Option<String> = None;
     loop {
         let nonce = crate::system::random_hex(8)?;
-        let exchange = attempt(
-            host, request, &nonce, &known, send_refs, command, sink, cancel,
+        let Attempt {
+            exchange,
+            uploaded,
+            route,
+            fallback,
+            upload_name,
+        } = attempt(
+            host,
+            request,
+            &nonce,
+            Want {
+                known: &known,
+                send_refs,
+                reuse: reuse.take(),
+            },
+            command,
+            sink,
+            cancel,
         )?;
-        pack_bytes += exchange.pack_bytes;
+        pack_bytes += exchange.pack_bytes + uploaded;
+        if route != PackRoute::None {
+            pack_route = route;
+        }
+        if fallback.is_some() {
+            upload_fallback = fallback;
+        }
         if exchange.cancelled {
             return Ok(Session {
                 exchange,
@@ -193,11 +256,14 @@ fn session(
                 pack_bytes,
                 full_retry,
                 installed,
+                pack_route,
+                upload_fallback,
             });
         }
         if exchange.runner_missing && !installed {
             host.install()?;
             installed = true;
+            reuse = upload_name;
             continue;
         }
         match exchange.trailer {
@@ -220,6 +286,8 @@ fn session(
                     pack_bytes,
                     full_retry,
                     installed,
+                    pack_route,
+                    upload_fallback,
                 });
             }
         }
@@ -275,74 +343,50 @@ fn failed(exchange: &Exchange) -> AppError {
     }
 }
 
-/// The pack's rev list: the wanted objects the sandbox lacks, minus what it
-/// has. `None` when it already has every wanted object.
-fn pack_revs(root: &Path, wanted: &[String], known: &[String]) -> Result<Option<String>, AppError> {
-    let present = existing_objects(root, known)?;
-    let mut seen = BTreeSet::new();
-    let missing: Vec<&String> = wanted
-        .iter()
-        .filter(|sha| !present.contains(*sha) && seen.insert(sha.as_str()))
-        .collect();
-    if missing.is_empty() {
-        return Ok(None);
-    }
-    let mut revs = String::new();
-    for sha in missing {
-        revs.push_str(sha);
-        revs.push('\n');
-    }
-    for sha in &present {
-        revs.push('^');
-        revs.push_str(sha);
-        revs.push('\n');
-    }
-    Ok(Some(revs))
+/// What one attempt sends.
+struct Want<'a> {
+    known: &'a [String],
+    send_refs: bool,
+    /// An already uploaded pack (its file name) to use instead of a new one.
+    reuse: Option<String>,
 }
 
-/// The `known` objects that still exist locally (one git process).
-fn existing_objects(root: &Path, shas: &[String]) -> Result<BTreeSet<String>, AppError> {
-    if shas.is_empty() {
-        return Ok(BTreeSet::new());
-    }
-    let input: String = shas.iter().map(|sha| format!("{sha}\n")).collect();
-    let output = git(
-        root,
-        &["cat-file", "--batch-check=%(objectname)"],
-        &[],
-        Some(input.as_bytes()),
-        false,
-    )?;
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| line.len() >= 40 && line.bytes().all(|b| b.is_ascii_hexdigit()))
-        .map(str::to_string)
-        .collect())
-}
-
-#[allow(clippy::too_many_arguments)]
 fn attempt(
     host: &dyn RunnerHost,
     request: &MirrorRequest<'_>,
     nonce: &str,
-    known: &[String],
-    send_refs: bool,
+    want: Want<'_>,
     command: Option<&str>,
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
-) -> Result<Exchange, AppError> {
-    let mut wanted = vec![request.snapshot.wip.clone(), request.info.head.clone()];
-    wanted.extend(request.refs.iter().map(|entry| entry.sha.clone()));
-    let revs = pack_revs(&request.info.root, &wanted, known)?;
+) -> Result<Attempt, AppError> {
+    let route = match want.reuse {
+        Some(name) => Routed {
+            arg: format!("@{name}"),
+            input: PackInput::None,
+            route: PackRoute::SignedUrl,
+            uploaded: 0,
+            fallback: None,
+            name: Some(name),
+        },
+        None => {
+            let mut wanted = vec![request.snapshot.wip.clone(), request.info.head.clone()];
+            wanted.extend(request.refs.iter().map(|entry| entry.sha.clone()));
+            let revs = pack::revs(&request.info.root, request.history, &wanted, want.known)?;
+            route_pack(host, request, nonce, revs)?
+        }
+    };
+    let send_refs = want.send_refs;
     let mut args: Vec<String> = [
         if command.is_some() { "run" } else { "sync" },
         request.project,
         nonce,
-        if revs.is_some() { "1" } else { "0" },
+        &route.arg,
         &request.snapshot.wip,
         &request.info.head,
         request.info.branch.as_deref().unwrap_or(""),
         if send_refs { "send" } else { "keep" },
+        request.history.as_str(),
     ]
     .map(String::from)
     .to_vec();
@@ -355,17 +399,101 @@ fn attempt(
         Vec::new()
     };
     header.push(b'\n');
-    exchange::run(
+    let exchange = exchange::run(
         host,
         Spec {
             args,
             nonce,
             header,
-            revs,
+            pack: route.input,
             root: &request.info.root,
             hold_stdin: command.is_some(),
         },
         sink,
         cancel,
-    )
+    )?;
+    Ok(Attempt {
+        exchange,
+        uploaded: route.uploaded,
+        route: route.route,
+        fallback: route.fallback,
+        upload_name: route.name,
+    })
+}
+
+struct Attempt {
+    exchange: Exchange,
+    uploaded: u64,
+    route: PackRoute,
+    fallback: Option<String>,
+    upload_name: Option<String>,
+}
+
+/// How one attempt's pack travels.
+struct Routed {
+    /// The runner's pack argument: `0`, `1` (stdin) or `@<name>` (uploaded).
+    arg: String,
+    input: PackInput,
+    route: PackRoute,
+    uploaded: u64,
+    fallback: Option<String>,
+    /// The uploaded file's name on the sandbox.
+    name: Option<String>,
+}
+
+/// Send a pack above the host's upload threshold by its bulk route, and
+/// anything else (or a pack whose upload failed) over the runner's stdin.
+fn route_pack(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    nonce: &str,
+    revs: Option<Revs>,
+) -> Result<Routed, AppError> {
+    let stdin = |input| Routed {
+        arg: "1".to_string(),
+        input,
+        route: PackRoute::Ssh,
+        uploaded: 0,
+        fallback: None,
+        name: None,
+    };
+    let Some(revs) = revs else {
+        return Ok(Routed {
+            arg: "0".to_string(),
+            input: PackInput::None,
+            route: PackRoute::None,
+            uploaded: 0,
+            fallback: None,
+            name: None,
+        });
+    };
+    let Some(threshold) = host.upload_threshold() else {
+        return Ok(stdin(PackInput::Stream(revs)));
+    };
+    let built = pack::build(
+        &request.info.root,
+        &request.info.git_dir,
+        &revs,
+        threshold,
+        nonce,
+    )?;
+    let file = match built {
+        Built::Bytes(bytes) => return Ok(stdin(PackInput::Bytes(bytes))),
+        Built::File(file) => file,
+    };
+    let name = format!("{nonce}.pack");
+    match host.upload(&name, file.path()) {
+        Ok(()) => Ok(Routed {
+            arg: format!("@{name}"),
+            input: PackInput::None,
+            route: PackRoute::SignedUrl,
+            uploaded: file.bytes(),
+            fallback: None,
+            name: Some(name),
+        }),
+        Err(error) => Ok(Routed {
+            fallback: Some(error.message().to_string()),
+            ..stdin(PackInput::File(file))
+        }),
+    }
 }

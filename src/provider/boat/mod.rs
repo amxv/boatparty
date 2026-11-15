@@ -1,10 +1,13 @@
 //! boat (https://boat.dev), the only provider.
 
 mod errors;
+mod files;
 mod http;
 mod limits;
 mod sandboxes;
 mod scope;
+
+use std::path::Path;
 
 use self::http::{Http, Method};
 use self::limits::LimitsBody;
@@ -71,6 +74,19 @@ impl Provider for BoatProvider {
 
     fn authorize_ssh_key(&self, id: &str, public_key: &str) -> Result<SshAccess, ProviderError> {
         sandboxes::authorize_ssh_key(&self.http, id, public_key)
+    }
+
+    fn upload_file(&self, id: &str, remote_path: &str, file: &Path) -> Result<(), ProviderError> {
+        files::upload_file(&self.http, id, remote_path, file)
+    }
+
+    fn download_file(
+        &self,
+        id: &str,
+        remote_path: &str,
+        file: &Path,
+    ) -> Result<u64, ProviderError> {
+        files::download_file(&self.http, id, remote_path, file)
     }
 }
 

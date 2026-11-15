@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
 use boatparty::runner::{RunnerHost, Trailer, TrailerFilter};
-use boatparty::sync::{self, MirrorOutcome, MirrorRequest, WorktreeInfo};
+use boatparty::sync::{self, History, MirrorOutcome, MirrorRequest, WorktreeInfo};
 use common::runner::{LocalRunner, base_repo, git, write};
 use common::{TempDir, boatparty};
 
@@ -32,6 +32,7 @@ fn load(local: &Path, host: &LocalRunner, member: &mut Member) -> (MirrorOutcome
         refs: &refs,
         send_refs: member.digest.as_deref() != Some(digest.as_str()),
         known: &member.known,
+        history: History::Full,
     };
     let mut log = Vec::new();
     let outcome = sync::mirror(host, &request, &mut log).unwrap();
@@ -176,6 +177,7 @@ fn a_thin_pack_whose_base_the_sandbox_lacks_answers_needfull_and_the_client_reco
             info.head.clone(),
             "main".into(),
             "keep".into(),
+            "full".into(),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

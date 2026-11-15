@@ -28,8 +28,9 @@ use crate::runs;
 use crate::signals::Interrupts;
 use crate::state::{LeaseKind, Member, Store, SyncState};
 use crate::stream::Stream;
+use crate::sync::pack::usable_known;
 use crate::sync::{
-    self, MODE_FULL, MirrorRequest, PullBack, RunEnd, RunOutcome, Sink, WorktreeInfo,
+    self, History, MirrorRequest, PackRoute, PullBack, RunEnd, RunOutcome, Sink, WorktreeInfo,
 };
 use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
@@ -115,6 +116,7 @@ impl Cheers<'_> {
         let workspace = Workspace::current()?;
         let project = workspace.load_project()?;
         let name = project.name().to_string();
+        let history = project.history();
         // Local checks first: a repository without a commit fails before
         // anything remote happens.
         let info = WorktreeInfo::read(&workspace.root)?;
@@ -132,6 +134,7 @@ impl Cheers<'_> {
             stream,
             &name,
             &info,
+            history,
             &mut conn,
             &store,
             times,
@@ -170,7 +173,7 @@ impl Cheers<'_> {
                     && !ran.outcome.known.is_empty()
                 {
                     member.sync = SyncState {
-                        mode: MODE_FULL.to_string(),
+                        mode: history.as_str().to_string(),
                         known: ran.outcome.known.clone(),
                         refs_digest: Some(ran.digest.clone()),
                     };
@@ -194,6 +197,7 @@ impl Cheers<'_> {
         self.record["retried"] = json!(ran.retried);
         self.record["prep_seconds"] = json!(ran.prep_seconds);
         self.record["pack_bytes"] = json!(ran.outcome.pack_bytes);
+        self.record["pack_route"] = json!(ran.outcome.pack_route.as_str());
         self.record["copy_back"] = copy_back["status"].clone();
         self.report(
             stream,
@@ -214,6 +218,7 @@ impl Cheers<'_> {
         stream: &mut Stream,
         name: &str,
         info: &WorktreeInfo,
+        history: History,
         conn: &mut Conn,
         store: &Store,
         times: LeaseTimes,
@@ -223,19 +228,18 @@ impl Cheers<'_> {
         let mut retried = false;
         loop {
             let snapshot = sync::snapshot(info)?;
-            let refs = sync::local_refs(info)?;
-            let digest = sync::refs_digest(&refs);
+            let (refs, digest) = sync::mirrored_refs(info, history)?;
+            let sync_state = &conn.member.sync;
             let request = MirrorRequest {
                 project: name,
                 info,
                 snapshot: &snapshot,
                 refs: &refs,
-                send_refs: conn.member.sync.refs_digest.as_deref() != Some(digest.as_str()),
-                known: &conn.member.sync.known,
+                send_refs: sync_state.refs_digest.as_deref() != Some(digest.as_str()),
+                known: usable_known(history, &sync_state.mode, &sync_state.known),
+                history,
             };
-            let host = SshRunner {
-                target: conn.target.clone(),
-            };
+            let host = super::runner_host(self.ctx, &conn.target, &conn.member);
             let mut sink = StartWatch {
                 stream: &mut *stream,
                 paths: &self.ctx.paths,
@@ -309,9 +313,7 @@ impl Cheers<'_> {
         if cancelled.is_some() || patch_bytes == 0 {
             return (Some(exit_code), json!({"status": "none"}));
         }
-        let host = SshRunner {
-            target: conn.target.clone(),
-        };
+        let host = SshRunner::ssh_only(conn.target.clone());
         let applied = sync::fetch_patch(&host, name, &ran.outcome.nonce)
             .and_then(|patch| sync::apply_pullback(info, &patch));
         let summary = match applied {
@@ -372,6 +374,8 @@ impl Cheers<'_> {
                 "started_member": conn.started_member,
                 "retried": ran.retried,
                 "pack_bytes": ran.outcome.pack_bytes,
+                "pack_route": ran.outcome.pack_route.as_str(),
+                "upload_fallback": ran.outcome.upload_fallback,
                 "full_retry": ran.outcome.full_retry,
                 "runner_installed": ran.outcome.installed,
                 "copy_back": copy_back,
@@ -387,6 +391,14 @@ impl Cheers<'_> {
         }
         if ran.retried {
             notes.push("ran again after a lost connection".to_string());
+        }
+        if ran.outcome.pack_route == PackRoute::SignedUrl {
+            notes.push("pack sent by signed upload".to_string());
+        }
+        if let Some(reason) = &ran.outcome.upload_fallback {
+            notes.push(format!(
+                "signed upload failed ({reason}), pack sent over SSH"
+            ));
         }
         let what = match status {
             Some(code) if !cancelled => format!("exit {code}"),

@@ -2,12 +2,17 @@
 //!
 //! The working tree (tracked plus untracked, minus ignored) is snapshotted
 //! into a private index, so the developer's real index is never touched. The
-//! snapshot becomes a commit on top of HEAD, and its objects, with every
-//! local branch, tag and the default remote branch, travel to the runner as
-//! a thin pack holding only what the sandbox lacks.
+//! snapshot becomes a commit on top of HEAD, and its objects travel to the
+//! runner as a thin pack holding only what the sandbox lacks.
+//!
+//! How much history travels is the project's `[sync] history`: `head` (the
+//! default) sends HEAD's commit and tree and no older history, and the
+//! sandbox records HEAD as a shallow boundary; `full` also sends every local
+//! branch, tag and the default remote branch with their history.
 
 pub mod exchange;
 pub mod mirror;
+pub mod pack;
 pub mod pullback;
 pub mod snapshot;
 
@@ -20,13 +25,60 @@ use crate::error::AppError;
 
 pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
 pub use mirror::{
-    MirrorOutcome, MirrorRequest, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
+    MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
 };
 pub use pullback::{PullBack, apply_pullback};
 pub use snapshot::{Snapshot, snapshot};
 
-/// The sync history mode this phase implements.
-pub const MODE_FULL: &str = "full";
+/// How much Git history a sync sends.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum History {
+    /// HEAD's commit and tree, the snapshot, and the checked-out branch name.
+    #[default]
+    Head,
+    /// Every local branch and tag and the default remote branch, with history.
+    Full,
+}
+
+impl History {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Head => "head",
+            Self::Full => "full",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "head" => Ok(Self::Head),
+            "full" => Ok(Self::Full),
+            other => Err(format!(
+                "{other:?} is not a history mode; use \"head\" or \"full\""
+            )),
+        }
+    }
+}
+
+/// The refs a sync mirrors besides the checked-out branch, and the digest
+/// stored so unchanged refs are not re-sent. In `head` mode the list is
+/// empty, so the sandbox keeps only the checked-out branch; its digest names
+/// the mode and branch, so a switch of either prunes refs once.
+pub fn mirrored_refs(
+    info: &WorktreeInfo,
+    history: History,
+) -> Result<(Vec<LocalRef>, String), AppError> {
+    match history {
+        History::Full => {
+            let refs = local_refs(info)?;
+            let digest = refs_digest(&refs);
+            Ok((refs, digest))
+        }
+        History::Head => {
+            let label = format!("head {}\n", info.branch.as_deref().unwrap_or(""));
+            Ok((Vec::new(), crate::runner::content_hash(label.as_bytes())))
+        }
+    }
+}
 
 /// Run git in `dir` with extra environment and optional stdin. A non-zero
 /// exit is an error unless `allow_failure`.

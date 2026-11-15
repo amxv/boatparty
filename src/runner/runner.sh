@@ -18,6 +18,13 @@
 # Tests run this script locally: BOATPARTY_RUNNER_REPO and
 # BOATPARTY_RUNNER_STATE replace the checkout and state directories.
 #
+# History: in "head" mode the client sends HEAD's commit and complete tree
+# but none of its parents, and the checkout records HEAD as a shallow
+# boundary (.git/shallow), so `git log` shows one commit and integrity checks
+# find nothing missing. Old boundaries stay listed, because reflogs still
+# name those commits. "full" mode drops every boundary whose parents have
+# arrived, which deepens a checkout that was synced in "head" mode before.
+#
 # Keep it compatible with bash 3.2 (macOS /bin/bash), which runs the tests.
 set -euo pipefail
 
@@ -32,7 +39,7 @@ shift 2
 repo="${BOATPARTY_RUNNER_REPO:-/home/user/$project}"
 state="${BOATPARTY_RUNNER_STATE:-/home/user/.boatparty}"
 export PATH="/usr/local/cargo/bin:$HOME/.cargo/bin:$PATH"
-mkdir -p "$state/out"
+mkdir -p "$state/out" "$state/in"
 
 # The private index the checkout is staged into, so the real index is free to
 # match HEAD.
@@ -60,6 +67,65 @@ unlock_checkout() { exec 9>&-; }
 needfull() {
   printf '\n%s needfull\n' "$1" >&2
   exit 97
+}
+
+# Index a pack from stdin, or from an uploaded file (@<name> in $state/in).
+take_pack() {
+  local nonce="$1" pack="$2" file
+  case "$pack" in
+    0) return 0 ;;
+    1) git -C "$repo" index-pack --stdin --fix-thin >/dev/null 2>"$state/out/$nonce.pack-error" ||
+      needfull "$nonce" ;;
+    @*)
+      file="${pack#@}"
+      case "$file" in
+        "" | */* | .*) echo "boatparty runner: bad pack name $file" >&2; exit 2 ;;
+      esac
+      file="$state/in/$file"
+      if [[ ! -f "$file" ]]; then
+        echo "boatparty runner: the uploaded pack is missing" >"$state/out/$nonce.pack-error"
+        needfull "$nonce"
+      fi
+      if ! git -C "$repo" index-pack --stdin --fix-thin <"$file" >/dev/null 2>"$state/out/$nonce.pack-error"; then
+        rm -f "$file"
+        needfull "$nonce"
+      fi
+      rm -f "$file"
+      ;;
+    *) echo "boatparty runner: bad pack argument $pack" >&2; exit 2 ;;
+  esac
+  rm -f "$state/out/$nonce.pack-error"
+}
+
+# head mode: record the HEAD commit as a shallow boundary (once it exists).
+mark_shallow() {
+  local head="$1" file="$repo/.git/shallow"
+  git -C "$repo" cat-file -e "$head^{commit}" 2>/dev/null || return 0
+  if [[ ! -f "$file" ]] || ! grep -qx "$head" "$file"; then
+    printf '%s\n' "$head" >>"$file"
+  fi
+}
+
+# full mode: forget every boundary whose parents are all present now.
+deepen() {
+  local file="$repo/.git/shallow" sha parent keep
+  [[ -f "$file" ]] || return 0
+  : >"$file.boatparty"
+  while IFS= read -r sha; do
+    [[ -z "$sha" ]] && continue
+    keep=0
+    if git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
+      while IFS= read -r parent; do
+        git -C "$repo" cat-file -e "$parent" 2>/dev/null || keep=1
+      done < <(git -C "$repo" cat-file commit "$sha" | sed -n '/^$/q; s/^parent //p')
+    fi
+    if [[ "$keep" == 1 ]]; then printf '%s\n' "$sha" >>"$file.boatparty"; fi
+  done <"$file"
+  if [[ -s "$file.boatparty" ]]; then
+    mv "$file.boatparty" "$file"
+  else
+    rm -f "$file" "$file.boatparty"
+  fi
 }
 
 trailer() {
@@ -117,9 +183,10 @@ apply_snapshot() {
 # Takes in the objects and refs of one sync and moves the checkout.
 #
 # stdin: when refs_mode is "send", lines "<sha> <ref>" for every mirrored
-# ref; then one empty line; then, when with_pack is 1, a thin pack.
+# ref; then one empty line; then, when pack is 1, a thin pack. A pack of
+# "@<name>" was uploaded to $state/in/<name> instead.
 receive() {
-  local nonce="$1" with_pack="$2" wip="$3" head="$4" branch="$5" refs_mode="$6"
+  local nonce="$1" pack="$2" wip="$3" head="$4" branch="$5" refs_mode="$6" history="$7"
   local refs_file="" line missing
   local ref_shas=()
 
@@ -138,12 +205,13 @@ receive() {
   done
 
   ensure_repo
-  if [[ "$with_pack" == 1 ]]; then
-    if ! git -C "$repo" index-pack --stdin --fix-thin >/dev/null 2>"$state/out/$nonce.pack-error"; then
-      needfull "$nonce"
-    fi
-    rm -f "$state/out/$nonce.pack-error"
-  fi
+  find "$state/in" -maxdepth 1 -type f -mmin +1440 -delete 2>/dev/null || true
+  take_pack "$nonce" "$pack"
+  case "$history" in
+    head) mark_shallow "$head" ;;
+    full) deepen ;;
+    *) echo "boatparty runner: unknown history mode $history" >&2; exit 2 ;;
+  esac
   # index-pack does not prove the new history is complete: a thin pack built
   # against a commit this repository lacks still indexes. Walk only the
   # objects not reachable from existing refs.
@@ -162,7 +230,7 @@ receive() {
   return 0
 }
 
-# sync <nonce> <with-pack 0|1> <wip> <head> <branch or ""> <refs: send|keep>
+# sync <nonce> <pack: 0|1|@name> <wip> <head> <branch or ""> <refs: send|keep> <history: head|full>
 mode_sync() {
   local nonce="$1" wip="$3"
   receive "$@"
@@ -219,7 +287,7 @@ finish() {
   trailer "$nonce" "$rc" "$after" "$bytes"
 }
 
-# run <nonce> <with-pack 0|1> <wip> <head> <branch or ""> <refs: send|keep> <command>
+# run <nonce> <pack: 0|1|@name> <wip> <head> <branch or ""> <refs: send|keep> <history: head|full> <command>
 #
 # Syncs like `sync`, then runs the shell line in the checkout in a session of
 # its own with stdin detached, and diffs what it changed.
@@ -229,9 +297,9 @@ finish() {
 # terminates the command's process group. On a shared SSH master that is the
 # only sign of a dead client; the session itself survives it.
 mode_run() {
-  local nonce="$1" wip="$3" command="$7" rc=0 pid watcher
+  local nonce="$1" wip="$3" command="$8" rc=0 pid watcher
   find "$state/out" -maxdepth 1 -type f -mmin +1440 -delete 2>/dev/null || true
-  receive "$1" "$2" "$3" "$4" "$5" "$6"
+  receive "$1" "$2" "$3" "$4" "$5" "$6" "$7"
   cd "$repo"
   # SSH sessions default to a soft limit of 1024 open files, which makes
   # file-heavy test suites fail with EMFILE.

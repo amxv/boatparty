@@ -64,6 +64,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Cheers(args) => commands::cheers::run(&ctx, &args),
         Command::Board(args) => commands::board::run(&ctx, &args),
         Command::Load => commands::load::run(&ctx),
+        Command::Fetch(args) => commands::fetch::run(&ctx, &args),
         Command::Status => commands::status::run(&ctx),
         Command::Dock(args) => commands::dock::run(&ctx, &args),
         Command::Rm(args) => commands::rm::run(&ctx, &args),

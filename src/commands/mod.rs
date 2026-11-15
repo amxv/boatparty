@@ -2,6 +2,7 @@ pub mod board;
 pub mod cheers;
 pub mod dock;
 pub mod doctor;
+pub mod fetch;
 pub mod init;
 pub mod launch;
 pub mod limits;
@@ -9,6 +10,7 @@ pub mod load;
 pub mod log;
 pub mod login;
 pub mod rm;
+mod session;
 pub mod status;
 
 use crate::Context;
@@ -44,6 +46,28 @@ pub(crate) fn open_provider(ctx: &Context) -> Result<Box<dyn Provider>, AppError
     let loaded = load_account(ctx)?;
     let (key, _) = require_key(ctx)?;
     provider::connect(loaded.config.provider.api_url.as_deref(), key)
+}
+
+/// The runner on `member` over SSH, with the provider's signed upload for
+/// large packs when a provider can be opened (it is only called when a pack
+/// is that large, so the warm path stays free of provider calls).
+pub(crate) fn runner_host(
+    ctx: &Context,
+    target: &crate::transport::ssh::SshTarget,
+    member: &crate::state::Member,
+) -> crate::runner::SshRunner {
+    let upload = member.id.clone().and_then(|sandbox_id| {
+        let provider = open_provider(ctx).ok()?;
+        Some(crate::runner::SignedUpload {
+            provider,
+            sandbox_id,
+            threshold: crate::runner::upload_threshold(),
+        })
+    });
+    crate::runner::SshRunner {
+        target: target.clone(),
+        upload,
+    }
 }
 
 /// Everything a workspace command needs: the account, the provider, the

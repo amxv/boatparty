@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod e2e;
 pub mod runner;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -58,6 +59,8 @@ pub struct Request {
     pub authorization: Option<String>,
     pub headers: Vec<(String, String)>,
     pub body: String,
+    /// The body's raw bytes.
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +68,8 @@ pub struct Reply {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: String,
+    /// Raw bytes sent instead of `body`, when set.
+    pub raw: Option<Vec<u8>>,
 }
 
 impl Reply {
@@ -73,6 +78,16 @@ impl Reply {
             status,
             headers: Vec::new(),
             body: body.to_string(),
+            raw: None,
+        }
+    }
+
+    pub fn bytes(status: u16, bytes: Vec<u8>) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body: String::new(),
+            raw: Some(bytes),
         }
     }
 
@@ -162,22 +177,28 @@ fn serve(stream: TcpStream, handler: &Handler, recorded: &Mutex<Vec<Request>>) {
             .map(|(_, value)| value.clone()),
         headers,
         body: String::from_utf8_lossy(&body).into_owned(),
+        bytes: body,
     };
     let reply = handler(&request);
     recorded.lock().unwrap().push(request);
 
     let mut stream = stream;
+    let body = reply
+        .raw
+        .clone()
+        .unwrap_or_else(|| reply.body.clone().into_bytes());
     let mut response = format!(
         "HTTP/1.1 {} Fake\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         reply.status,
-        reply.body.len()
+        body.len()
     );
     for (name, value) in &reply.headers {
         response.push_str(&format!("{name}: {value}\r\n"));
     }
     response.push_str("\r\n");
-    response.push_str(&reply.body);
-    let _ = stream.write_all(response.as_bytes());
+    let mut response = response.into_bytes();
+    response.extend_from_slice(&body);
+    let _ = stream.write_all(&response);
     let _ = stream.flush();
 }
 

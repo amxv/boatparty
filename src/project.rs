@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 use serde::Deserialize;
 
 use crate::error::AppError;
+use crate::sync::History;
 
 pub const PROJECT_FILE: &str = "boatparty.toml";
 pub const PROJECT_FILE_VERSION: u32 = 1;
@@ -85,11 +86,22 @@ impl Workspace {
     }
 }
 
+/// The parts of `boatparty.toml` read so far. Sections and keys this
+/// version does not know are ignored, so a file written for a later version
+/// still loads.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
     pub version: u32,
     pub project: ProjectSection,
+    #[serde(default)]
+    pub sync: SyncSection,
+}
+
+/// `[sync]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct SyncSection {
+    /// `"head"` (the default) or `"full"`.
+    pub history: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -111,11 +123,25 @@ impl ProjectConfig {
         }
         validate_name(&config.project.name)
             .map_err(|message| AppError::config(format!("{}: {message}", path.display())))?;
+        if let Some(history) = &config.sync.history {
+            History::parse(history).map_err(|message| {
+                AppError::config(format!("{}: [sync] history: {message}", path.display()))
+            })?;
+        }
         Ok(config)
     }
 
     pub fn name(&self) -> &str {
         &self.project.name
+    }
+
+    /// How much Git history a sync sends.
+    pub fn history(&self) -> History {
+        self.sync
+            .history
+            .as_deref()
+            .and_then(|value| History::parse(value).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -209,5 +235,30 @@ mod tests {
             )
             .is_err()
         );
+        assert_eq!(config.history(), History::Head);
+    }
+
+    #[test]
+    fn sync_history_is_read_and_unknown_sections_are_ignored() {
+        let path = Path::new(PROJECT_FILE);
+        let full = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"full\"\nlater = 1\n\
+             [commands]\ntest = \"cargo test\"\n",
+            path,
+        )
+        .unwrap();
+        assert_eq!(full.history(), History::Full);
+        let head = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"head\"\n",
+            path,
+        )
+        .unwrap();
+        assert_eq!(head.history(), History::Head);
+        let error = ProjectConfig::parse(
+            "version = 1\n[project]\nname = \"a\"\n[sync]\nhistory = \"deep\"\n",
+            path,
+        )
+        .unwrap_err();
+        assert!(error.message().contains("history"), "{error}");
     }
 }

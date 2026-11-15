@@ -9,64 +9,24 @@
 use std::io::IsTerminal;
 use std::os::unix::process::ExitStatusExt;
 
-use super::WorkspaceContext;
+use super::session::with_session;
 use crate::Context;
 use crate::cli::BoardArgs;
 use crate::error::AppError;
-use crate::pool::lease::{self, Heartbeat, LeaseTimes};
-use crate::pool::{remote_checkout, warm_member};
-use crate::project::Workspace;
-use crate::signals::Interrupts;
-use crate::state::{LeaseKind, Store};
-use crate::system;
+use crate::pool::remote_checkout;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
-    let workspace = Workspace::current()?;
-    let project = workspace.load_project()?;
-    let name = project.name();
-    let (member, target) = match warm_member(&ctx.paths, name, &workspace.key())? {
-        Some(warm) => warm,
-        None => {
-            let wctx = WorkspaceContext::open(ctx)?;
-            let up = wctx.pool(ctx).bring_up(wctx.bring_up_options(false))?;
-            (up.member, up.target)
-        }
-    };
-    let account = super::load_account(ctx)?;
-    let times = LeaseTimes::from_defaults(&account.config.defaults);
-    let store = Store::new(&ctx.paths);
     let label = if args.command.is_empty() {
         "shell".to_string()
     } else {
         args.command.join(" ")
     };
-    lease::register(&store, name, &member, LeaseKind::Session, &label)?;
-    // SIGINT and SIGTERM reach ssh, which ends; this process then lets go of
-    // its lease before exiting.
-    let interrupts = Interrupts::install()?;
-    let id = member.id.clone().unwrap_or_default();
-    let mut heartbeat = Heartbeat::for_member(&ctx.paths, &id, times);
-    let result = exec(&target, name, &args.command);
-    heartbeat.stop();
-    let released = lease::finish(
-        &store,
-        name,
-        &id,
-        |member| member.last_used_at = system::now_ms(),
-        || {
-            if let Err(error) = lease::spawn_idle_helper(name, &id) {
-                ctx.out.note(format_args!("warning: {error}"));
-            }
-        },
-    );
-    if let Err(error) = released {
-        ctx.out.note(format_args!(
-            "warning: could not release the lease: {error}"
-        ));
-    }
-    let code = result?;
-    Ok(interrupts.exit_status().unwrap_or(code))
+    let ended = with_session(ctx, &label, |held| {
+        exec(held.target, held.project, &args.command)
+    })?;
+    let code = ended.value?;
+    Ok(ended.interrupted.unwrap_or(code))
 }
 
 /// The remote command line: enter the checkout, then run `argv` (quoted

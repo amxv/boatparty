@@ -9,11 +9,12 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use super::pack::{self, Revs, TempPack};
 use crate::error::AppError;
 use crate::runner::{
     EXIT_MISSING, EXIT_NEEDFULL, MISSING_MARKER, Piece, RunnerHost, Trailer, TrailerFilter,
@@ -69,12 +70,25 @@ pub struct Spec<'a> {
     pub nonce: &'a str,
     /// Written to the runner's stdin before the pack.
     pub header: Vec<u8>,
-    /// The thin pack's rev list, or `None` to send no pack.
-    pub revs: Option<String>,
+    /// What follows the header on stdin.
+    pub pack: PackInput,
     pub root: &'a Path,
     /// Keep stdin open after the pack until the runner finishes (or a cancel
     /// closes it). The runner treats its end as "stop the command".
     pub hold_stdin: bool,
+}
+
+/// The pack that follows the header on the runner's stdin.
+#[derive(Debug)]
+pub enum PackInput {
+    /// No pack.
+    None,
+    /// Stream `git pack-objects` for these revs as it builds the pack.
+    Stream(Revs),
+    /// A pack already built in memory.
+    Bytes(Vec<u8>),
+    /// A pack already built on disk.
+    File(TempPack),
 }
 
 #[derive(Debug)]
@@ -101,10 +115,21 @@ pub fn run(
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<Exchange, AppError> {
-    let mut pack = match &spec.revs {
-        Some(revs) => Some(spawn_pack_objects(spec.root, revs)?),
-        None => None,
+    let mut pack = match &spec.pack {
+        PackInput::Stream(revs) => Some(pack::spawn(spec.root, revs)?),
+        _ => None,
     };
+    let mut source: Option<Box<dyn Read + Send>> = match spec.pack {
+        PackInput::None | PackInput::Stream(_) => None,
+        PackInput::Bytes(bytes) => Some(Box::new(io::Cursor::new(bytes))),
+        PackInput::File(file) => Some(Box::new(OpenPack::open(file)?)),
+    };
+    if let Some(child) = pack.as_mut() {
+        source = child
+            .stdout
+            .take()
+            .map(|stdout| Box::new(stdout) as Box<dyn Read + Send>);
+    }
     let mut command = host.command(&spec.args);
     // Its own process group: a terminal's Ctrl-C reaches boatparty, which
     // cancels through stdin, rather than killing the connection outright.
@@ -127,7 +152,7 @@ pub fn run(
     let writer = spawn_writer(
         child.stdin.take().expect("stdin is piped"),
         spec.header,
-        pack.as_mut().and_then(|child| child.stdout.take()),
+        source,
         spec.hold_stdin.then_some(close_rx),
     );
     let (tx, rx) = mpsc::channel();
@@ -165,7 +190,7 @@ pub fn run(
     let pack_bytes = writer.join().unwrap_or(0);
     let trailer = filter.result();
     if let Some(mut child) = pack {
-        let pack_status = finish_pack(&mut child);
+        let pack_status = pack::finish(&mut child);
         // A runner that stopped reading early (needfull, missing runner,
         // cancel) makes pack-objects fail on a closed pipe; only a pack the
         // runner accepted must have been built successfully.
@@ -307,46 +332,25 @@ fn pump<R: Read + Send + 'static>(
     });
 }
 
-fn spawn_pack_objects(root: &Path, revs: &str) -> Result<Child, AppError> {
-    let mut child = std::process::Command::new("git")
-        .args([
-            "pack-objects",
-            "--stdout",
-            "--revs",
-            "--thin",
-            "--delta-base-offset",
-            "-q",
-        ])
-        .current_dir(root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| AppError::io("cannot run git pack-objects", error))?;
-    // pack-objects reads every rev before it writes, so this cannot deadlock.
-    let mut stdin = child.stdin.take().expect("stdin is piped");
-    stdin
-        .write_all(revs.as_bytes())
-        .map_err(|error| AppError::io("cannot write to git pack-objects", error))?;
-    drop(stdin);
-    Ok(child)
+/// A built pack file, kept (and so not deleted) while it is read.
+struct OpenPack {
+    file: std::fs::File,
+    _pack: TempPack,
 }
 
-fn finish_pack(child: &mut Child) -> Result<(), AppError> {
-    let mut stderr = String::new();
-    if let Some(mut pipe) = child.stderr.take() {
-        let _ = pipe.read_to_string(&mut stderr);
+impl OpenPack {
+    fn open(pack: TempPack) -> Result<Self, AppError> {
+        let file = std::fs::File::open(pack.path()).map_err(|error| {
+            AppError::io(format!("cannot open {}", pack.path().display()), error)
+        })?;
+        Ok(Self { file, _pack: pack })
     }
-    let status = child
-        .wait()
-        .map_err(|error| AppError::io("cannot wait for git pack-objects", error))?;
-    if status.success() {
-        return Ok(());
+}
+
+impl Read for OpenPack {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buffer)
     }
-    Err(AppError::new(
-        "sync_failed",
-        format!("git pack-objects failed: {}", stderr.trim()),
-    ))
 }
 
 /// Write the header, then stream the pack, into the runner; then, when
@@ -356,7 +360,7 @@ fn finish_pack(child: &mut Child) -> Result<(), AppError> {
 fn spawn_writer(
     mut stdin: ChildStdin,
     header: Vec<u8>,
-    pack: Option<ChildStdout>,
+    pack: Option<Box<dyn Read + Send>>,
     hold: Option<Receiver<()>>,
 ) -> JoinHandle<u64> {
     std::thread::spawn(move || {

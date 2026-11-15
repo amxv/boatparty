@@ -8,17 +8,17 @@ mod common;
 use std::cell::Cell;
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use boatparty::runner::{RunnerHost, Trailer, TrailerFilter};
 use boatparty::sync::{
-    self, CancelProbe, CancelState, MirrorRequest, PullBack, RunEnd, RunOutcome, Sink, WorktreeInfo,
+    self, CancelProbe, CancelState, History, MirrorRequest, PullBack, RunEnd, RunOutcome, Sink,
+    WorktreeInfo,
 };
 use common::runner::{LocalRunner, base_repo, git, write};
-use common::{FakeBoat, Reply, TempDir, boatparty, store_key};
+use common::{TempDir, boatparty};
 use serde_json::{Value, json};
 
 /// Collects what a run printed.
@@ -76,6 +76,7 @@ fn cheers(local: &Path, host: &LocalRunner, known: &mut Vec<String>, command: &s
         refs: &refs,
         send_refs: true,
         known,
+        history: History::Full,
     };
     let mut printed = Collect::default();
     let outcome =
@@ -252,6 +253,7 @@ fn a_cancel_stops_the_command_and_brings_nothing_back() {
         refs: &refs,
         send_refs: true,
         known: &[],
+        history: History::Full,
     };
     let started = Cell::new(false);
     struct Watch<'a> {
@@ -341,6 +343,7 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
             head,
             "main".into(),
             "keep".into(),
+            "full".into(),
             command,
         ])
         .stdin(Stdio::piped())
@@ -397,142 +400,7 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
 
 // ----- `cheers` end to end -----------------------------------------------
 
-const ID: &str = "bx_23456789";
-
-/// A Git repository with `boatparty init` run, a fake `ssh` that runs remote
-/// commands locally (with /home/user/ mapped to a scratch directory) and a
-/// shared event log for ssh runs and provider calls.
-struct E2e {
-    root: TempDir,
-}
-
-impl E2e {
-    fn new(label: &str) -> Self {
-        let root = TempDir::new(label);
-        let setup = Self { root };
-        let local = base_repo(setup.root.path());
-        fs::rename(&local, setup.repo()).unwrap();
-        fs::create_dir_all(setup.remote()).unwrap();
-        store_key(&setup.home());
-        setup.tools();
-        boatparty(&setup.home())
-            .current_dir(setup.repo())
-            .args(["init", "--name", "app"])
-            .assert()
-            .success();
-        setup
-    }
-
-    fn home(&self) -> PathBuf {
-        self.root.path().join("home")
-    }
-
-    fn repo(&self) -> PathBuf {
-        self.root.path().join("app")
-    }
-
-    fn remote(&self) -> PathBuf {
-        self.root.path().join("remote")
-    }
-
-    fn events(&self) -> PathBuf {
-        self.root.path().join("events.log")
-    }
-
-    fn tools(&self) {
-        let bin = self.root.path().join("bin");
-        fs::create_dir_all(&bin).unwrap();
-        let ssh = format!(
-            "#!/bin/sh\n\
-             for a in \"$@\"; do\n\
-               case \"$a\" in check) exit \"${{FAKE_SSH_CHECK:-1}}\";; exit) exit 0;; esac\n\
-             done\n\
-             for a in \"$@\"; do last=\"$a\"; done\n\
-             cmd=$(printf '%s' \"$last\" | sed -e 's#/home/user/#{remote}/#g')\n\
-             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; esac\n\
-             exec sh -c \"$cmd\"\n",
-            remote = self.remote().display(),
-            events = self.events().display(),
-        );
-        let keygen = "#!/bin/sh\nwhile [ $# -gt 0 ]; do if [ \"$1\" = -f ]; then f=\"$2\"; fi; shift; done\n\
-                      printf 'private\\n' > \"$f\"\nprintf 'ssh-ed25519 AAAAfakekey boatparty\\n' > \"$f.pub\"\n";
-        for (name, body) in [("ssh", ssh.as_str()), ("ssh-keygen", keygen)] {
-            let path = bin.join(name);
-            fs::write(&path, body).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-        }
-    }
-
-    fn cmd(&self, boat: &FakeBoat) -> assert_cmd::Command {
-        let path = format!(
-            "{}:{}",
-            self.root.path().join("bin").display(),
-            std::env::var("PATH").unwrap_or_default()
-        );
-        let mut command = boatparty(&self.home());
-        command
-            .current_dir(self.repo())
-            .env("BOATPARTY_BOAT_API_URL", boat.url())
-            .env("BOATPARTY_POLL_MS", "10")
-            .env("BOATPARTY_RUNNER_REPO", self.remote().join("app"))
-            .env("BOATPARTY_RUNNER_STATE", self.remote().join(".boatparty"))
-            .env("PATH", path)
-            .env_remove("FAKE_SSH_CHECK");
-        command
-    }
-
-    fn boat(&self) -> FakeBoat {
-        let events = self.events();
-        FakeBoat::start(move |request| {
-            let mut log = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&events)
-                .unwrap();
-            let _ = writeln!(
-                log,
-                "provider {} {} {}",
-                request.method,
-                request.path,
-                request.body.split_whitespace().collect::<String>()
-            );
-            let sandbox = json!({
-                "id": ID, "name": "bp-app-1", "state": "idle", "hydrated": true,
-                "labels": {"boatparty.project": "app", "boatparty.role": "pool"},
-                "type": "default", "archiveAfter": "2026-11-15T12:15:00Z",
-            });
-            match (request.method.as_str(), request.path.as_str()) {
-                ("POST", "/sandboxes") => Reply::json(
-                    202,
-                    &json!({"ok": true, "type": "sandbox.created", "status": "provisioning",
-                            "ttlSeconds": 900, "sandbox": sandbox})
-                    .to_string(),
-                ),
-                ("POST", path) if path.ends_with("/sshkey") => Reply::json(
-                    200,
-                    &json!({"ok": true, "type": "ssh_key.configured", "success": true,
-                            "machineIp": "198.51.100.7", "sshUser": "user",
-                            "sshEndpoint": "203.0.113.10:22001",
-                            "hostKey": "ssh-ed25519 AAAAhostkey"})
-                    .to_string(),
-                ),
-                ("GET" | "PATCH", path) if path == format!("/sandboxes/{ID}") => Reply::json(
-                    200,
-                    &json!({"ok": true, "type": "sandbox.info", "sandbox": sandbox}).to_string(),
-                ),
-                _ => Reply::json(404, r#"{"ok":false,"code":"not_found","status":404}"#),
-            }
-        })
-    }
-
-    fn event_lines(&self) -> Vec<String> {
-        fs::read_to_string(self.events())
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_string)
-            .collect()
-    }
-}
+use common::e2e::{E2e, ID};
 
 #[test]
 fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_back() {

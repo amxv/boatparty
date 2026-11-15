@@ -24,10 +24,14 @@ pub enum Command {
     /// Sync the working tree to the sandbox's checkout (no command runs).
     #[command(
         after_help = "Makes /home/user/<project> on the sandbox identical to this working tree: \
-                      tracked and untracked files minus ignored ones, the same HEAD and branch, \
-                      every local branch and tag, and the default remote branch. Only files \
-                      whose content changed are rewritten there. Ignored files never leave \
-                      this machine, and the local index and working tree are not modified."
+                      tracked and untracked files minus ignored ones, the same HEAD and branch. \
+                      With the default `[sync] history = \"head\"` in boatparty.toml only HEAD's \
+                      commit travels (the sandbox's `git log` shows one commit); with \"full\" \
+                      every local branch and tag and the default remote branch follow with their \
+                      history. Only files whose content changed are rewritten there. Ignored \
+                      files never leave this machine, and the local index and working tree are \
+                      not modified. Large packs go through a signed upload URL when the provider \
+                      offers one."
     )]
     Load,
     /// Sync, run one command in the sandbox's checkout, stream its output, and
@@ -38,6 +42,8 @@ pub enum Command {
     Board(BoardArgs),
     /// Stop this workspace's sandbox; its disk is kept.
     Dock(DockArgs),
+    /// Copy a file or directory from the sandbox to this machine (no sync).
+    Fetch(FetchArgs),
     /// Write boatparty.toml for this Git repository and register the project.
     Init(InitArgs),
     /// Show this project's sandboxes.
@@ -128,6 +134,23 @@ pub struct BoardArgs {
     /// The command to run, after `--`. Without one, an interactive shell opens.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(after_help = "Examples:\n  \
+                  boatparty fetch target/release/app            into the current directory\n  \
+                  boatparty fetch target/release/app /tmp/app-linux   under a new name\n  \
+                  boatparty fetch /tmp/report out/              an absolute path, into out/\n\n\
+                  A relative PATH is resolved in the sandbox's checkout (/home/user/<project>). \
+                  Nothing is synced first. When DEST is an existing directory the copy keeps its \
+                  name inside it; otherwise DEST is the copy's new name. An existing file is \
+                  replaced; an existing directory is never overwritten. Symbolic links are followed.")]
+pub struct FetchArgs {
+    /// The file or directory on the sandbox: relative to the checkout, or absolute.
+    pub path: String,
+
+    /// Where to put it on this machine. Defaults to the current directory.
+    pub dest: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Args)]

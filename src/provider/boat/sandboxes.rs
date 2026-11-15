@@ -161,7 +161,7 @@ fn encode(value: &str) -> String {
 }
 
 /// Sandbox ids are short tokens; refuse anything that could change the URL.
-fn checked_id(id: &str) -> Result<&str, ProviderError> {
+pub(super) fn checked_id(id: &str) -> Result<&str, ProviderError> {
     if !id.is_empty()
         && id.len() <= 64
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')

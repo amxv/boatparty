@@ -8,9 +8,11 @@
 
 pub mod trailer;
 
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::error::AppError;
+use crate::provider::Provider;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub use trailer::{Piece, Trailer, TrailerFilter};
@@ -69,11 +71,66 @@ pub trait RunnerHost {
 
     /// Install this version of the runner, after an exit 96.
     fn install(&self) -> Result<(), AppError>;
+
+    /// The pack size above which [`RunnerHost::upload`] is used instead of
+    /// the runner's stdin; `None` when this host has no other route.
+    fn upload_threshold(&self) -> Option<u64> {
+        None
+    }
+
+    /// Put `file` where the runner reads uploaded packs, as `<name>`
+    /// ([`REMOTE_UPLOAD_DIR`] on a sandbox).
+    fn upload(&self, _name: &str, _file: &Path) -> Result<(), AppError> {
+        Err(AppError::new(
+            "sync_failed",
+            "this host has no upload route",
+        ))
+    }
+}
+
+/// Packs (and `fetch` archives) larger than this go through the provider's
+/// signed file URLs: SSH uploads at about 0.3 to 0.4 MB/s and a signed URL
+/// at about 4.5 MB/s after a 0.35 s request for the URL (docs/boat-facts.md,
+/// question 2), and downloads differ about as much, so the URL wins from a
+/// few hundred KiB.
+pub const DEFAULT_UPLOAD_THRESHOLD: u64 = 512 * 1024;
+/// Overrides [`DEFAULT_UPLOAD_THRESHOLD`] (bytes) for uploads and downloads,
+/// for tests and tuning.
+pub const UPLOAD_THRESHOLD_ENV: &str = "BOATPARTY_SIGNED_URL_MIN_BYTES";
+
+/// The sandbox directory the runner reads uploaded packs from.
+pub const REMOTE_UPLOAD_DIR: &str = "/home/user/.boatparty/in";
+
+/// The upload threshold in effect.
+pub fn upload_threshold() -> u64 {
+    std::env::var(UPLOAD_THRESHOLD_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(DEFAULT_UPLOAD_THRESHOLD)
 }
 
 /// The runner on a sandbox, reached through its SSH config.
 pub struct SshRunner {
     pub target: SshTarget,
+    /// The provider's bulk upload for large packs, when available.
+    pub upload: Option<SignedUpload>,
+}
+
+/// Large packs through the provider's signed upload route.
+pub struct SignedUpload {
+    pub provider: Box<dyn Provider>,
+    pub sandbox_id: String,
+    pub threshold: u64,
+}
+
+impl SshRunner {
+    /// Reached over SSH only.
+    pub fn ssh_only(target: SshTarget) -> Self {
+        Self {
+            target,
+            upload: None,
+        }
+    }
 }
 
 impl RunnerHost for SshRunner {
@@ -84,6 +141,30 @@ impl RunnerHost for SshRunner {
             .arg(&self.target.alias)
             .arg(remote_invocation(args));
         command
+    }
+
+    fn upload_threshold(&self) -> Option<u64> {
+        self.upload.as_ref().map(|upload| upload.threshold)
+    }
+
+    fn upload(&self, name: &str, file: &Path) -> Result<(), AppError> {
+        let Some(upload) = &self.upload else {
+            return Err(AppError::new("sync_failed", "no upload route"));
+        };
+        if name.contains('/') {
+            return Err(AppError::new(
+                "sync_failed",
+                "upload names are plain file names",
+            ));
+        }
+        upload
+            .provider
+            .upload_file(
+                &upload.sandbox_id,
+                &format!("{REMOTE_UPLOAD_DIR}/{name}"),
+                file,
+            )
+            .map_err(AppError::from)
     }
 
     fn install(&self) -> Result<(), AppError> {
