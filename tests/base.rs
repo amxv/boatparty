@@ -34,6 +34,13 @@ struct World {
     /// What the next save ends as.
     save_ends: String,
     created: u32,
+    /// name -> the artifact generation its `snapshotId` names.
+    generations: BTreeMap<String, u32>,
+    /// After a save under an existing ready name, how many polls still show
+    /// the old artifact as ready (a stale answer).
+    stale_polls: u32,
+    /// name -> stale polls left.
+    stale: BTreeMap<String, u32>,
 }
 
 type Shared = Arc<Mutex<World>>;
@@ -46,9 +53,10 @@ fn sandbox_json(id: &str, sandbox: &Box_, hydrated: bool) -> Value {
     })
 }
 
-fn snapshot_json(name: &str, status: &str) -> Value {
+fn snapshot_json(name: &str, status: &str, generation: u32) -> Value {
     json!({"name": name, "status": status, "sourceSandboxId": "bx_b", "sizeBytes": 4096,
-           "createdAt": "2026-11-15T00:00:00Z", "type": "default"})
+           "createdAt": "2026-11-15T00:00:00Z", "type": "default",
+           "snapshotId": format!("snap-{generation}")})
 }
 
 fn not_found() -> Reply {
@@ -134,11 +142,21 @@ fn boat(setup: &E2e, world: Shared) -> FakeBoat {
                 let body: Value = serde_json::from_str(&request.body).unwrap();
                 let name = body["name"].as_str().unwrap().to_string();
                 let ends = world.save_ends.clone();
+                let replacing = world
+                    .snapshots
+                    .get(&name)
+                    .is_some_and(|(status, _)| status == "ready");
+                if replacing {
+                    let stale = world.stale_polls;
+                    world.stale.insert(name.clone(), stale);
+                }
+                let generation = world.generations.get(&name).copied().unwrap_or(0) + 1;
+                world.generations.insert(name.clone(), generation);
                 world.snapshots.insert(name.clone(), (ends, 1));
                 Reply::json(
                     202,
                     &json!({"ok": true, "status": "saving",
-                            "snapshot": snapshot_json(&name, "saving")})
+                            "snapshot": snapshot_json(&name, "saving", generation - 1)})
                     .to_string(),
                 )
             }
@@ -146,7 +164,7 @@ fn boat(setup: &E2e, world: Shared) -> FakeBoat {
                 let listed: Vec<Value> = world
                     .snapshots
                     .iter()
-                    .map(|(name, (status, _))| snapshot_json(name, status))
+                    .map(|(name, (status, _))| snapshot_json(name, status, world.generations[name]))
                     .collect();
                 Reply::json(
                     200,
@@ -156,21 +174,35 @@ fn boat(setup: &E2e, world: Shared) -> FakeBoat {
                     .to_string(),
                 )
             }
-            ("GET", ["saved-snapshots", name]) => match world.snapshots.get_mut(*name) {
-                Some((status, polls)) => {
-                    let shown = if *polls > 0 {
-                        *polls -= 1;
-                        "saving".to_string()
-                    } else {
-                        status.clone()
-                    };
-                    Reply::json(
+            ("GET", ["saved-snapshots", name]) => {
+                let generation = world.generations.get(*name).copied().unwrap_or(1);
+                if let Some(left) = world.stale.get_mut(*name).filter(|left| **left > 0) {
+                    *left -= 1;
+                    return Reply::json(
                         200,
-                        &json!({"ok": true, "snapshot": snapshot_json(name, &shown)}).to_string(),
-                    )
+                        &json!({"ok": true,
+                                "snapshot": snapshot_json(name, "ready", generation - 1)})
+                        .to_string(),
+                    );
                 }
-                None => not_found(),
-            },
+                match world.snapshots.get_mut(*name) {
+                    Some((status, polls)) => {
+                        let shown = if *polls > 0 {
+                            *polls -= 1;
+                            "saving".to_string()
+                        } else {
+                            status.clone()
+                        };
+                        Reply::json(
+                            200,
+                            &json!({"ok": true,
+                                    "snapshot": snapshot_json(name, &shown, generation)})
+                            .to_string(),
+                        )
+                    }
+                    None => not_found(),
+                }
+            }
             ("DELETE", ["saved-snapshots", name]) => match world.snapshots.remove(*name) {
                 Some(_) => Reply::json(200, r#"{"ok":true,"status":"removed"}"#),
                 None => not_found(),
@@ -603,4 +635,51 @@ fn base_status_reports_freshness_and_rm_removes_snapshot_record_and_builder() {
             .iter()
             .any(|m| m["role"] == "builder")
     );
+}
+
+#[test]
+fn a_rebuild_waits_for_the_new_artifact_not_a_stale_ready() {
+    let setup = project("base-rebuild");
+    let world = world();
+    let boat = boat(&setup, Arc::clone(&world));
+    let build = || {
+        let output = setup
+            .cmd(&boat)
+            .args(["--json", "base", "build"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        json_of(&output.stdout)
+    };
+    build();
+    // The base ref moves; the rebuild's save is answered with the old
+    // artifact as ready a few times before the new save shows.
+    fs::write(setup.repo().join("deps.lock"), "v2\n").unwrap();
+    git(&setup.repo(), &["commit", "-qam", "bump"]);
+    git(
+        &setup.repo(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    world.lock().unwrap().stale_polls = 3;
+    let report = build();
+    assert_eq!(
+        report["base"]["commit"],
+        git(&setup.repo(), &["rev-parse", "HEAD"])
+    );
+    let lines = setup.event_lines();
+    let second_save = lines
+        .iter()
+        .rposition(|line| line.starts_with("provider POST /saved-snapshots"))
+        .unwrap();
+    let polls = lines[second_save..]
+        .iter()
+        .filter(|line| line.starts_with("provider GET /saved-snapshots/bp-app"))
+        .count();
+    // Three stale answers, one `saving`, then the new artifact's `ready`.
+    assert_eq!(polls, 5, "{lines:#?}");
+    assert!(world.lock().unwrap().stale["bp-app"] == 0);
 }

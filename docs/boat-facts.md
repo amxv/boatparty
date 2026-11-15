@@ -323,6 +323,19 @@ All times are wall clock from the laptop. "+" times count from sending the start
 
 The remaining active sandbox predates this phase and was not touched.
 
+## 7. Saving over an existing saved snapshot (2026-11-15)
+
+Measured with a stopped `default` builder (`bx_4b5vuvn7`) whose name `bp-bpe2e-rust` already held a ready snapshot, by `POST /saved-snapshots` with the same name and polling `GET /saved-snapshots/{name}` every second:
+
+```text
+before: ready  snapshotId 1d62518f-…  createdAt 2026-11-15T09:28:21.787Z  sizeBytes 20406272
+POST -> 202 snapshot.saved.saving, status saving, still snapshotId 1d62518f-…
++0s    saving 1d62518f-…  createdAt 09:28:21.787Z
++65s   ready  101dd6f7-…  createdAt 09:28:21.787Z  sizeBytes 34361344
+```
+
+**Conclusion:** during a re-save the name reports `saving` at once, and `ready` comes with a new `snapshotId`; `createdAt` keeps the name's first save. `base build` still waits for a `snapshotId` different from the one before its save, so a stale `ready` can never pass for the new base. The builder and the snapshot were deleted afterwards.
+
 ## Appendix A: helper scripts
 
 All scripts lived in `/tmp/bpf1` (mode 700) and were removed afterwards. To rerun them, put the key in `/tmp/bpf1/key` (mode 600), then:

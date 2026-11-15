@@ -502,6 +502,13 @@ fn save(
 ) -> Result<Option<u64>, AppError> {
     let deadline = Deadline::after(SAVE_TIMEOUT);
     let mut said = false;
+    // A rebuild replaces an existing base: its artifact must change before
+    // the save counts as done, so a stale `ready` is never taken for it.
+    let previous = provider
+        .saved_snapshot(name)
+        .ok()
+        .flatten()
+        .and_then(|snapshot| snapshot.artifact);
     loop {
         let saved = wait::retry(Duration::from_secs(60), wait::transient, || {
             provider.save_snapshot(id, name)
@@ -536,7 +543,12 @@ fn save(
             provider.saved_snapshot(name)
         })?;
         match snapshot {
-            Some(snapshot) if snapshot.status == SnapshotStatus::Ready => {
+            Some(snapshot)
+                if snapshot.status == SnapshotStatus::Ready
+                    && (previous.is_none()
+                        || snapshot.artifact.is_none()
+                        || snapshot.artifact != previous) =>
+            {
                 return Ok(snapshot.size_bytes);
             }
             Some(snapshot) if snapshot.status == SnapshotStatus::Failed => {

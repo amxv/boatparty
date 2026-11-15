@@ -21,6 +21,8 @@ struct SnapshotBody {
     size_bytes: Option<u64>,
     #[serde(default)]
     created_at: Option<String>,
+    #[serde(default)]
+    snapshot_id: Option<String>,
 }
 
 impl SnapshotBody {
@@ -32,6 +34,7 @@ impl SnapshotBody {
             source_id: self.source_sandbox_id,
             size_bytes: self.size_bytes,
             created_at: self.created_at,
+            artifact: self.snapshot_id,
         })
     }
 }

@@ -36,6 +36,9 @@ pub struct SavedSnapshot {
     pub size_bytes: Option<u64>,
     /// When it was saved (RFC 3339).
     pub created_at: Option<String>,
+    /// The frozen artifact behind the name, once ready. A save under an
+    /// existing name gets a new one when it is ready.
+    pub artifact: Option<String>,
 }
 
 /// What the account's plan includes of saved snapshots and what it keeps.
