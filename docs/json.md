@@ -362,7 +362,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 
 ### cheers
 
-Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` that it ran again under the ssh-255 rule. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`).
+Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` that it ran again under the ssh-255 rule. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
 
 <!-- shape: cheers -->
 ```json
@@ -394,7 +394,7 @@ Frames, then this result. `exit_code` is the process's exit status; `command_exi
   "failed_step": null,
   "git_identity": true,
   "github_token": false,
-  "copy_back": { "status": "conflict", "files": ["src/lib.rs"], "patch": "/Users/me/code/app/.git/boatparty-pullback-1794730331934.patch", "error": null }
+  "copy_back": { "status": "conflict", "files": ["src/lib.rs"], "patch": "/Users/me/code/app/.git/boatparty-pullback-1794730331934.patch", "error": null, "route": "ssh" }
 }
 ```
 
@@ -432,7 +432,7 @@ Frames, then the `cheers` result with `kind` `serve` and the server's settings. 
   "failed_step": null,
   "git_identity": true,
   "github_token": false,
-  "copy_back": { "status": "none", "files": [], "patch": null, "error": null },
+  "copy_back": { "status": "none", "files": [], "patch": null, "error": null, "route": null },
   "forwards": [ { "bind": "127.0.0.1", "listen": 3000, "target": 3000 } ],
   "reverses": [ { "bind": "127.0.0.1", "listen": 20000, "target": 7777 } ],
   "ready_port": 3000,

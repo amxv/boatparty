@@ -31,8 +31,8 @@ pub use credentials::RunCredentials;
 pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
 pub use hold::{Hold, hold};
 pub use mirror::{
-    MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
-    run_command_with, serve_command_with,
+    FetchedPatch, MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch,
+    fetch_patch_routed, mirror, run_command, run_command_with, serve_command_with,
 };
 pub use pipe::{PipeOutcome, pipe_command};
 pub use pullback::{PullBack, apply_pullback};

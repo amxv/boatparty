@@ -404,3 +404,83 @@ fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
         );
     }
 }
+
+/// The result frame of `cheers --json`.
+fn result_frame(stdout: &[u8]) -> serde_json::Value {
+    let text = text(stdout);
+    serde_json::from_str(text.lines().last().expect("a result frame")).unwrap()
+}
+
+#[test]
+fn a_large_copy_back_comes_by_signed_download_and_falls_back_to_ssh() {
+    let setup = E2e::new("copyback-signed");
+    let boat = setup.boat();
+    setup.launch(&boat);
+    let payload = noise(5);
+    let line = format!("printf '%s' '{payload}' > made.txt");
+    let output = setup
+        .cmd(&boat)
+        .env("FAKE_SSH_CHECK", "0")
+        .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "1024")
+        .args(["--json", "cheers", "--sh", &line])
+        .output()
+        .unwrap();
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    let result = result_frame(&output.stdout);
+    assert_eq!(result["copy_back"]["status"], "applied", "{result}");
+    assert_eq!(result["copy_back"]["route"], "signed_url", "{result}");
+    assert_eq!(
+        fs::read_to_string(setup.repo().join("made.txt")).unwrap(),
+        payload
+    );
+    assert!(
+        setup.event_lines().iter().any(|line| line
+            .starts_with("provider POST /sandboxes/bx_23456789/files/download-url")
+            && line.contains(".patch")),
+        "{:#?}",
+        setup.event_lines()
+    );
+    assert!(!text(&output.stdout).contains(URL_SECRET));
+    assert!(!stderr.contains(URL_SECRET), "{stderr}");
+    let patches = |setup: &E2e| -> Vec<String> {
+        fs::read_dir(setup.remote().join(".boatparty/out"))
+            .map(|dir| {
+                dir.flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .filter(|name| name.ends_with(".patch"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    assert!(patches(&setup).is_empty(), "{:?}", patches(&setup));
+
+    // A refused download falls back to SSH and says so, without the URL.
+    let refusing = setup.boat_with_uploads(403);
+    let other = noise(6);
+    let line = format!("printf '%s' '{other}' > made.txt");
+    let output = setup
+        .cmd(&refusing)
+        .env("FAKE_SSH_CHECK", "0")
+        .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "1024")
+        .args(["--json", "cheers", "--sh", &line])
+        .output()
+        .unwrap();
+    let stderr = text(&output.stderr);
+    let stdout = text(&output.stdout);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    let result = result_frame(&output.stdout);
+    assert_eq!(result["copy_back"]["status"], "applied", "{result}");
+    assert_eq!(result["copy_back"]["route"], "ssh", "{result}");
+    assert!(
+        stderr.contains("signed download of the command's changes failed"),
+        "{stderr}"
+    );
+    assert!(!stdout.contains(URL_SECRET));
+    assert!(!stderr.contains(URL_SECRET), "{stderr}");
+    assert_eq!(
+        fs::read_to_string(setup.repo().join("made.txt")).unwrap(),
+        other
+    );
+    assert!(patches(&setup).is_empty(), "{:?}", patches(&setup));
+}

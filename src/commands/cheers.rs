@@ -485,16 +485,43 @@ impl Cheers<'_> {
             stream.note("the command changed files in the checkout; [sync] copy_back = false leaves them there");
             return (Some(exit_code), json!({"status": "off"}));
         }
-        let host = SshRunner::ssh_only(conn.target.clone());
-        let applied = sync::fetch_patch(&host, name, &ran.outcome.nonce)
-            .and_then(|patch| sync::apply_pullback(info, &patch));
+        // A large patch comes back by signed download; only then is the
+        // provider opened.
+        let threshold = crate::runner::upload_threshold();
+        let upload = (patch_bytes > threshold)
+            .then(|| {
+                let provider = super::open_provider(self.ctx).ok()?;
+                Some(crate::runner::SignedUpload {
+                    provider,
+                    sandbox_id: conn.member.id.clone()?,
+                    threshold,
+                })
+            })
+            .flatten();
+        let host = SshRunner {
+            upload,
+            ..SshRunner::ssh_only(conn.target.clone())
+        };
+        let mut route = PackRoute::Ssh;
+        let applied =
+            sync::fetch_patch_routed(&host, name, &ran.outcome.nonce, patch_bytes).and_then(
+                |fetched| {
+                    route = fetched.route;
+                    if let Some(reason) = &fetched.fallback {
+                        stream.note(format_args!(
+                            "the signed download of the command's changes failed ({reason}); fetched them over SSH instead"
+                        ));
+                    }
+                    sync::apply_pullback(info, &fetched.patch)
+                },
+            );
         let summary = match applied {
             Ok(PullBack::Applied { files }) => {
                 stream.note(format_args!(
                     "applied the command's changes locally: {}",
                     files.join(", ")
                 ));
-                json!({"status": "applied", "files": files, "patch": null})
+                json!({"status": "applied", "files": files, "patch": null, "route": route.as_str()})
             }
             Ok(PullBack::Conflict {
                 files,
@@ -506,7 +533,7 @@ impl Cheers<'_> {
                     files.join(", "),
                     kept.display()
                 ));
-                json!({"status": "conflict", "files": files, "patch": kept.display().to_string()})
+                json!({"status": "conflict", "files": files, "patch": kept.display().to_string(), "route": route.as_str()})
             }
             Err(error) => {
                 stream.note(format_args!(

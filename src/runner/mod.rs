@@ -107,6 +107,16 @@ pub trait RunnerHost {
             "this host has no upload route",
         ))
     }
+
+    /// Copy `<name>` from where the runner leaves its results
+    /// ([`REMOTE_OUT_DIR`] on a sandbox) into `file`, by the same route as
+    /// [`RunnerHost::upload`].
+    fn download(&self, _name: &str, _file: &Path) -> Result<(), AppError> {
+        Err(AppError::new(
+            "sync_failed",
+            "this host has no download route",
+        ))
+    }
 }
 
 /// Packs (and `fetch` archives) larger than this go through the provider's
@@ -121,6 +131,8 @@ pub const UPLOAD_THRESHOLD_ENV: &str = "BOATPARTY_SIGNED_URL_MIN_BYTES";
 
 /// The sandbox directory the runner reads uploaded packs from.
 pub const REMOTE_UPLOAD_DIR: &str = "/home/user/.boatparty/in";
+/// The sandbox directory the runner leaves results (patches) in.
+pub const REMOTE_OUT_DIR: &str = "/home/user/.boatparty/out";
 
 /// The upload threshold in effect.
 pub fn upload_threshold() -> u64 {
@@ -204,6 +216,27 @@ impl RunnerHost for SshRunner {
                 &format!("{REMOTE_UPLOAD_DIR}/{name}"),
                 file,
             )
+            .map_err(AppError::from)
+    }
+
+    fn download(&self, name: &str, file: &Path) -> Result<(), AppError> {
+        let Some(upload) = &self.upload else {
+            return Err(AppError::new("sync_failed", "no download route"));
+        };
+        if name.contains('/') {
+            return Err(AppError::new(
+                "sync_failed",
+                "download names are plain file names",
+            ));
+        }
+        upload
+            .provider
+            .download_file(
+                &upload.sandbox_id,
+                &format!("{REMOTE_OUT_DIR}/{name}"),
+                file,
+            )
+            .map(drop)
             .map_err(AppError::from)
     }
 

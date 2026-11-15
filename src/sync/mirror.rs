@@ -234,9 +234,82 @@ fn run_input(
     })
 }
 
+/// A command's patch, and how it came back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FetchedPatch {
+    pub patch: Vec<u8>,
+    /// `Ssh` or `SignedUrl`.
+    pub route: PackRoute,
+    /// Why the signed download failed, when SSH was used instead.
+    pub fallback: Option<String>,
+}
+
+/// Bring back the patch a run left on the sandbox (`patch_bytes` long), and
+/// delete it there. Above the host's transfer threshold it comes by the
+/// host's download route (a signed URL on a sandbox, several times faster
+/// than SSH), falling back to SSH when that fails.
+pub fn fetch_patch_routed(
+    host: &dyn RunnerHost,
+    project: &str,
+    nonce: &str,
+    patch_bytes: u64,
+) -> Result<FetchedPatch, AppError> {
+    let mut fallback = None;
+    if host
+        .upload_threshold()
+        .is_some_and(|threshold| patch_bytes > threshold)
+    {
+        let file =
+            std::env::temp_dir().join(format!("boatparty-patch-{}-{nonce}", std::process::id()));
+        let downloaded = host
+            .download(&format!("{nonce}.patch"), &file)
+            .and_then(|()| {
+                std::fs::read(&file)
+                    .map_err(|error| AppError::io("cannot read the downloaded patch", error))
+            });
+        let _ = std::fs::remove_file(&file);
+        match downloaded {
+            Ok(patch) if patch.len() as u64 == patch_bytes => {
+                // Deleting the sandbox's copy is housekeeping; a leftover is
+                // pruned within a day.
+                let _ = patch_invocation(host, project, nonce, true);
+                return Ok(FetchedPatch {
+                    patch,
+                    route: PackRoute::SignedUrl,
+                    fallback: None,
+                });
+            }
+            Ok(patch) => {
+                fallback = Some(format!(
+                    "the download held {} bytes, not {patch_bytes}",
+                    patch.len()
+                ));
+            }
+            Err(error) => fallback = Some(error.message().to_string()),
+        }
+    }
+    Ok(FetchedPatch {
+        patch: fetch_patch(host, project, nonce)?,
+        route: PackRoute::Ssh,
+        fallback,
+    })
+}
+
 /// Print what a run left on the sandbox as a patch, and delete it there.
 pub fn fetch_patch(host: &dyn RunnerHost, project: &str, nonce: &str) -> Result<Vec<u8>, AppError> {
-    let args: Vec<String> = ["fetch-patch", project, nonce].map(String::from).to_vec();
+    patch_invocation(host, project, nonce, false)
+}
+
+fn patch_invocation(
+    host: &dyn RunnerHost,
+    project: &str,
+    nonce: &str,
+    discard: bool,
+) -> Result<Vec<u8>, AppError> {
+    let mut args: Vec<String> = ["fetch-patch", project, nonce].map(String::from).to_vec();
+    if discard {
+        args.push("discard".to_string());
+    }
     let output = host
         .command(&args)
         .stdin(Stdio::null())

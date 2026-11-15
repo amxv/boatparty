@@ -164,10 +164,11 @@ mode_run() {
   exit "$rc"
 }
 
-# fetch-patch <nonce>: print the patch a run left, then delete it.
+# fetch-patch <nonce> [discard]: print the patch a run left, then delete
+# it. With "discard" (the client downloaded it another way), only delete it.
 mode_fetch_patch() {
   local file="$state/out/$1.patch"
-  cat "$file"
+  if [[ "${2:-}" != discard ]]; then cat "$file"; fi
   rm -f "$file"
 }
 
