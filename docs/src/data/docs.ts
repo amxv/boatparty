@@ -13,6 +13,7 @@ export const siteConfig = {
   strapline: generatedIdentity.strapline,
   description: generatedIdentity.description,
   repoUrl: generatedIdentity.repoUrl,
+  logoHref: "/favicon.svg",
   accentColor: "#b7410e",
   accentColorDark: "#f28c52",
   footerSections: [

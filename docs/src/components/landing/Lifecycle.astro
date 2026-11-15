@@ -1,0 +1,362 @@
+---
+// A sandbox's day on a 24-minute track. Positions are minutes on the track,
+// matching the documented defaults (heartbeat 2, lease 5, idle 5).
+type Span = { from: number; to: number; kind: "run" | "idle" | "stopped"; label: string };
+type Mark = { at: number; kind: "start" | "stop"; label: string; sub: string };
+
+const spans: Span[] = [
+  { from: 0, to: 6, kind: "run", label: "cheers -- cargo test" },
+  { from: 6, to: 8, kind: "idle", label: "" },
+  { from: 8, to: 11, kind: "run", label: "cheers lint" },
+  { from: 11, to: 16, kind: "idle", label: "idle 5 min" },
+  { from: 16, to: 21, kind: "stopped", label: "stopped, costs nothing" },
+  { from: 21, to: 24, kind: "run", label: "cheers test" }
+];
+
+const marks: Mark[] = [
+  { at: 0, kind: "start", label: "1 start", sub: "created" },
+  { at: 8, kind: "start", label: "0 starts", sub: "still warm" },
+  { at: 16, kind: "stop", label: "auto-stop", sub: "disk kept" },
+  { at: 21, kind: "start", label: "1 start", sub: "resumed" }
+];
+
+const heartbeats = [2, 4, 10];
+
+const keys = [
+  { key: "heartbeat_minutes", value: "2", body: "How often a running command pushes the sandbox's auto-stop forward." },
+  { key: "lease_minutes", value: "5", body: "How far ahead that auto-stop stays. A client that dies leaves its sandbox up about this long." },
+  { key: "idle_minutes", value: "5", body: "After the last command ends, the sandbox stops this much later. At most 15." }
+];
+
+const pct = (minute: number) => `${(minute / 24) * 100}%`;
+---
+
+<section class="bp-section lc">
+  <div class="shell">
+    <div class="bp-intro">
+      <div class="bp-reveal">
+        <p class="bp-eyebrow">Warm reuse, idle stops</p>
+        <h2>Warm while you work. <em>Asleep when you don't.</em></h2>
+      </div>
+      <p class="bp-reveal" style="--d:0.1s">
+        When a sandbox is already up, boatparty makes no call to boat before your command starts.
+        When the last command ends, the sandbox stops by itself a few minutes later and keeps its
+        disk, so leaving it alone is always the cheap choice.
+      </p>
+    </div>
+
+    <div class="lc__chart bp-reveal">
+      <div class="lc__track" aria-hidden="true">
+        <div class="lc__marks">
+          {marks.map((mark) => (
+            <span class="lc__mark" data-kind={mark.kind} style={`left:${pct(mark.at)}`}>
+              <b>{mark.label}</b>
+              <small>{mark.sub}</small>
+            </span>
+          ))}
+        </div>
+
+        <div class="lc__bar">
+          {spans.map((span) => (
+            <span
+              class="lc__span"
+              data-kind={span.kind}
+              style={`left:${pct(span.from)};width:${pct(span.to - span.from)}`}
+            >
+              {span.label && <em>{span.label}</em>}
+            </span>
+          ))}
+          {heartbeats.map((minute) => (
+            <i class="lc__beat" style={`left:${pct(minute)}`}></i>
+          ))}
+          <span class="lc__now"></span>
+        </div>
+
+        <div class="lc__lease">
+          <span style={`left:${pct(0)};width:${pct(11)}`}>
+            auto-stop rides 5 min ahead while commands run
+          </span>
+        </div>
+
+        <div class="lc__axis">
+          {[0, 4, 8, 12, 16, 20, 24].map((minute) => (
+            <span style={`left:${pct(minute)}`}>{minute}m</span>
+          ))}
+        </div>
+      </div>
+
+      <p class="lc__caption">
+        One sandbox across 24 minutes: a create, a warm second command, an idle stop, a resume.
+        Heartbeats <span class="lc__beat-key"></span> keep it up while anything runs.
+      </p>
+    </div>
+
+    <dl class="lc__keys">
+      {keys.map((item, index) => (
+        <div class="bp-reveal" style={`--d:${index * 0.08}s`}>
+          <dt><code>{item.key}</code><span>{item.value}</span></dt>
+          <dd>{item.body}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
+</section>
+
+<style>
+  .lc__chart {
+    padding: clamp(1.2rem, 3vw, 2rem) clamp(1.2rem, 3vw, 2.2rem) 1.4rem;
+    border: 1px solid var(--bp-line-strong);
+    border-radius: 22px;
+    background: var(--bp-card);
+  }
+
+  .lc__track {
+    position: relative;
+    margin: 0 0.4rem;
+  }
+
+  .lc__marks {
+    position: relative;
+    height: 3.6rem;
+  }
+
+  .lc__mark {
+    position: absolute;
+    bottom: 0;
+    display: grid;
+    padding: 0 0 0.9rem 0.55rem;
+    border-left: 1px solid var(--bp-line-strong);
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+
+  .lc__mark b {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 500;
+  }
+
+  .lc__mark small {
+    color: var(--bp-muted);
+    font-size: 0.74rem;
+  }
+
+  .lc__mark[data-kind="start"] b {
+    color: var(--bp-buoy);
+  }
+
+  .lc__mark[data-kind="stop"] b {
+    color: var(--bp-cold);
+  }
+
+  .lc__mark::after {
+    position: absolute;
+    bottom: -0.3rem;
+    left: -0.3rem;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--bp-buoy);
+    content: "";
+  }
+
+  .lc__mark[data-kind="stop"]::after {
+    background: var(--bp-cold);
+  }
+
+  .lc__bar {
+    position: relative;
+    height: 3rem;
+    border-radius: 10px;
+    background: var(--bp-deep);
+  }
+
+  .lc__span {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    padding: 0 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-stretch: 75%;
+    white-space: nowrap;
+  }
+
+  .lc__span em {
+    overflow: hidden;
+    font-style: normal;
+    text-overflow: ellipsis;
+  }
+
+  .lc__span[data-kind="run"] {
+    border-radius: 8px;
+    background: var(--bp-run);
+    color: var(--bp-sea);
+  }
+
+  .lc__span[data-kind="idle"] {
+    background: linear-gradient(90deg, var(--bp-lamp), color-mix(in srgb, var(--bp-lamp) 15%, transparent));
+    color: var(--bp-sea);
+  }
+
+  .lc__span[data-kind="stopped"] {
+    border: 1px dashed var(--bp-cold);
+    border-radius: 8px;
+    background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--bp-cold) 18%, transparent) 6px 7px);
+    color: var(--bp-muted);
+  }
+
+  .lc__beat {
+    position: absolute;
+    top: -0.55rem;
+    height: 0.4rem;
+    width: 2px;
+    margin-left: -1px;
+    border-radius: 2px;
+    background: var(--bp-ink);
+    opacity: 0.85;
+  }
+
+  .lc__beat-key {
+    display: inline-block;
+    width: 2px;
+    height: 0.9em;
+    margin: 0 0.15rem;
+    vertical-align: -0.1em;
+    background: var(--bp-ink);
+  }
+
+  .lc__now {
+    position: absolute;
+    top: -0.8rem;
+    bottom: -0.8rem;
+    left: 0;
+    width: 1px;
+    background: var(--bp-buoy);
+    box-shadow: 0 0 12px var(--bp-buoy);
+    animation: lc-sweep 14s linear infinite;
+  }
+
+  @keyframes lc-sweep {
+    from {
+      left: 0;
+      opacity: 0;
+    }
+    4% {
+      opacity: 1;
+    }
+    96% {
+      opacity: 1;
+    }
+    to {
+      left: 100%;
+      opacity: 0;
+    }
+  }
+
+  .lc__lease {
+    position: relative;
+    height: 2.2rem;
+  }
+
+  .lc__lease span {
+    position: absolute;
+    top: 0.55rem;
+    padding-top: 0.35rem;
+    border-top: 1px dashed var(--bp-run);
+    color: var(--bp-run);
+    font-size: 0.74rem;
+    white-space: nowrap;
+  }
+
+  .lc__axis {
+    position: relative;
+    height: 1.2rem;
+    border-top: 1px solid var(--bp-line);
+  }
+
+  .lc__axis span {
+    position: absolute;
+    top: 0.3rem;
+    color: var(--bp-faint);
+    font-family: var(--font-mono);
+    font-size: 0.56rem;
+    transform: translateX(-50%);
+  }
+
+  .lc__axis span:first-child {
+    transform: none;
+  }
+
+  .lc__axis span:last-child {
+    transform: translateX(-100%);
+  }
+
+  .lc__caption {
+    margin-top: 1.2rem;
+    color: var(--bp-muted);
+    font-size: 0.88rem;
+  }
+
+  .lc__keys {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 0;
+  }
+
+  .lc__keys > div {
+    padding: 1.2rem 1.25rem;
+    border-top: 1px solid var(--bp-line-strong);
+  }
+
+  .lc__keys dt {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .lc__keys dt code {
+    color: var(--bp-muted);
+    font-size: 0.66rem;
+  }
+
+  .lc__keys dt span {
+    font-family: var(--font-heading);
+    font-size: 2.6rem;
+    line-height: 1;
+  }
+
+  .lc__keys dt span::after {
+    margin-left: 0.15rem;
+    color: var(--bp-muted);
+    content: "min";
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+  }
+
+  .lc__keys dd {
+    margin: 0.6rem 0 0;
+    color: var(--bp-muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  @media (max-width: 760px) {
+    .lc__chart {
+      overflow-x: auto;
+    }
+
+    .lc__track {
+      min-width: 40rem;
+    }
+
+    .lc__keys {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

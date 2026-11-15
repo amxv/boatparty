@@ -1,0 +1,184 @@
+---
+import Voyage from "./Voyage.astro";
+
+const install = "gh release download -R amxv/boatparty -p install.sh -O - | bash";
+
+// Depth soundings, the small numbers scattered over water on a nautical chart.
+const soundings = [
+  { x: 6, y: 18, v: "12" },
+  { x: 14, y: 64, v: "9" },
+  { x: 47, y: 9, v: "23" },
+  { x: 58, y: 30, v: "17" },
+  { x: 71, y: 12, v: "31" },
+  { x: 83, y: 41, v: "26" },
+  { x: 92, y: 20, v: "40" },
+  { x: 77, y: 70, v: "19" },
+  { x: 38, y: 78, v: "14" }
+];
+---
+
+<section class="bp-hero">
+  <div class="bp-hero__soundings" aria-hidden="true">
+    {soundings.map((s) => (
+      <span style={`left:${s.x}%;top:${s.y}%`}>{s.v}</span>
+    ))}
+    <svg class="bp-hero__rose" viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="96" />
+      <circle cx="100" cy="100" r="78" />
+      <circle cx="100" cy="100" r="30" />
+      <path d="M100 4 L108 92 L196 100 L108 108 L100 196 L92 108 L4 100 L92 92 Z" />
+      <path d="M100 30 L104 96 L170 100 L104 104 L100 170 L96 104 L30 100 L96 96 Z" class="is-fill" />
+    </svg>
+  </div>
+
+  <div class="shell bp-hero__inner">
+    <p class="bp-eyebrow bp-rise" style="--i:0">Warm <b>boat.dev</b> sandboxes for any Git project</p>
+    <h1 class="bp-hero__title bp-rise" style="--i:1">
+      Work here.<br />
+      <em>Run afloat.</em>
+    </h1>
+    <div class="bp-hero__foot">
+      <p class="bp-hero__lede bp-rise" style="--i:2">
+        boatparty mirrors your working tree to a warm Linux sandbox, runs the command there with
+        live output and its real exit code, and brings the file changes home. Your laptop stays
+        cool, and your coding agents get a real machine.
+      </p>
+      <div class="bp-hero__cta bp-rise" style="--i:3">
+        <div class="bp-cmd">
+          <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+          <code>{install}</code>
+          <button class="bp-copy" type="button" data-copy={install}>Copy</button>
+        </div>
+        <div class="bp-hero__actions">
+          <a class="bp-button bp-button--solid" href="/docs/getting-started">Get started <span aria-hidden="true">→</span></a>
+          <a class="bp-button" href="/docs">Read the docs</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="shell bp-rise" style="--i:4">
+    <Voyage />
+  </div>
+</section>
+
+<style>
+  .bp-hero {
+    position: relative;
+    padding: clamp(4rem, 9vw, 7.5rem) 0 clamp(4rem, 8vw, 6rem);
+  }
+
+  .bp-hero__soundings {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    color: var(--bp-faint);
+    font-family: var(--font-heading);
+    font-size: 0.85rem;
+    font-style: italic;
+    pointer-events: none;
+  }
+
+  .bp-hero__soundings span {
+    position: absolute;
+    opacity: 0.55;
+  }
+
+  .bp-hero__rose {
+    position: absolute;
+    top: -3rem;
+    right: max(-6rem, calc((100vw - 1160px) / 2 - 9rem));
+    width: clamp(18rem, 34vw, 30rem);
+    fill: none;
+    stroke: var(--bp-line-strong);
+    stroke-width: 0.6;
+    opacity: 0.7;
+    animation: bp-rose 160s linear infinite;
+  }
+
+  .bp-hero__rose .is-fill {
+    fill: var(--bp-buoy-soft);
+    stroke: var(--bp-buoy);
+    stroke-opacity: 0.5;
+  }
+
+  @keyframes bp-rose {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .bp-hero__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.6rem;
+  }
+
+  .bp-hero__inner .bp-eyebrow {
+    flex-wrap: wrap;
+  }
+
+  .bp-hero__title {
+    margin: 0;
+    font-size: clamp(3.6rem, 11.5vw, 9.6rem);
+    letter-spacing: -0.035em;
+    line-height: 0.9;
+  }
+
+  .bp-hero__title em {
+    display: inline-block;
+    padding-right: 0.08em;
+  }
+
+  .bp-hero__foot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    align-items: end;
+    gap: 2rem 4rem;
+    margin: 1.2rem 0 clamp(3rem, 7vw, 5rem);
+  }
+
+  .bp-hero__lede {
+    max-width: 32rem;
+    color: var(--bp-ink-soft);
+    font-size: clamp(1.05rem, 1.6vw, 1.22rem);
+    line-height: 1.6;
+  }
+
+  .bp-hero__cta {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .bp-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .bp-rise {
+    animation: bp-rise 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(var(--i) * 0.11s + 0.05s);
+  }
+
+  @keyframes bp-rise {
+    from {
+      opacity: 0;
+      transform: translateY(22px);
+      filter: blur(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .bp-hero__foot {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

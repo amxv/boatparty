@@ -1,0 +1,147 @@
+---
+const traits = [
+  { title: "Exit codes it can trust", body: "The command's own status, always. 125 only when boatparty or the sandbox failed, so a failing test never looks like a broken machine." },
+  { title: "A clean stdout", body: "The command's output, byte for byte. boatparty speaks only on stderr, as boatparty: …, and --json gives every command a documented shape." },
+  { title: "Secrets on stdin", body: "pipe feeds a command this process's standard input. Keys and tokens never reach argv, logs or the run history." },
+  { title: "A skill in the box", body: "boatparty skill writes a SKILL.md matched to the binary's version. Copy it into your agent's skills directory." }
+];
+---
+
+<section class="bp-section ag">
+  <div class="shell">
+    <div class="bp-intro">
+      <div class="bp-reveal">
+        <p class="bp-eyebrow">Built for coding agents</p>
+        <h2>Give your agents <em>a real Linux machine.</em></h2>
+      </div>
+      <p class="bp-reveal" style="--d:0.1s">
+        Agents edit files locally and run every build, test and server on the sandbox. One rule
+        tells them what a failure means: retry on 125, fix the code on anything else.
+      </p>
+    </div>
+
+    <div class="ag__grid">
+      <div class="ag__log bp-reveal">
+        <div class="bp-term">
+          <div class="bp-term__bar">
+            <span class="bp-term__lights"><i></i><i></i><i></i></span>
+            <span>agent session</span>
+          </div>
+          <div class="bp-term__body">
+            <span><span class="t-p">›</span> boatparty cheers test</span>
+            <span class="t-dim">test parser::tests::empty_input ... <span class="t-bad">FAILED</span></span>
+            <span class="t-dim">test result: <span class="t-bad">FAILED</span>. 41 passed; 1 failed</span>
+            <span class="ag__exit"><b class="is-bad">exit 101</b> the test failed: fix the code</span>
+            <span>&nbsp;</span>
+            <span><span class="t-p">›</span> boatparty cheers test</span>
+            <span class="t-dim">boatparty: error: cannot connect to bx_q4m8r2dn over SSH: Connection timed out</span>
+            <span class="ag__exit"><b class="is-infra">exit 125</b> boatparty failed: retry once, then report</span>
+            <span>&nbsp;</span>
+            <span><span class="t-p">›</span> boatparty cheers test</span>
+            <span class="t-dim">test result: <span class="t-ok">ok</span>. 42 passed; 0 failed</span>
+            <span class="ag__exit"><b class="is-ok">exit 0</b></span>
+          </div>
+        </div>
+      </div>
+
+      <ul class="ag__traits">
+        {traits.map((trait, index) => (
+          <li class="bp-reveal" style={`--d:${index * 0.07}s`}>
+            <span class="ag__idx">{String(index + 1).padStart(2, "0")}</span>
+            <div>
+              <h3>{trait.title}</h3>
+              <p>{trait.body}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .ag__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: start;
+  }
+
+  .ag__log .bp-term__body {
+    font-size: 0.76rem;
+  }
+
+  .ag__exit {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.8rem;
+    margin-top: 0.35rem;
+    color: var(--bp-term-muted);
+  }
+
+  .ag__exit b {
+    padding: 0.05rem 0.55rem;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+
+  .ag__exit .is-bad {
+    background: rgba(255, 138, 122, 0.16);
+    color: #ff8a7a;
+  }
+
+  .ag__exit .is-infra {
+    background: rgba(244, 194, 94, 0.16);
+    color: #f4c25e;
+  }
+
+  .ag__exit .is-ok {
+    background: rgba(107, 224, 176, 0.16);
+    color: #6be0b0;
+  }
+
+  .ag__traits {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ag__traits li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1.1rem;
+    padding: 1.3rem 0;
+    border-top: 1px solid var(--bp-line);
+  }
+
+  .ag__traits li:first-child {
+    padding-top: 0.2rem;
+    border-top: 0;
+  }
+
+  .ag__idx {
+    color: var(--bp-buoy);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    line-height: 2.4;
+  }
+
+  .ag__traits h3 {
+    margin: 0 0 0.35rem;
+    font-size: 1.45rem;
+  }
+
+  .ag__traits p {
+    color: var(--bp-muted);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  @media (max-width: 900px) {
+    .ag__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

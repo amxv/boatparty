@@ -1,0 +1,192 @@
+---
+import { getCollection } from "astro:content";
+
+const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+
+const steps = [
+  {
+    title: "Install",
+    cmd: "gh release download -R amxv/boatparty -p install.sh -O - | bash",
+    note: "Into ~/.local/bin, checksum-verified. macOS or Linux, with ssh, ssh-keygen and git on PATH."
+  },
+  {
+    title: "Log in",
+    cmd: "boat api-key create boatparty … --json | jq -r .secret | boatparty login --key-stdin",
+    note: "A scoped boat key, read from standard input only. The full scope list is in the guide."
+  },
+  {
+    title: "Set up the project",
+    cmd: "boatparty init",
+    note: "Writes boatparty.toml: the project name, presets for the detected stack, a test command."
+  },
+  {
+    title: "Run",
+    cmd: "boatparty cheers -- cargo test",
+    note: "The first run creates the sandbox and installs dependencies. Every later run reuses both."
+  }
+];
+---
+
+<section class="bp-section st">
+  <div class="shell">
+    <div class="st__head bp-reveal">
+      <p class="bp-eyebrow">Set sail</p>
+      <h2>Four commands <em>to the first run.</em></h2>
+    </div>
+
+    <ol class="st__steps">
+      {steps.map((step, index) => (
+        <li class="bp-reveal" style={`--d:${index * 0.06}s`}>
+          <span class="st__num">{index + 1}</span>
+          <div class="st__body">
+            <h3>{step.title}</h3>
+            <div class="bp-cmd">
+              <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+              <code>{step.cmd}</code>
+              {!step.cmd.includes("…") && (
+                <button class="bp-copy" type="button" data-copy={step.cmd}>Copy</button>
+              )}
+            </div>
+            <p>{step.note}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+
+    <div class="st__docs">
+      <p class="bp-eyebrow">The docs</p>
+      <div class="st__doc-grid">
+        {docs.map((entry) => (
+          <a class="st__doc bp-reveal" href={`/docs/${entry.id}`}>
+            <span>{entry.data.category}</span>
+            <strong>{entry.data.title}</strong>
+            <small>{entry.data.summary ?? entry.data.description}</small>
+          </a>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .st__head h2 {
+    max-width: none;
+  }
+
+  .st__steps {
+    display: grid;
+    gap: 0;
+    margin: clamp(2.5rem, 6vw, 4rem) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .st__steps li {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1.6rem 0;
+    border-top: 1px solid var(--bp-line);
+  }
+
+  .st__num {
+    font-family: var(--font-heading);
+    font-size: 3rem;
+    font-style: italic;
+    line-height: 0.9;
+    color: var(--bp-buoy);
+  }
+
+  .st__body {
+    display: grid;
+    grid-template-columns: minmax(10rem, 0.32fr) minmax(0, 1fr);
+    gap: 0.6rem 2rem;
+    align-items: center;
+  }
+
+  .st__body h3 {
+    margin: 0;
+    font-size: 1.6rem;
+  }
+
+  .st__body p {
+    grid-column: 2;
+    color: var(--bp-muted);
+    font-size: 0.92rem;
+  }
+
+  .st__docs {
+    margin-top: clamp(4rem, 9vw, 6.5rem);
+  }
+
+  .st__doc-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-top: 1.4rem;
+  }
+
+  .st__doc {
+    display: grid;
+    align-content: start;
+    gap: 0.35rem;
+    padding: 1.1rem 1.15rem 1.25rem;
+    border: 1px solid var(--bp-line);
+    border-radius: 14px;
+    transition: border-color 0.25s ease, background 0.25s ease, transform 0.25s ease;
+  }
+
+  .st__doc:hover {
+    border-color: var(--bp-buoy);
+    background: var(--bp-card);
+    transform: translateY(-2px);
+  }
+
+  .st__doc span {
+    color: var(--bp-buoy);
+    font-family: var(--font-mono);
+    font-size: 0.56rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .st__doc strong {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 400;
+  }
+
+  .st__doc small {
+    color: var(--bp-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  @media (max-width: 900px) {
+    .st__body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .st__body p {
+      grid-column: 1;
+    }
+
+    .st__doc-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 560px) {
+    .st__steps li {
+      grid-template-columns: 2.6rem minmax(0, 1fr);
+    }
+
+    .st__num {
+      font-size: 2.2rem;
+    }
+
+    .st__doc-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

@@ -1,0 +1,200 @@
+---
+// Starts and limits. The meters are illustrative shapes, not measurements.
+const windows = [
+  { name: "per minute", used: 34, reserve: 0, rule: "boat's own limit: retried after the delay boat names" },
+  { name: "per hour", used: 58, reserve: 18, rule: "your budgets and the reserve wait with one log line; boat's own limit is retried" },
+  { name: "per day", used: 27, reserve: 14, rule: "budgets still wait; boat's own daily limit is the only one that fails" }
+];
+---
+
+<section class="bp-section lm">
+  <div class="shell lm__grid">
+    <div>
+      <div class="bp-reveal">
+        <p class="bp-eyebrow">Limits in one place</p>
+        <h2>Starts are scarce. <em>Spend them on purpose.</em></h2>
+      </div>
+      <p class="lm__lede bp-reveal" style="--d:0.08s">
+        boat counts every create and every resume onto a new machine as a start, and never queues
+        one. boatparty sends every start from every project through one local ledger, reconciled
+        with boat's own counts, so an over-budget start waits instead of failing.
+      </p>
+
+      <ul class="lm__meters bp-reveal" style="--d:0.14s">
+        {windows.map((w) => (
+          <li>
+            <div class="lm__meter-head">
+              <span>Starts {w.name}</span>
+            </div>
+            <div class="lm__meter" style={`--used:${w.used}%;--reserve:${w.reserve}%`}>
+              <span class="lm__used"></span>
+              {w.reserve > 0 && <span class="lm__reserve"></span>}
+            </div>
+            <p>{w.rule}</p>
+          </li>
+        ))}
+      </ul>
+      <p class="lm__legend bp-reveal">
+        <span class="is-used">used</span>
+        <span class="is-reserve">account reserve, kept for you</span>
+      </p>
+    </div>
+
+    <div class="lm__file bp-reveal" style="--d:0.1s">
+      <div class="bp-term">
+        <div class="bp-term__bar">
+          <span class="bp-term__lights"><i></i><i></i><i></i></span>
+          <span>~/.config/boatparty/account.toml</span>
+        </div>
+        <div class="bp-term__body">
+          <span class="t-dim"># every project on this machine, one file</span>
+          <span><span class="t-note">[account]</span></span>
+          <span>max_running            = <span class="t-ok">4</span></span>
+          <span>reserve_starts_per_day = <span class="t-ok">20</span></span>
+          <span>&nbsp;</span>
+          <span><span class="t-note">[projects.app]</span></span>
+          <span>max_sandboxes   = <span class="t-ok">3</span></span>
+          <span>starts_per_hour = <span class="t-ok">10</span></span>
+          <span>idle_minutes    = <span class="t-ok">5</span></span>
+        </div>
+      </div>
+      <div class="lm__cmds">
+        <div class="bp-cmd">
+          <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+          <code>boatparty limits</code>
+        </div>
+        <p>Starts left in each window, running sandboxes, and each project's usage this month.</p>
+        <div class="bp-cmd">
+          <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+          <code>boatparty limits set project app starts_per_hour=10</code>
+        </div>
+        <p>Edits the file in place and keeps its comments.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .lm__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: clamp(2.5rem, 6vw, 5rem);
+    align-items: start;
+  }
+
+  .lm__lede {
+    max-width: 34rem;
+    margin: 1.5rem 0 2.4rem;
+    color: var(--bp-muted);
+    line-height: 1.6;
+  }
+
+  .lm__meters {
+    display: grid;
+    gap: 1.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .lm__meter-head {
+    margin-bottom: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .lm__meter {
+    position: relative;
+    height: 0.7rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--bp-deep-2);
+  }
+
+  .lm__used {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: var(--used);
+    border-radius: 999px;
+    background: var(--bp-buoy);
+    transform-origin: left;
+  }
+
+  :global(.bp-js) .lm__meters:not(.is-in) .lm__used {
+    transform: scaleX(0);
+  }
+
+  .lm__meters .lm__used {
+    transition: transform 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.3s;
+  }
+
+  .lm__reserve {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: var(--reserve);
+    background: repeating-linear-gradient(135deg, var(--bp-lamp) 0 2px, transparent 2px 6px);
+    opacity: 0.8;
+  }
+
+  .lm__meters p {
+    margin-top: 0.45rem;
+    color: var(--bp-muted);
+    font-size: 0.86rem;
+  }
+
+  .lm__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.2rem;
+    margin-top: 1.4rem;
+    color: var(--bp-faint);
+    font-size: 0.78rem;
+  }
+
+  .lm__legend span::before {
+    display: inline-block;
+    width: 1.2rem;
+    height: 0.5rem;
+    margin-right: 0.45rem;
+    border-radius: 999px;
+    content: "";
+  }
+
+  .lm__legend .is-used::before {
+    background: var(--bp-buoy);
+  }
+
+  .lm__legend .is-reserve::before {
+    background: repeating-linear-gradient(135deg, var(--bp-lamp) 0 2px, transparent 2px 6px);
+  }
+
+  .lm__file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.4rem;
+  }
+
+  .lm__file .bp-term__body {
+    font-size: 0.8rem;
+  }
+
+  .lm__cmds {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .lm__cmds p {
+    margin: 0 0 0.6rem 0.3rem;
+    color: var(--bp-muted);
+    font-size: 0.86rem;
+  }
+
+  @media (max-width: 900px) {
+    .lm__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

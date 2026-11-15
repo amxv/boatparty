@@ -1,0 +1,424 @@
+---
+// The pool, drawn as a harbor: one berth per possible member of a project's
+// pool. `for` lists the acquisition steps that land on a berth, so the ladder
+// can light up the berths each step would pick.
+type Berth = {
+  name: string;
+  state: "running" | "warm" | "stopped" | "free";
+  holder?: string;
+  label: string;
+  for: string;
+};
+
+const berths: Berth[] = [
+  { name: "bp-app-1", state: "running", holder: "~/code/app", label: "running a command", for: "s1" },
+  { name: "bp-app-2", state: "warm", holder: "~/code/app-review", label: "idle, stops soon", for: "s4" },
+  { name: "bp-app-3", state: "running", holder: "~/wt/app-feature", label: "serving :3000", for: "" },
+  { name: "bp-app-4", state: "stopped", label: "stopped, disk kept", for: "s2" },
+  { name: "bp-app-5", state: "warm", label: "released, still up", for: "s2" },
+  { name: "", state: "free", label: "free berth", for: "s3" },
+  { name: "", state: "free", label: "free berth", for: "s3" },
+  { name: "", state: "free", label: "free berth", for: "s3" }
+];
+
+const ladder = [
+  { id: "s1", title: "Its own sandbox", body: "The checkout's sandbox from last time, warm, with its dependencies and build outputs." },
+  { id: "s2", title: "A free one", body: "One no checkout holds, preferring a sandbox that is still running." },
+  { id: "s3", title: "A new one", body: "Created on demand while the pool is below max_sandboxes (8 by default)." },
+  { id: "s4", title: "An idle neighbour's", body: "First one whose checkout directory is gone, then one idle past steal_after_minutes." },
+  { id: "s5", title: "Or it waits", body: "Up to acquire_wait_seconds, then fails with a message naming the limit." }
+];
+---
+
+<section class="bp-section hb" data-harbor data-hl="s1">
+  <div class="shell">
+    <div class="bp-intro">
+      <div class="bp-reveal">
+        <p class="bp-eyebrow">The pool</p>
+        <h2>A harbor for <em>every project.</em></h2>
+      </div>
+      <p class="bp-reveal" style="--d:0.1s">
+        Each project owns a small pool of sandboxes. Every checkout and worktree keeps the
+        one it used last, so the next command lands on a warm machine with its dependencies
+        already installed. Nothing is deleted because a directory went away.
+      </p>
+    </div>
+
+    <div class="hb__layout">
+      <div class="hb__dock bp-reveal">
+        <div class="hb__dock-head">
+          <span><b>app</b> · pool of 8</span>
+          <span class="hb__cap">max_sandboxes = 8</span>
+        </div>
+        <ul class="hb__berths">
+          {berths.map((berth, index) => (
+            <li class="hb__berth" data-state={berth.state} data-for={berth.for} style={`--k:${index}`}>
+              <span class="hb__holder">{berth.holder ?? ""}</span>
+              <svg class="hb__boat" viewBox="0 0 64 44" aria-hidden="true">
+                <line class="hb__mast" x1="42" y1="7" x2="42" y2="25" />
+                <rect class="hb__cabin" x="17" y="16" width="20" height="9" rx="2" />
+                <path class="hb__hull" d="M4 25 H60 L52 35 H12 Z" />
+                <circle class="hb__light" cx="42" cy="6" r="3.2" />
+                <path class="hb__wave" d="M0 40 q4 -3 8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0 t8 0" />
+              </svg>
+              <span class="hb__name">{berth.name || "\u00a0"}</span>
+              <span class="hb__label">{berth.label}</span>
+            </li>
+          ))}
+        </ul>
+        <ul class="hb__legend" aria-label="Legend">
+          <li data-state="running">running</li>
+          <li data-state="warm">warm, idle</li>
+          <li data-state="stopped">stopped, costs nothing</li>
+          <li data-state="free">free berth</li>
+        </ul>
+      </div>
+
+      <div class="hb__ladder bp-reveal" style="--d:0.12s">
+        <p class="hb__ladder-title">Where a checkout's next command lands</p>
+        <ol>
+          {ladder.map((step, index) => (
+            <li tabindex="0" data-step={step.id}>
+              <span class="hb__num">{index + 1}</span>
+              <div>
+                <strong>{step.title}</strong>
+                <p>{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hb__layout {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .hb__dock {
+    padding: 1.4rem 1.4rem 1.2rem;
+    border: 1px solid var(--bp-line-strong);
+    border-radius: 22px;
+    background: var(--bp-card);
+  }
+
+  .hb__dock-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.6rem;
+    color: var(--bp-muted);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+  }
+
+  .hb__dock-head b {
+    color: var(--bp-ink);
+    font-weight: 500;
+  }
+
+  .hb__cap {
+    color: var(--bp-buoy);
+  }
+
+  .hb__berths {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    margin: 0;
+    padding: 0 0 0.9rem;
+    border-bottom: 3px double var(--bp-line-strong);
+    list-style: none;
+  }
+
+  .hb__berth {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 0.2rem;
+    padding: 0 0.2rem;
+    border-left: 1px dashed var(--bp-line);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+
+  .hb__berth:first-child {
+    border-left: 0;
+  }
+
+  .hb__holder {
+    min-height: 2.4em;
+    color: var(--bp-ink-soft);
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-stretch: 75%;
+    line-height: 1.2;
+    text-align: center;
+    word-break: break-all;
+  }
+
+  .hb__boat {
+    width: 100%;
+    max-width: 7.5rem;
+    overflow: visible;
+    animation: hb-bob 5s ease-in-out infinite;
+    animation-delay: calc(var(--k) * -0.7s);
+  }
+
+  @keyframes hb-bob {
+    50% {
+      transform: translateY(-2px) rotate(-1.2deg);
+    }
+  }
+
+  .hb__hull {
+    fill: var(--bp-ink);
+  }
+
+  .hb__cabin {
+    fill: none;
+    stroke: var(--bp-ink);
+    stroke-width: 1.6;
+  }
+
+  .hb__mast {
+    stroke: var(--bp-ink);
+    stroke-width: 1.6;
+  }
+
+  .hb__wave {
+    fill: none;
+    stroke: var(--bp-line-strong);
+    stroke-width: 1.2;
+  }
+
+  .hb__light {
+    fill: var(--bp-faint);
+  }
+
+  [data-state="running"] .hb__light {
+    fill: var(--bp-run);
+    filter: drop-shadow(0 0 4px var(--bp-run));
+    animation: hb-glow 1.4s ease-in-out infinite;
+  }
+
+  [data-state="warm"] .hb__light {
+    fill: var(--bp-lamp);
+    filter: drop-shadow(0 0 3px var(--bp-lamp));
+  }
+
+  [data-state="stopped"] .hb__hull,
+  [data-state="stopped"] .hb__cabin,
+  [data-state="stopped"] .hb__mast {
+    opacity: 0.38;
+  }
+
+  [data-state="stopped"] .hb__boat {
+    animation: none;
+  }
+
+  [data-state="free"] .hb__boat {
+    animation: none;
+  }
+
+  [data-state="free"] .hb__hull,
+  [data-state="free"] .hb__cabin,
+  [data-state="free"] .hb__mast,
+  [data-state="free"] .hb__light {
+    fill: none;
+    stroke: var(--bp-line-strong);
+    stroke-dasharray: 3 3;
+    stroke-width: 1.2;
+  }
+
+  @keyframes hb-glow {
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .hb__name {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-stretch: 75%;
+  }
+
+  .hb__label {
+    min-height: 2.4em;
+    color: var(--bp-muted);
+    font-size: 0.8rem;
+    line-height: 1.2;
+    text-align: center;
+  }
+
+  [data-state="running"] .hb__label {
+    color: var(--bp-run);
+  }
+
+  [data-state="warm"] .hb__label {
+    color: var(--bp-lamp);
+  }
+
+  /* Highlights driven by the ladder. */
+
+  .hb[data-hl] .hb__berth {
+    opacity: 0.5;
+  }
+
+  .hb[data-hl="s1"] .hb__berth[data-for~="s1"],
+  .hb[data-hl="s2"] .hb__berth[data-for~="s2"],
+  .hb[data-hl="s3"] .hb__berth[data-for~="s3"],
+  .hb[data-hl="s4"] .hb__berth[data-for~="s4"] {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+
+  .hb[data-hl="s1"] .hb__berth[data-for~="s1"]::after,
+  .hb[data-hl="s2"] .hb__berth[data-for~="s2"]::after,
+  .hb[data-hl="s3"] .hb__berth[data-for~="s3"]::after,
+  .hb[data-hl="s4"] .hb__berth[data-for~="s4"]::after {
+    position: absolute;
+    right: 18%;
+    bottom: -1.05rem;
+    left: 18%;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--bp-buoy);
+    content: "";
+  }
+
+  .hb__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.2rem;
+    margin: 1.4rem 0 0;
+    padding: 0;
+    color: var(--bp-muted);
+    font-size: 0.78rem;
+    list-style: none;
+  }
+
+  .hb__legend li::before {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-right: 0.45rem;
+    border-radius: 50%;
+    background: var(--bp-faint);
+    content: "";
+  }
+
+  .hb__legend [data-state="running"]::before {
+    background: var(--bp-run);
+  }
+
+  .hb__legend [data-state="warm"]::before {
+    background: var(--bp-lamp);
+  }
+
+  .hb__legend [data-state="stopped"]::before {
+    background: var(--bp-cold);
+  }
+
+  .hb__legend [data-state="free"]::before {
+    border: 1px dashed var(--bp-line-strong);
+    background: transparent;
+  }
+
+  /* Ladder */
+
+  .hb__ladder-title {
+    margin-bottom: 0.9rem;
+    color: var(--bp-muted);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .hb__ladder ol {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .hb__ladder li {
+    display: grid;
+    align-content: start;
+    gap: 0.7rem;
+    padding: 1rem 1rem 1.1rem;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    cursor: default;
+    outline: none;
+    transition: background 0.3s ease, border-color 0.3s ease;
+  }
+
+  .hb__num {
+    display: grid;
+    place-items: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid var(--bp-line-strong);
+    border-radius: 50%;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    transition: all 0.3s ease;
+  }
+
+  .hb__ladder strong {
+    display: block;
+    font-weight: 600;
+  }
+
+  .hb__ladder p {
+    color: var(--bp-muted);
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+
+  .hb[data-hl="s1"] [data-step="s1"],
+  .hb[data-hl="s2"] [data-step="s2"],
+  .hb[data-hl="s3"] [data-step="s3"],
+  .hb[data-hl="s4"] [data-step="s4"],
+  .hb[data-hl="s5"] [data-step="s5"] {
+    border-color: var(--bp-line-strong);
+    background: var(--bp-card);
+  }
+
+  .hb[data-hl="s1"] [data-step="s1"] .hb__num,
+  .hb[data-hl="s2"] [data-step="s2"] .hb__num,
+  .hb[data-hl="s3"] [data-step="s3"] .hb__num,
+  .hb[data-hl="s4"] [data-step="s4"] .hb__num,
+  .hb[data-hl="s5"] [data-step="s5"] .hb__num {
+    border-color: var(--bp-buoy);
+    background: var(--bp-buoy);
+    color: var(--bp-sea);
+  }
+
+  @media (max-width: 960px) {
+    .hb__ladder ol {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .hb__ladder li {
+      grid-template-columns: auto 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .hb__berths {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      row-gap: 1.4rem;
+    }
+
+    .hb__berth:nth-child(5) {
+      border-left: 0;
+    }
+  }
+</style>

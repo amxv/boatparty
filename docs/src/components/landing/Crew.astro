@@ -1,0 +1,184 @@
+---
+const crew = [
+  { name: "launch", flag: "diagonal", meaning: "Start this workspace's sandbox: create or resume it, then connect.", example: "boatparty launch" },
+  { name: "cheers", flag: "check", meaning: "Sync, run one command, stream its output, return its exit code, bring its changes back.", example: "boatparty cheers -- cargo test" },
+  { name: "load", flag: "bands", meaning: "Sync the working tree only.", example: "boatparty load" },
+  { name: "cruise", flag: "cross", meaning: "Run a long-lived process, such as a dev server, with port forwards.", example: "boatparty cruise --forward 3000:3000 -- npm run dev" },
+  { name: "board", flag: "halves", meaning: "Open a shell in the checkout, or run one command there without syncing.", example: "boatparty board" },
+  { name: "dock", flag: "square", meaning: "Stop the sandbox now. Its disk is kept. Rarely needed: idle sandboxes stop by themselves.", example: "boatparty dock" }
+];
+
+const plain = ["init", "status", "pipe", "fetch", "forward", "expose", "limits", "pool", "log", "doctor", "base", "skill"];
+---
+
+<section class="bp-section cw">
+  <div class="shell">
+    <div class="bp-intro">
+      <div class="bp-reveal">
+        <p class="bp-eyebrow">The crew</p>
+        <h2>Six words <em>to remember.</em></h2>
+      </div>
+      <p class="bp-reveal" style="--d:0.1s">
+        The everyday commands are boat-party themed; everything else has a plain name.
+        <code>boatparty &lt;command&gt; --help</code> documents each one.
+      </p>
+    </div>
+
+    <ul class="cw__grid">
+      {crew.map((member, index) => (
+        <li class="cw__card bp-reveal" style={`--d:${(index % 3) * 0.07}s`}>
+          <span class="cw__flag" data-flag={member.flag} aria-hidden="true"></span>
+          <h3>{member.name}</h3>
+          <p>{member.meaning}</p>
+          <code class="cw__ex">{member.example}</code>
+        </li>
+      ))}
+    </ul>
+
+    <p class="cw__plain bp-reveal">
+      <span>Also aboard</span>
+      {plain.map((name) => <code>{name}</code>)}
+    </p>
+  </div>
+</section>
+
+<style>
+  .cw__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--bp-line-strong);
+    border-left: 1px solid var(--bp-line-strong);
+    list-style: none;
+  }
+
+  .cw__card {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 0.7rem;
+    padding: 1.8rem 1.6rem 1.6rem;
+    border-right: 1px solid var(--bp-line-strong);
+    border-bottom: 1px solid var(--bp-line-strong);
+    transition: background 0.3s ease;
+  }
+
+  .cw__card:hover {
+    background: var(--bp-card);
+  }
+
+  .cw__card h3 {
+    margin: 0.4rem 0 0;
+    font-size: 2.3rem;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .cw__card p {
+    color: var(--bp-muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .cw__ex {
+    overflow: hidden;
+    color: var(--bp-ink-soft);
+    font-size: 0.66rem !important;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cw__ex::before {
+    margin-right: 0.5rem;
+    color: var(--bp-buoy);
+    content: "$";
+  }
+
+  /* Signal flags: one pattern per command, on a short pole. */
+
+  .cw__flag {
+    position: relative;
+    width: 3rem;
+    height: 2.1rem;
+    margin-left: 0.3rem;
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px var(--bp-line-strong);
+    transform-origin: left center;
+    transition: transform 0.4s cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+
+  .cw__flag::before {
+    position: absolute;
+    top: -0.3rem;
+    bottom: -0.9rem;
+    left: -0.3rem;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--bp-ink);
+    content: "";
+  }
+
+  .cw__card:hover .cw__flag {
+    transform: skewY(-4deg) scaleX(0.96);
+  }
+
+  [data-flag="diagonal"] {
+    background: linear-gradient(135deg, var(--bp-buoy) 50%, var(--bp-lamp) 50%);
+  }
+
+  [data-flag="check"] {
+    background:
+      conic-gradient(var(--bp-ink) 25%, var(--bp-sea) 0 50%, var(--bp-ink) 0 75%, var(--bp-sea) 0) 0 0 / 50% 50%;
+  }
+
+  [data-flag="bands"] {
+    background: linear-gradient(var(--bp-run) 0 33.3%, var(--bp-sea) 0 66.6%, var(--bp-run) 0);
+  }
+
+  [data-flag="cross"] {
+    background:
+      linear-gradient(var(--bp-sea), var(--bp-sea)) 34% 0 / 14% 100% no-repeat,
+      linear-gradient(var(--bp-sea), var(--bp-sea)) 0 50% / 100% 22% no-repeat,
+      var(--bp-cold);
+  }
+
+  [data-flag="halves"] {
+    background: linear-gradient(90deg, var(--bp-lamp) 50%, var(--bp-ink) 50%);
+  }
+
+  [data-flag="square"] {
+    background:
+      linear-gradient(var(--bp-buoy), var(--bp-buoy)) center / 46% 46% no-repeat,
+      var(--bp-sea);
+  }
+
+  .cw__plain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.8rem;
+  }
+
+  .cw__plain span {
+    margin-right: 0.6rem;
+    color: var(--bp-muted);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 960px) {
+    .cw__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 600px) {
+    .cw__grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

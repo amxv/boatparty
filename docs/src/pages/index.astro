@@ -1,28 +1,17 @@
 ---
-import { getCollection } from "astro:content";
 import BaseLayout from "zuedocs/layouts/BaseLayout.astro";
+import Agents from "../components/landing/Agents.astro";
+import Crew from "../components/landing/Crew.astro";
+import Harbor from "../components/landing/Harbor.astro";
+import Hero from "../components/landing/Hero.astro";
+import Lifecycle from "../components/landing/Lifecycle.astro";
+import Limits from "../components/landing/Limits.astro";
+import Start from "../components/landing/Start.astro";
 import { primaryNav, siteConfig } from "../data/docs";
+import "../styles/landing.css";
 
-const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
-
-const proofPoints = [
-  {
-    title: "Warm by default",
-    body: "A workspace keeps its sandbox. When it is up, a command makes no call to boat before it starts, and only changed files are rewritten."
-  },
-  {
-    title: "Git-native sync",
-    body: "The working tree travels as a thin pack, HEAD only by default. File changes the command makes come back as a patch, never over local edits."
-  },
-  {
-    title: "Limits in one place",
-    body: "One account.toml caps pools, running sandboxes and starts per project. Starts wait instead of failing, and idle sandboxes stop after five minutes."
-  },
-  {
-    title: "Built for agents",
-    body: "Real exit codes, 125 for infrastructure failures, --json everywhere, secrets on stdin through pipe, and a bundled skill."
-  }
-];
+const fonts =
+  "https://fonts.googleapis.com/css2?family=Gloock&family=Martian+Mono:wdth,wght@75..112.5,300..600&family=Schibsted+Grotesk:ital,wght@0,400..700;1,400..700&display=swap";
 ---
 
 <BaseLayout
@@ -31,63 +20,18 @@ const proofPoints = [
   siteConfig={siteConfig}
   primaryNav={primaryNav}
 >
-  <section class="hero shell">
-    <div class="hero__copy">
-      <p class="section-label">boat.dev sandbox pools</p>
-      <h1>Build and test on a warm Linux sandbox, from any Git checkout.</h1>
-      <p class="hero__lede">
-        boatparty mirrors your working tree to a boat.dev sandbox, runs the command with live
-        output and its real exit code, brings its file changes back, and keeps the sandbox warm
-        for the next one. Every project gets a pool; one file holds every limit.
-      </p>
-      <div class="hero__actions">
-        <a class="button button--solid" href="/docs/getting-started">Get started</a>
-        <a class="button button--ghost" href="/docs">Browse docs</a>
-      </div>
-    </div>
-    <aside class="hero__panel">
-      <p class="hero__panel-label">The loop</p>
-      <div class="hero__terminal">
-        <span>$ boatparty init</span>
-        <span>$ boatparty cheers -- cargo test</span>
-        <span>$ boatparty cruise --forward 3000:3000 dev</span>
-        <span>$ boatparty limits</span>
-      </div>
-    </aside>
-  </section>
-
-  <section class="shell section-grid">
-    <div class="section-heading">
-      <p class="section-label">Why</p>
-      <h2>Your laptop stays cool; the sandbox does the work.</h2>
-      <p>
-        Compiles, test suites and dev servers run on boat.dev machines. boatparty handles the
-        lifecycle, the sync, the start budget and the idle stops, so a command is all you type.
-      </p>
-    </div>
-    <div class="proof-grid">
-      {proofPoints.map((item) => (
-        <article class="proof-card">
-          <h3>{item.title}</h3>
-          <p>{item.body}</p>
-        </article>
-      ))}
-    </div>
-  </section>
-
-  <section class="shell docs-teaser">
-    <div class="section-heading">
-      <p class="section-label">Documentation</p>
-      <h2>Start with the first run, then go deeper only when you need it.</h2>
-    </div>
-    <div class="docs-teaser__grid">
-      {docs.map((entry) => (
-        <a class="docs-teaser__card" href={`/docs/${entry.id}`}>
-          <span>{entry.data.category}</span>
-          <h3>{entry.data.title}</h3>
-          <p>{entry.data.summary ?? entry.data.description}</p>
-        </a>
-      ))}
-    </div>
-  </section>
+  <link rel="stylesheet" href={fonts} />
+  <div class="bp">
+    <Hero />
+    <Harbor />
+    <Lifecycle />
+    <Limits />
+    <Agents />
+    <Crew />
+    <Start />
+  </div>
 </BaseLayout>
+
+<script>
+  import "../scripts/landing";
+</script>
