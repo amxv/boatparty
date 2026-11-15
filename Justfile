@@ -60,10 +60,6 @@ remote-test *args:
 boat-build-macos *args:
     scripts/boat-build-macos.sh "$@"
 
-# Build this tree's macOS binary and run the tests on a one-shot NoMac Mac (output in target/nomac/).
-build-macos *args:
-    scripts/build-macos.sh "$@"
-
 # Install the latest (or --version vX.Y.Z) release into ~/.local/bin.
 install *args:
     scripts/install.sh "$@"
