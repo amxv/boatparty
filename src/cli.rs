@@ -37,6 +37,9 @@ pub enum Command {
     /// Sync, run one command in the sandbox's checkout, stream its output, and
     /// apply its file changes back; exits with the command's status.
     Cheers(CheersArgs),
+    /// Run a long-lived process, such as a dev server, in the sandbox's
+    /// checkout until cancelled, with optional port forwards.
+    Cruise(CruiseArgs),
     /// Open a shell in the sandbox's checkout, or run one command there
     /// without syncing.
     Board(BoardArgs),
@@ -44,6 +47,11 @@ pub enum Command {
     Dock(DockArgs),
     /// Copy a file or directory from the sandbox to this machine (no sync).
     Fetch(FetchArgs),
+    /// Forward a local port to a port on the sandbox until cancelled.
+    Forward(ForwardArgs),
+    /// Expose a sandbox port on a public HTTPS URL (token-gated unless
+    /// --public); prints the URL.
+    Expose(ExposeArgs),
     /// Write boatparty.toml for this Git repository and register the project.
     Init(InitArgs),
     /// Show this project's sandboxes.
@@ -120,6 +128,144 @@ pub struct CheersArgs {
     /// The command to run, after `--`. Every word is quoted.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    group(ArgGroup::new("what").required(true).multiple(true).args(["sh", "command", "words"])),
+    after_help = "Examples:\n  \
+                  boatparty cruise --forward 8000:8000 -- python3 -m http.server 8000\n  \
+                  boatparty cruise --forward 3000:3000 --ready-port 3000 dev\n  \
+                  boatparty cruise --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'\n\n\
+                  Takes its command in the same three forms as `cheers` (-- ARGV, --sh LINE, or a \
+                  NAME from [commands] or the script runner); options go before NAME. The working \
+                  tree is synced first, with the same credentials, [run.env] and steps as \
+                  `cheers`, and the server starts once the sandbox's files are fully restored. It \
+                  holds the sandbox (a `serve` lease) until it ends.\n\n\
+                  --forward [BIND:]LOCAL:REMOTE makes LOCAL on this machine reach REMOTE on the \
+                  sandbox; --reverse [BIND:]REMOTE:LOCAL makes REMOTE on the sandbox reach LOCAL \
+                  here. Both listen on 127.0.0.1 unless BIND names another address (for example \
+                  0.0.0.0, which other machines can reach). Forwards travel on the server's own \
+                  SSH connection and end with it; other commands keep using the shared one.\n\n\
+                  --ready-port PORT logs once, and sends the event `ready`, when something starts \
+                  listening on PORT on the sandbox. --max-minutes stops a forgotten server (default \
+                  120; 0 disables the cap).\n\n\
+                  Ctrl-C (SIGINT) or SIGTERM stops the server; if this process dies in any other \
+                  way, SIGKILL included, the sandbox stops the server within seconds. Files the \
+                  server changed in the checkout come back like `cheers` only when it exits by \
+                  itself; a stopped server sends nothing back, and the next sync replaces them.\n\n\
+                  Exit status: the server's own; 125 when boatparty itself failed; 130 or 143 \
+                  after SIGINT or SIGTERM. With --json, stdout carries the same frames as \
+                  `cheers`."
+)]
+pub struct CruiseArgs {
+    /// Forward LOCAL on this machine to REMOTE on the sandbox (repeatable).
+    #[arg(
+        long = "forward",
+        value_name = "[BIND:]LOCAL:REMOTE",
+        value_parser = crate::transport::forward::parse_local
+    )]
+    pub forward: Vec<crate::transport::forward::Forward>,
+
+    /// Forward REMOTE on the sandbox to LOCAL on this machine (repeatable).
+    #[arg(
+        long = "reverse",
+        value_name = "[BIND:]REMOTE:LOCAL",
+        value_parser = crate::transport::forward::parse_reverse
+    )]
+    pub reverse: Vec<crate::transport::forward::Forward>,
+
+    /// Log once and send the event `ready` when this sandbox port listens.
+    #[arg(long, value_name = "PORT", value_parser = crate::transport::forward::parse_port)]
+    pub ready_port: Option<u16>,
+
+    /// Stop the server after this many minutes (0: never).
+    #[arg(long, value_name = "MINUTES", default_value = "120", value_parser = parse_minutes)]
+    pub max_minutes: f64,
+
+    /// Run this shell line as given instead of a quoted argument list.
+    #[arg(long, value_name = "LINE", conflicts_with = "command")]
+    pub sh: Option<String>,
+
+    /// A command named in boatparty.toml, then its arguments.
+    #[arg(
+        value_name = "NAME [ARGS]",
+        allow_hyphen_values = true,
+        conflicts_with = "sh"
+    )]
+    pub words: Vec<String>,
+
+    /// The command to run, after `--`. Every word is quoted.
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+impl CruiseArgs {
+    /// The command, in the shape `cheers` takes it.
+    pub fn command_args(&self) -> CheersArgs {
+        CheersArgs {
+            sh: self.sh.clone(),
+            words: self.words.clone(),
+            command: self.command.clone(),
+        }
+    }
+}
+
+/// A number of minutes, zero or more (fractions allowed).
+fn parse_minutes(value: &str) -> Result<f64, String> {
+    match value.parse::<f64>() {
+        Ok(minutes) if minutes.is_finite() && minutes >= 0.0 => Ok(minutes),
+        _ => Err(format!("{value:?} is not a number of minutes (0 or more)")),
+    }
+}
+
+#[derive(Debug, Args)]
+#[command(after_help = "Examples:\n  \
+                  boatparty forward 5432               127.0.0.1:5432 here reaches port 5432 on the sandbox\n  \
+                  boatparty forward 8000:18000         127.0.0.1:18000 here reaches port 8000 there\n  \
+                  boatparty forward 8000 --bind 0.0.0.0   also reachable from other machines\n\n\
+                  Holds the forward, and the sandbox (a `session` lease), until Ctrl-C or SIGTERM; \
+                  it ends too if this process dies. The forward listens on 127.0.0.1 unless --bind \
+                  names another address, and uses an SSH connection of its own. A ready line goes \
+                  to stderr once it listens. Exit status: 130 or 143 after SIGINT or SIGTERM; 125 \
+                  when the connection failed.")]
+pub struct ForwardArgs {
+    /// The sandbox port, then optionally the local port (the same by default).
+    #[arg(value_name = "REMOTE[:LOCAL]", value_parser = crate::transport::forward::parse_pair)]
+    pub ports: crate::transport::forward::PortPair,
+
+    /// The local address to listen on instead of 127.0.0.1.
+    #[arg(long, value_name = "ADDR", value_parser = crate::transport::forward::parse_bind)]
+    pub bind: Option<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(after_help = "Examples:\n  \
+                  boatparty expose 8000                     a URL that only works with its token\n  \
+                  boatparty expose 5173 --localhost         for a service bound to 127.0.0.1\n  \
+                  boatparty expose 8000 --public --title docs   anyone can open it\n\n\
+                  Prints the URL on stdout and nowhere else. Without --public it carries an access \
+                  token (`_token`): treat the whole URL like a password. The URL stays the same for \
+                  this sandbox and port, across stops and resumes. boatparty does not keep it in \
+                  its state or logs; run the command again to print it again. Ports the provider \
+                  uses (22, 6080, 8090, 8911, 47984 to 48010) are refused. The service must listen \
+                  on 0.0.0.0, or on 127.0.0.1 with --localhost.")]
+pub struct ExposeArgs {
+    /// The sandbox port the service listens on.
+    #[arg(value_name = "PORT", value_parser = crate::transport::forward::parse_expose_port)]
+    pub port: u16,
+
+    /// A URL without an access token: anyone who has it can open it.
+    #[arg(long)]
+    pub public: bool,
+
+    /// The service listens on the sandbox's 127.0.0.1 only.
+    #[arg(long)]
+    pub localhost: bool,
+
+    /// A display title for the exposed port.
+    #[arg(long, value_name = "TITLE")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -440,6 +586,84 @@ mod tests {
             Command::Cheers(args) => args,
             other => panic!("parsed {other:?}"),
         })
+    }
+
+    fn cruise(args: &[&str]) -> Result<CruiseArgs, clap::Error> {
+        let mut argv = vec!["boatparty", "cruise"];
+        argv.extend_from_slice(args);
+        Cli::try_parse_from(argv).map(|cli| match cli.command {
+            Command::Cruise(args) => args,
+            other => panic!("parsed {other:?}"),
+        })
+    }
+
+    #[test]
+    fn cruise_takes_forwards_and_a_command_in_the_cheers_forms() {
+        let args = cruise(&[
+            "--forward",
+            "8000:8000",
+            "--forward",
+            "0.0.0.0:9000:9001",
+            "--reverse",
+            "20000:7777",
+            "--ready-port",
+            "8000",
+            "--",
+            "python3",
+            "-m",
+            "http.server",
+            "8000",
+        ])
+        .unwrap();
+        assert_eq!(args.forward.len(), 2);
+        assert_eq!(args.forward[0].bind, "127.0.0.1");
+        assert_eq!(args.forward[1].bind, "0.0.0.0");
+        assert_eq!(args.reverse[0].listen, 20000);
+        assert_eq!(args.ready_port, Some(8000));
+        assert_eq!(args.max_minutes, 120.0);
+        assert_eq!(args.command, ["python3", "-m", "http.server", "8000"]);
+
+        let named = cruise(&["--max-minutes", "0", "dev", "--port", "3000"]).unwrap();
+        assert_eq!(named.words, ["dev", "--port", "3000"]);
+        assert_eq!(named.max_minutes, 0.0);
+        let line = cruise(&["--sh", "npm start"]).unwrap();
+        assert_eq!(line.command_args().sh.as_deref(), Some("npm start"));
+
+        assert!(cruise(&[]).is_err());
+        assert!(cruise(&["--forward", "8000", "--", "x"]).is_err());
+        assert!(cruise(&["--ready-port", "0", "--", "x"]).is_err());
+        assert!(cruise(&["--max-minutes", "-1", "--", "x"]).is_err());
+    }
+
+    #[test]
+    fn expose_refuses_reserved_ports_and_forward_parses_its_ports() {
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["boatparty"];
+            argv.extend_from_slice(args);
+            Cli::try_parse_from(argv).map(|cli| cli.command)
+        };
+        match parse(&["expose", "8000", "--title", "app"]).unwrap() {
+            Command::Expose(args) => {
+                assert_eq!(args.port, 8000);
+                assert!(!args.public && !args.localhost);
+                assert_eq!(args.title.as_deref(), Some("app"));
+            }
+            other => panic!("parsed {other:?}"),
+        }
+        for reserved in ["22", "6080", "8090", "8911", "47984", "48010"] {
+            let error = parse(&["expose", reserved]).unwrap_err();
+            assert_eq!(error.exit_code(), 2);
+            assert!(error.to_string().contains("reserved"), "{error}");
+        }
+        match parse(&["forward", "5432:15432", "--bind", "0.0.0.0"]).unwrap() {
+            Command::Forward(args) => {
+                assert_eq!((args.ports.remote, args.ports.local), (5432, 15432));
+                assert_eq!(args.bind.as_deref(), Some("0.0.0.0"));
+            }
+            other => panic!("parsed {other:?}"),
+        }
+        assert!(parse(&["forward", "1:2:3"]).is_err());
+        assert!(parse(&["forward", "8000", "--bind", "example.com"]).is_err());
     }
 
     #[test]

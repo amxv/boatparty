@@ -74,12 +74,23 @@ finish() {
 # (the client closed it, or the client died and its SSH channel closed)
 # terminates the command's process group. On a shared SSH master that is the
 # only sign of a dead client; the session itself survives it.
+#
+# serve <nonce> ... <command> <ready-port or ->: the same for a server (see
+# "Servers"): it is marked as serving while it runs, and with a ready port the
+# event "ready" follows once that port listens.
 mode_run() {
-  local nonce="$1" wip="$3" command="$9" rc=0 pid watcher shm run_tmp="" old_tmp
+  local nonce="$1" wip="$3" command="$9" ready_port="${10:--}" rc=0 pid watcher ready=""
+  local shm run_tmp="" old_tmp
+  if [[ "$serve_mode" == 1 && "$ready_port" != - && ! "$ready_port" =~ ^[0-9]+$ ]]; then
+    echo "boatparty runner: bad ready port $ready_port" >&2
+    exit 2
+  fi
   load_spec "$8"
   trap stop_token EXIT
   read_credentials
-  find "$state/out" -maxdepth 1 -type f -mmin +1440 -delete 2>/dev/null || true
+  # A server may outlive a day; its marker stays while it runs.
+  find "$state/out" -maxdepth 1 -type f ! -name '*.serve' -mmin +1440 -delete 2>/dev/null || true
+  prune_serve_markers
   receive "$1" "$2" "$3" "$4" "$5" "$6" "$7"
   cd "$repo"
   apply_identity
@@ -112,6 +123,13 @@ mode_run() {
   perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- &
   pid=$!
   printf '%s\n' "$pid" >"$state/out/$nonce.pid"
+  if [[ "$serve_mode" == 1 ]]; then
+    printf '%s\n' "$pid" >"$state/out/$nonce.serve"
+    if [[ "$ready_port" != - ]]; then
+      watch_ready "$nonce" "$ready_port" "$pid" </dev/null >/dev/null 8<&- &
+      ready=$!
+    fi
+  fi
   (
     # Read until end of file; nothing is sent after the pack.
     while IFS= read -r -d '' ignored <&8; do :; done
@@ -122,10 +140,20 @@ mode_run() {
   exec 8<&-
   # Quietly: bash would report a job killed by a signal on stderr.
   { wait "$pid"; } 2>/dev/null || rc=$?
-  kill "$watcher" 2>/dev/null || true
-  wait "$watcher" 2>/dev/null || true
+  if [[ -e "$state/out/$nonce.cancelled" ]]; then
+    # It is stopping the group: let it finish, so whatever ignored TERM in
+    # the group still gets KILL.
+    wait "$watcher" 2>/dev/null || true
+  else
+    kill "$watcher" 2>/dev/null || true
+    wait "$watcher" 2>/dev/null || true
+  fi
+  if [[ -n "$ready" ]]; then
+    kill "$ready" 2>/dev/null || true
+    wait "$ready" 2>/dev/null || true
+  fi
   stop_token
-  rm -f "$state/out/$nonce.pid"
+  rm -f "$state/out/$nonce.pid" "$state/out/$nonce.serve"
   if [[ -n "$run_tmp" ]]; then
     chmod -R u+rwx "$run_tmp" 2>/dev/null || true
     rm -rf "$run_tmp"
@@ -179,6 +207,10 @@ mode_settle() {
 case "$mode" in
   sync) mode_sync "$@" ;;
   run) mode_run "$@" ;;
+  serve)
+    serve_mode=1
+    mode_run "$@"
+    ;;
   seed) mode_seed "$@" ;;
   credential) mode_credential "$@" ;;
   maintain) mode_maintain ;;

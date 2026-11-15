@@ -7,9 +7,10 @@
 # carries the script text.
 #
 # Invocation: bash runner-<hash>.sh <mode> <project> <args...>
-# Modes: sync, run, seed, fetch-patch, kill, maintain, settle (a builder's
-# last step before its base is saved), credential (Git's credential helper
-# inside a command; see "Build credentials").
+# Modes: sync, run, serve (a long-running `run`; see "Servers"), seed,
+# fetch-patch, kill, maintain, settle (a builder's last step before its base
+# is saved), credential (Git's credential helper inside a command; see
+# "Build credentials").
 #
 # The repository keeps this script as parts (src/runner/script/*.sh) that
 # the binary joins in a fixed order; only the joined text is uploaded.
@@ -22,7 +23,8 @@
 # every workaround below is either driven by it or stack-neutral.
 #
 # Results travel on stderr as frames keyed by a per-invocation nonce:
-#   event:                "\n<nonce>!<event>\n" (run emits "started")
+#   event:                "\n<nonce>!<event>\n" (run emits "started"; serve
+#                         also "ready")
 #   trailer, always last: "\n<nonce> <exit-code> <resulting-tree> <patch-bytes>\n"
 #   or, with exit 97:     "\n<nonce> needfull\n"
 # Everything else on stderr, and all of stdout, passes through untouched.

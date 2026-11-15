@@ -105,6 +105,44 @@ pub trait Provider {
     /// Remove a saved snapshot; `false` when it did not exist. Sandboxes
     /// already started from it are unaffected.
     fn delete_saved_snapshot(&self, name: &str) -> Result<bool, ProviderError>;
+
+    /// Expose a port of a running sandbox on a public HTTPS URL. The same
+    /// sandbox and port always get the same URL. A gated URL carries its
+    /// access token, so the answer is a secret: no error ever contains it.
+    fn host_port(&self, id: &str, request: &HostPort) -> Result<HostedPort, ProviderError>;
+}
+
+/// A port to expose on a public URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPort {
+    pub port: u16,
+    /// No access token: anyone who knows the URL can open it.
+    pub public: bool,
+    /// The service listens on the sandbox's loopback address only.
+    pub localhost: bool,
+    pub title: Option<String>,
+}
+
+/// An exposed port. `url` opens it, token included when it is gated; it is
+/// left out of `Debug` so it cannot reach a log by accident.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HostedPort {
+    pub port: u16,
+    pub url: String,
+    /// Opening the URL needs its access token.
+    pub protected: bool,
+    pub localhost: bool,
+}
+
+impl fmt::Debug for HostedPort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("HostedPort")
+            .field("port", &self.port)
+            .field("url", &"<redacted>")
+            .field("protected", &self.protected)
+            .field("localhost", &self.localhost)
+            .finish()
+    }
 }
 
 /// Open the provider described by the account settings with this key.

@@ -18,6 +18,9 @@ pub const ID: &str = "bx_23456789";
 /// Part of every signed upload URL the fake hands out; it must never show up
 /// in output, state or logs.
 pub const URL_SECRET: &str = "s3cr3t-upload-token";
+/// The access token in every gated URL `expose` gets from the fake; it may
+/// appear on stdout and nowhere else.
+pub const HOST_TOKEN: &str = "h0st-t0ken-for-tests";
 
 pub struct E2e {
     pub root: TempDir,
@@ -87,7 +90,8 @@ impl E2e {
              done\n\
              for a in \"$@\"; do last=\"$a\"; done\n\
              cmd=$(printf '%s' \"$last\" | sed -e 's#/home/user/#{remote}/#g')\n\
-             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; *' settle app '*) echo ssh-settle >> '{events}';; esac\n\
+             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; *' settle app '*) echo ssh-settle >> '{events}';; \
+               *' serve app '*) for a in \"$@\"; do [ \"$a\" = \"$last\" ] || printf '%s ' \"$a\"; done | sed 's/^/ssh-serve /' >> '{events}'; echo >> '{events}';; esac\n\
              exec sh -c \"$cmd\"\n",
             remote = self.remote().display(),
             events = self.events().display(),
@@ -110,6 +114,30 @@ impl E2e {
         let mut command = boatparty(&self.home());
         command
             .current_dir(self.repo())
+            .env("BOATPARTY_BOAT_API_URL", boat.url())
+            .env("BOATPARTY_POLL_MS", "10")
+            .env("BOATPARTY_RUNNER_REPO", self.remote().join("app"))
+            .env("BOATPARTY_RUNNER_STATE", self.remote().join(".boatparty"))
+            .env("PATH", path)
+            .env_remove("FAKE_SSH_CHECK")
+            .env_remove("BOATPARTY_SIGNED_URL_MIN_BYTES");
+        command
+    }
+
+    /// `cmd` as a std command, for a client a test spawns and kills.
+    pub fn spawn_cmd(&self, boat: &FakeBoat) -> std::process::Command {
+        let path = format!(
+            "{}:{}",
+            self.root.path().join("bin").display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        let mut command = super::isolated(env!("CARGO_BIN_EXE_boatparty"));
+        command
+            .current_dir(self.repo())
+            .env("BOATPARTY_HOME", self.home())
+            .env_remove("BOATPARTY_BOAT_API_KEY")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_STATE_HOME")
             .env("BOATPARTY_BOAT_API_URL", boat.url())
             .env("BOATPARTY_POLL_MS", "10")
             .env("BOATPARTY_RUNNER_REPO", self.remote().join("app"))
@@ -189,6 +217,24 @@ impl E2e {
                         &json!({"ok": true, "type": "file.download_url", "method": "GET",
                                 "path": target, "expiresAt": "2026-11-15T12:15:00Z",
                                 "url": format!("{host}{download_prefix}{target}?sig={URL_SECRET}")})
+                        .to_string(),
+                    )
+                }
+                ("POST", path) if path == format!("/sandboxes/{ID}/host") => {
+                    let asked: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                    let port = asked["port"].as_u64().unwrap();
+                    let public = asked["public"].as_bool().unwrap_or(false);
+                    let url = if public {
+                        format!("https://app-{port}.on.boat.example")
+                    } else {
+                        format!("https://app-{port}.on.boat.example?_token={HOST_TOKEN}")
+                    };
+                    Reply::json(
+                        200,
+                        &json!({"ok": true, "type": "port.hosted", "success": true,
+                                "port": port, "url": url, "isProtected": !public,
+                                "access": if public { "public" } else { "private" },
+                                "localhost": asked["localhost"]})
                         .to_string(),
                     )
                 }

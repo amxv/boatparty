@@ -128,6 +128,16 @@ pub enum LeaseKind {
     Session,
 }
 
+impl LeaseKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Run => "run",
+            Self::Serve => "serve",
+            Self::Session => "session",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Lease {
     pub pid: u32,

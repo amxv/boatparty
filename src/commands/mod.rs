@@ -2,9 +2,12 @@ pub mod base;
 pub mod board;
 pub mod cheers;
 pub mod config;
+pub mod cruise;
 pub mod dock;
 pub mod doctor;
+pub mod expose;
 pub mod fetch;
+pub mod forward;
 pub mod init;
 pub mod launch;
 pub mod limits;
@@ -75,6 +78,7 @@ pub(crate) fn runner_host(
         target: target.clone(),
         upload,
         spec: Some(spec),
+        dedicated: None,
     }
 }
 

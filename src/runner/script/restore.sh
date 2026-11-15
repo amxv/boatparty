@@ -105,7 +105,8 @@ output_roots() {
 floor_on() { [[ "$bp_floor" == 1 && ${#bp_output_dirs[@]} -gt 0 ]]; }
 
 # A long-running server keeps building; flooring waits until it stops.
-# (Servers record out/<nonce>.serve; nothing writes one yet.)
+# (A server records its pid in out/<nonce>.serve while it runs; see
+# "Servers".)
 serve_active() {
   local file
   for file in "$state"/out/*.serve; do

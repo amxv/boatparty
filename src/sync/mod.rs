@@ -29,7 +29,7 @@ pub use credentials::RunCredentials;
 pub use exchange::{CancelProbe, CancelState, NeverCancel, Sink};
 pub use mirror::{
     MirrorOutcome, MirrorRequest, PackRoute, RunEnd, RunOutcome, fetch_patch, mirror, run_command,
-    run_command_with,
+    run_command_with, serve_command_with,
 };
 pub use pullback::{PullBack, apply_pullback};
 pub use seed::{SeedConfig, SeedReport, SeedRoute, TokenSource};

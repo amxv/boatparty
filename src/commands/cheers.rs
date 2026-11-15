@@ -17,12 +17,14 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use super::WorkspaceContext;
+use super::cruise::{self, CapProbe, Serve};
 use crate::Context;
 use crate::cli::CheersArgs;
 use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
 use crate::pool::{LeaseRequest, warm_member};
 use crate::project::Workspace;
+use crate::provider::Hydration;
 use crate::runner::{RunnerSpec, SshRunner};
 use crate::runs;
 use crate::signals::Interrupts;
@@ -37,9 +39,20 @@ use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
 pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
+    run_as(ctx, args, None)
+}
+
+/// `cheers`, or with `serve` a server (`cruise`).
+pub(crate) fn run_as(
+    ctx: &Context,
+    args: &CheersArgs,
+    serve: Option<Serve>,
+) -> Result<u8, AppError> {
     let mut stream = Stream::new(ctx.out.is_json());
     let mut cheers = Cheers {
         ctx,
+        serve,
+        interrupted: None,
         // A named command's line is known once the project is loaded.
         line: command_line(args).unwrap_or_default(),
         named: args
@@ -57,7 +70,7 @@ pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
             stream.error(&error);
             cheers.record["exit_code"] = Value::Null;
             cheers.record["error"] = json!(error.code());
-            error.exit_code()
+            cheers.interrupted.unwrap_or_else(|| error.exit_code())
         }
     };
     cheers.record["at"] = json!(runs::rfc3339(cheers.at));
@@ -65,7 +78,7 @@ pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
         cheers.line = args.words.join(" ");
     }
     cheers.record["command"] = json!(cheers.line);
-    cheers.record["kind"] = json!("run");
+    cheers.record["kind"] = json!(cheers.kind().as_str());
     cheers.record["seconds"] = json!(round(cheers.began.elapsed().as_secs_f64()));
     if let Err(error) = runs::append(&ctx.paths, &cheers.record) {
         stream.note(format_args!("warning: could not record the run: {error}"));
@@ -94,6 +107,10 @@ pub fn command_line(args: &CheersArgs) -> Option<String> {
 
 struct Cheers<'a> {
     ctx: &'a Context,
+    /// Set for a server (`cruise`).
+    serve: Option<Serve>,
+    /// A SIGINT or SIGTERM ended the run before the command started.
+    interrupted: Option<u8>,
     line: String,
     /// `cheers <name> [args...]`: the name and its arguments.
     named: Option<(String, Vec<String>)>,
@@ -113,6 +130,8 @@ struct Conn {
     warm: bool,
     /// This invocation created or resumed the member.
     started_member: bool,
+    /// How far the member's files are restored, when a provider call said.
+    hydration: Option<Hydration>,
 }
 
 impl Conn {
@@ -130,9 +149,21 @@ struct Ran {
     /// A setup or ensure step that failed, so the command did not run
     /// (`ensure.<name>`).
     failed_step: Option<String>,
+    /// A server's time cap stopped it.
+    capped: bool,
+    /// Seconds from a server's start until its ready port listened.
+    ready_seconds: Option<f64>,
 }
 
 impl Cheers<'_> {
+    fn kind(&self) -> LeaseKind {
+        if self.serve.is_some() {
+            LeaseKind::Serve
+        } else {
+            LeaseKind::Run
+        }
+    }
+
     fn execute(&mut self, stream: &mut Stream) -> Result<u8, AppError> {
         let ctx = self.ctx;
         let workspace = Workspace::current()?;
@@ -156,8 +187,17 @@ impl Cheers<'_> {
         let store = Store::new(&ctx.paths);
         self.record["project"] = json!(name);
         self.record["workspace"] = json!(workspace.key());
+        if let Some(serve) = &self.serve {
+            serve.check(stream)?;
+        }
 
-        let mut conn = connect(ctx, &store, &name, &workspace, &self.line)?;
+        // A server always asks the provider: it must know whether the
+        // member's files are restored, and it is not on the warm path.
+        let mut conn = if self.serve.is_some() {
+            bring_up(ctx, &self.line, LeaseKind::Serve)?
+        } else {
+            connect(ctx, &store, &name, &workspace, &self.line)?
+        };
         // Read only now that a command is about to run; held in memory.
         let credentials = RunCredentials::gather(&workspace.root, identity, &token_source);
         if token_source != TokenSource::None && credentials.github_token.is_none() {
@@ -174,19 +214,22 @@ impl Cheers<'_> {
         self.record["github_token"] = json!(credentials.github_token.is_some());
         let interrupts = Interrupts::install()?;
         let mut heartbeat = None;
-        let ran = self.drive(
-            stream,
-            &name,
-            &info,
-            history,
-            &seed,
-            &spec,
-            &credentials,
-            &mut conn,
-            times,
-            &interrupts,
-            &mut heartbeat,
-        );
+        let ran = match self.prepare_serve(stream, &conn, times, &interrupts, &mut heartbeat) {
+            Ok(()) => self.drive(
+                stream,
+                &name,
+                &info,
+                history,
+                &seed,
+                &spec,
+                &credentials,
+                &mut conn,
+                times,
+                &interrupts,
+                &mut heartbeat,
+            ),
+            Err(error) => Err(error),
+        };
         // The token is not kept past the command.
         drop(credentials);
         drop(seed);
@@ -207,7 +250,7 @@ impl Cheers<'_> {
         let id = conn.id();
         let last_run = json!({
             "at": runs::rfc3339(self.at),
-            "kind": "run",
+            "kind": self.kind().as_str(),
             "command": self.line,
             "exit_code": status,
             "seconds": round(self.began.elapsed().as_secs_f64()),
@@ -252,6 +295,10 @@ impl Cheers<'_> {
         self.record["seed_fallback"] = json!(ran.outcome.seed.fallback);
         self.record["copy_back"] = copy_back["status"].clone();
         self.record["failed_step"] = json!(ran.failed_step);
+        if self.serve.is_some() {
+            self.record["capped"] = json!(ran.capped);
+            self.record["ready_seconds"] = json!(ran.ready_seconds);
+        }
         self.report(
             stream,
             &conn,
@@ -262,6 +309,41 @@ impl Cheers<'_> {
             copy_back,
         );
         Ok(exit)
+    }
+
+    /// For a server, before it runs: keep the member up from now on, and
+    /// wait until its files are restored. A SIGINT or SIGTERM during the
+    /// wait ends the run.
+    fn prepare_serve(
+        &mut self,
+        stream: &mut Stream,
+        conn: &Conn,
+        times: LeaseTimes,
+        interrupts: &Interrupts,
+        heartbeat: &mut Option<Heartbeat>,
+    ) -> Result<(), AppError> {
+        if self.serve.is_none() {
+            return Ok(());
+        }
+        let id = conn.id();
+        *heartbeat = Some(Heartbeat::for_member(&self.ctx.paths, &id, times));
+        let hydration = conn.hydration.unwrap_or(Hydration::Unknown);
+        let interrupted = cruise::wait_hydrated(
+            self.ctx,
+            stream,
+            &conn.member.name,
+            &id,
+            hydration,
+            interrupts,
+        )?;
+        if let Some(status) = interrupted {
+            self.interrupted = Some(status);
+            return Err(AppError::new(
+                "interrupted",
+                "cancelled while waiting for the sandbox's files; the server did not start",
+            ));
+        }
+        Ok(())
     }
 
     /// Run the command, retrying once under the 255 rule.
@@ -281,6 +363,11 @@ impl Cheers<'_> {
         heartbeat: &mut Option<Heartbeat>,
     ) -> Result<Ran, AppError> {
         let mut retried = false;
+        let probe = CapProbe::new(
+            interrupts,
+            self.serve.as_ref().and_then(Serve::cap),
+            self.serve.as_ref().map_or(0.0, |serve| serve.max_minutes),
+        );
         loop {
             let snapshot = sync::snapshot(info)?;
             let (refs, digest) = sync::mirrored_refs(info, history)?;
@@ -295,7 +382,12 @@ impl Cheers<'_> {
                 history,
                 seed: Some(seed),
             };
-            let host = super::runner_host(self.ctx, &conn.target, &conn.member, spec.clone());
+            let mut host = super::runner_host(self.ctx, &conn.target, &conn.member, spec.clone());
+            if let Some(serve) = &self.serve {
+                // The server's invocation, and its forwards, on a connection
+                // of its own.
+                host.dedicated = Some(serve.ssh_options());
+            }
             let mut sink = StartWatch {
                 stream: &mut *stream,
                 paths: &self.ctx.paths,
@@ -304,40 +396,50 @@ impl Cheers<'_> {
                 heartbeat: &mut *heartbeat,
                 started: None,
                 failed_step: None,
+                serve: self.serve.as_ref(),
+                ready_seconds: None,
             };
-            let outcome = sync::run_command_with(
-                &host,
-                &request,
-                &self.line,
-                credentials,
-                &mut sink,
-                interrupts,
-            )?;
-            let prep_seconds = sink
-                .started
-                .map(|at| round(at.duration_since(self.began).as_secs_f64()));
+            let outcome = match &self.serve {
+                Some(serve) => sync::serve_command_with(
+                    &host,
+                    &request,
+                    &self.line,
+                    credentials,
+                    serve.ready_port,
+                    &mut sink,
+                    &probe,
+                )?,
+                None => sync::run_command_with(
+                    &host,
+                    &request,
+                    &self.line,
+                    credentials,
+                    &mut sink,
+                    &probe,
+                )?,
+            };
+            let started = sink.started;
+            let prep_seconds = started.map(|at| round(at.duration_since(self.began).as_secs_f64()));
             let failed_step = sink.failed_step.take();
+            let ready_seconds = sink.ready_seconds;
+            let ran = |outcome| Ran {
+                outcome,
+                digest: digest.clone(),
+                retried,
+                prep_seconds,
+                failed_step: failed_step.clone(),
+                capped: probe.fired(),
+                ready_seconds,
+            };
             match outcome.end {
-                RunEnd::Done { .. } => {
-                    return Ok(Ran {
-                        outcome,
-                        digest,
-                        retried,
-                        prep_seconds,
-                        failed_step,
-                    });
-                }
-                RunEnd::Lost { .. } if outcome.cancelled => {
-                    return Ok(Ran {
-                        outcome,
-                        digest,
-                        retried,
-                        prep_seconds,
-                        failed_step,
-                    });
-                }
+                RunEnd::Done { .. } => return Ok(ran(outcome)),
+                RunEnd::Lost { .. } if outcome.cancelled => return Ok(ran(outcome)),
+                // A server is started again only if it never started.
                 RunEnd::Lost { status: Some(255) }
-                    if !retried && !conn.started_member && interrupts.exit_status().is_none() =>
+                    if !retried
+                        && !conn.started_member
+                        && interrupts.exit_status().is_none()
+                        && (self.serve.is_none() || started.is_none()) =>
                 {
                     stream.note(format_args!(
                         "the connection to {} ended without a result (ssh exit 255); reconnecting and running the command again",
@@ -348,7 +450,7 @@ impl Cheers<'_> {
                     }
                     conn.target.close_master();
                     let warm = conn.warm;
-                    *conn = bring_up(self.ctx, &self.line)?;
+                    *conn = bring_up(self.ctx, &self.line, self.kind())?;
                     conn.warm = warm;
                     retried = true;
                 }
@@ -429,8 +531,9 @@ impl Cheers<'_> {
     ) {
         let seconds = round(self.began.elapsed().as_secs_f64());
         if stream.is_json() {
-            stream.result(json!({
+            let mut result = json!({
                 "ok": true,
+                "kind": self.kind().as_str(),
                 "exit_code": exit,
                 "command_exit_code": status,
                 "cancelled": cancelled,
@@ -456,7 +559,15 @@ impl Cheers<'_> {
                 "git_identity": self.record["git_identity"],
                 "github_token": self.record["github_token"],
                 "copy_back": copy_back,
-            }));
+            });
+            if let Some(serve) = &self.serve {
+                if let (Value::Object(map), Value::Object(extra)) = (&mut result, serve.json()) {
+                    map.extend(extra);
+                }
+                result["capped"] = json!(ran.capped);
+                result["ready_seconds"] = json!(ran.ready_seconds);
+            }
+            stream.result(result);
             return;
         }
         let mut notes = Vec::new();
@@ -488,6 +599,9 @@ impl Cheers<'_> {
                 "the {step} step failed, so the command did not run"
             ));
         }
+        if ran.capped {
+            notes.push("stopped by the time cap".to_string());
+        }
         let what = match status {
             Some(code) if !cancelled => format!("exit {code}"),
             Some(code) => format!("cancelled (command exit {code})"),
@@ -512,6 +626,9 @@ struct StartWatch<'a> {
     heartbeat: &'a mut Option<Heartbeat>,
     started: Option<Instant>,
     failed_step: Option<String>,
+    /// A server's settings, for its ready line.
+    serve: Option<&'a Serve>,
+    ready_seconds: Option<f64>,
 }
 
 impl Sink for StartWatch<'_> {
@@ -539,6 +656,14 @@ impl Sink for StartWatch<'_> {
         if let Some(step) = name.strip_prefix("failed-step ") {
             self.failed_step = Some(step.to_string());
         }
+        if name == "ready"
+            && self.ready_seconds.is_none()
+            && let Some(serve) = self.serve
+        {
+            let after = self.started.map(|at| at.elapsed()).unwrap_or_default();
+            self.ready_seconds = Some(round(after.as_secs_f64()));
+            self.stream.note(serve.ready_message(after));
+        }
         self.stream.event(name);
     }
 }
@@ -562,22 +687,24 @@ fn connect(
             target,
             warm: true,
             started_member: false,
+            hydration: None,
         });
     }
-    bring_up(ctx, line)
+    bring_up(ctx, line, LeaseKind::Run)
 }
 
-fn bring_up(ctx: &Context, line: &str) -> Result<Conn, AppError> {
+fn bring_up(ctx: &Context, line: &str, kind: LeaseKind) -> Result<Conn, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let up = wctx.pool(ctx).bring_up(
         wctx.bring_up_options(false),
-        Some(&LeaseRequest::new(LeaseKind::Run, line)),
+        Some(&LeaseRequest::new(kind, line)),
     )?;
     Ok(Conn {
         member: up.member,
         target: up.target,
         warm: false,
         started_member: up.created || up.resumed,
+        hydration: Some(up.sandbox.hydration),
     })
 }
 

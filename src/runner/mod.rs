@@ -29,6 +29,7 @@ pub const SCRIPT: &str = concat!(
     include_str!("script/steps.sh"),
     include_str!("script/credentials.sh"),
     include_str!("script/sync.sh"),
+    include_str!("script/serve.sh"),
     include_str!("script/run.sh"),
 );
 
@@ -135,6 +136,10 @@ pub struct SshRunner {
     pub upload: Option<SignedUpload>,
     /// The project's settings, named in `sync` and `run`.
     pub spec: Option<RunnerSpec>,
+    /// Options (forwards) for a connection of its own that carries the
+    /// `serve` invocation, and only it; `None` keeps every invocation on the
+    /// shared master.
+    pub dedicated: Option<Vec<String>>,
 }
 
 /// Large packs through the provider's signed upload route.
@@ -151,13 +156,21 @@ impl SshRunner {
             target,
             upload: None,
             spec: None,
+            dedicated: None,
         }
     }
 }
 
 impl RunnerHost for SshRunner {
     fn command(&self, args: &[String]) -> Command {
-        let mut command = self.target.ssh();
+        let mut command = match (&self.dedicated, args.first().map(String::as_str)) {
+            (Some(options), Some("serve")) => {
+                let mut command = self.target.ssh_dedicated();
+                command.args(options);
+                command
+            }
+            _ => self.target.ssh(),
+        };
         command
             .arg("-T")
             .arg(&self.target.alias)
@@ -271,6 +284,7 @@ mod tests {
             include_str!("script/steps.sh"),
             include_str!("script/credentials.sh"),
             include_str!("script/sync.sh"),
+            include_str!("script/serve.sh"),
             include_str!("script/run.sh"),
         ];
         // Each part ends a line, so no line runs into the next part.

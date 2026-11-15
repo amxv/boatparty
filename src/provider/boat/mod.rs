@@ -2,6 +2,7 @@
 
 mod errors;
 mod files;
+mod hosting;
 mod http;
 mod limits;
 mod sandboxes;
@@ -15,8 +16,9 @@ use self::limits::LimitsBody;
 use crate::account::ApiKey;
 use crate::error::AppError;
 use crate::provider::{
-    AccountLimits, CreateSandbox, CredentialCheck, CredentialHelp, Deletion, Provider,
-    ProviderError, Resumed, Sandbox, SandboxCost, SavedSnapshot, SnapshotAllowance, SshAccess,
+    AccountLimits, CreateSandbox, CredentialCheck, CredentialHelp, Deletion, HostPort, HostedPort,
+    Provider, ProviderError, Resumed, Sandbox, SandboxCost, SavedSnapshot, SnapshotAllowance,
+    SshAccess,
 };
 
 pub struct BoatProvider {
@@ -115,6 +117,10 @@ impl Provider for BoatProvider {
 
     fn delete_saved_snapshot(&self, name: &str) -> Result<bool, ProviderError> {
         snapshots::delete(&self.http, name)
+    }
+
+    fn host_port(&self, id: &str, request: &HostPort) -> Result<HostedPort, ProviderError> {
+        hosting::host_port(&self.http, id, request)
     }
 }
 

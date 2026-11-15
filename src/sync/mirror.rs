@@ -164,8 +164,41 @@ pub fn run_command_with(
     let run = RunInput {
         command,
         credentials,
+        kind: RunKind::Run,
     };
-    let session = session(host, request, Some(&run), sink, cancel)?;
+    run_input(host, request, &run, sink, cancel)
+}
+
+/// [`run_command_with`] for a server: the runner's `serve` mode marks it as
+/// serving while it runs (commands beside it then skip flooring build
+/// outputs) and, with `ready_port`, sends the event `ready` once that port
+/// listens on the sandbox. It stops like a command: when this side closes
+/// the runner's stdin or dies.
+pub fn serve_command_with(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    credentials: &RunCredentials,
+    ready_port: Option<u16>,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
+    let run = RunInput {
+        command,
+        credentials,
+        kind: RunKind::Serve { ready_port },
+    };
+    run_input(host, request, &run, sink, cancel)
+}
+
+fn run_input(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    run: &RunInput<'_>,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
+    let session = session(host, request, Some(run), sink, cancel)?;
     let exchange = &session.exchange;
     let end = match &exchange.trailer {
         Some(Trailer::Done {
@@ -235,10 +268,18 @@ struct Session {
     seed: SeedReport,
 }
 
-/// The command a `run` invocation carries, and its credentials.
+/// The command a `run` or `serve` invocation carries, and its credentials.
 struct RunInput<'a> {
     command: &'a str,
     credentials: &'a RunCredentials,
+    kind: RunKind,
+}
+
+/// Which runner mode carries the command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunKind {
+    Run,
+    Serve { ready_port: Option<u16> },
 }
 
 /// Invoke the runner until it answers: install it (and the project's spec)
@@ -481,8 +522,13 @@ fn attempt(
     };
     let send_refs = want.send_refs;
     let spec = host.spec_hash().unwrap_or_else(|| NO_SPEC.to_string());
+    let mode = match command.map(|run| run.kind) {
+        None => "sync",
+        Some(RunKind::Run) => "run",
+        Some(RunKind::Serve { .. }) => "serve",
+    };
     let mut args: Vec<String> = [
-        if command.is_some() { "run" } else { "sync" },
+        mode,
         request.project,
         nonce,
         &route.arg,
@@ -499,6 +545,9 @@ fn attempt(
     let mut header = Vec::new();
     if let Some(run) = command {
         args.push(run.command.to_string());
+        if let RunKind::Serve { ready_port } = run.kind {
+            args.push(ready_port.map_or_else(|| "-".to_string(), |port| port.to_string()));
+        }
         header = run.credentials.header();
     }
     if send_refs {

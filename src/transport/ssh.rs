@@ -52,6 +52,17 @@ impl SshTarget {
         command
     }
 
+    /// `ssh` with this target's config on a connection of its own, outside
+    /// the control master, that fails when a forward it carries cannot be
+    /// set up. A server runs on one: its forwards end with it, its end never
+    /// touches the shared connection, and the connection closing (the
+    /// client died) ends the remote session.
+    pub fn ssh_dedicated(&self) -> Command {
+        let mut command = self.ssh_connect();
+        command.args(DEDICATED);
+        command
+    }
+
     /// Whether the control master answers. False when no config exists.
     pub fn master_alive(&self) -> bool {
         if !self.config.exists() {
@@ -109,6 +120,16 @@ impl SshTarget {
 /// `ProxyCommand` makes that fallback fail at once (exit 255) instead of
 /// dialing an address the sandbox may no longer have.
 pub const NO_FALLBACK: [&str; 4] = ["-o", "ControlMaster=no", "-o", "ProxyCommand=false"];
+
+/// Options for a connection of its own (see [`SshTarget::ssh_dedicated`]).
+pub const DEDICATED: [&str; 6] = [
+    "-o",
+    "ControlMaster=no",
+    "-o",
+    "ControlPath=none",
+    "-o",
+    "ExitOnForwardFailure=yes",
+];
 
 /// The OpenSSH config for one sandbox. Keepalives every 5 s, 3 missed:
 /// a master whose sandbox stopped exits within about 15 to 20 s instead of
@@ -389,6 +410,24 @@ mod tests {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
         assert_eq!(connect, ["-F", "/state/ssh/bx_23456789.conf"]);
+        let dedicated: Vec<String> = target
+            .ssh_dedicated()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            dedicated,
+            [
+                "-F",
+                "/state/ssh/bx_23456789.conf",
+                "-o",
+                "ControlMaster=no",
+                "-o",
+                "ControlPath=none",
+                "-o",
+                "ExitOnForwardFailure=yes"
+            ]
+        );
     }
 
     #[test]
