@@ -49,3 +49,5 @@ boatparty cheers -- cargo test --locked
 ## Sandboxes
 
 Every sandbox is Linux x86_64 (Ubuntu 24.04) with boat's tool image: Git, compilers and runtimes for the common stacks. Sandboxes are created without the account's stored secrets unless the project names a boat environment. The API key never appears in a process argument list, a log, `state.json` or `runs.jsonl`.
+
+A sandbox resumed onto a new machine gets its files back in the background ("hydration"). boatparty keeps such a sandbox up until that finishes, and works around files the restore leaves unreadable in build caches by dropping those caches. When a restore makes no progress, or boat reports it failing, for 10 minutes, or boat cannot reach the machine for as long, boatparty marks the member broken (`status` shows why): the next command deletes that sandbox and creates a new one under the same name, from the base snapshot when there is one. A member is a cache of your working tree, so nothing but build outputs is lost.

@@ -100,6 +100,12 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             line.push_str(&format!(" for {affinity}"));
         }
         ctx.out.text(line.trim_end());
+        if let Some(broken) = &member.broken {
+            ctx.out.text(format_args!(
+                "  broken: {}; the next command replaces it",
+                broken.reason
+            ));
+        }
     }
     for sandbox in &untracked {
         ctx.out.text(format_args!(
@@ -162,5 +168,6 @@ pub fn member_json(
         "ssh": ssh,
         "created_at": member.created_at,
         "last_used_at": member.last_used_at,
+        "broken": member.broken.as_ref().map(|broken| broken.reason.clone()),
     })
 }

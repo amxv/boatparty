@@ -27,13 +27,20 @@ struct Fake {
     state: &'static str,
     expired: bool,
     deleted: bool,
+    /// Its file restore reports the phase `stuck`.
+    stuck: bool,
 }
 
 type Sandboxes = Arc<Mutex<BTreeMap<String, Fake>>>;
 
 fn sandbox_json(id: &str, fake: &Fake) -> Value {
     json!({
-        "id": id, "name": fake.name, "state": fake.state, "hydrated": true,
+        "id": id, "name": fake.name, "state": fake.state, "hydrated": !fake.stuck,
+        "hydration": if fake.stuck {
+            json!({"phase": "stuck", "entriesDone": 10, "entriesTotal": 40, "percent": 25})
+        } else {
+            Value::Null
+        },
         "labels": {"boatparty.project": "app", "boatparty.role": "pool"},
         "type": "default", "archiveAfter": "2026-11-15T12:15:00Z",
         "dataExpiredAt": if fake.expired { json!("2026-11-01T00:00:00Z") } else { Value::Null },
@@ -85,6 +92,7 @@ fn pool_boat(sandboxes: Sandboxes) -> FakeBoat {
                     state: "idle",
                     expired: false,
                     deleted: false,
+                    stuck: false,
                 };
                 let sandbox = sandbox_json(&id, &fake);
                 all.insert(id, fake);
@@ -151,6 +159,7 @@ fn fakes(entries: &[(&str, &str, &'static str, bool)]) -> Sandboxes {
                         state,
                         expired,
                         deleted: false,
+                        stuck: false,
                     },
                 )
             })
@@ -762,4 +771,56 @@ fn launch_and_load_leave_the_member_at_the_idle_deadline() {
     )
     .unwrap();
     assert_eq!(state["projects"]["app"]["members"][0]["leases"], json!([]));
+}
+
+#[test]
+fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_start() {
+    let setup = Setup::new("broken");
+    let repo = setup.workspace("one");
+    let sandboxes = fakes(&[("bx_old", "bp-app-1", "idle", false)]);
+    sandboxes.lock().unwrap().get_mut("bx_old").unwrap().stuck = true;
+    let boat = pool_boat(Arc::clone(&sandboxes));
+    setup.write_members(json!([record("bx_old", "bp-app-1", Some(&repo))]));
+
+    // The idle helper launch leaves behind sees the stuck restore.
+    setup
+        .cmd(&boat, &repo)
+        .env("BOATPARTY_RESTORE_STALL_SECONDS", "0")
+        .arg("launch")
+        .assert()
+        .success();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while setup.state()["projects"]["app"]["members"][0]["broken"].is_null()
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let broken = setup.state()["projects"]["app"]["members"][0]["broken"]["reason"].clone();
+    assert!(
+        broken.as_str().unwrap_or_default().contains("no progress"),
+        "{broken}"
+    );
+    let output = setup
+        .cmd(&boat, &repo)
+        .args(["--json", "status"])
+        .output()
+        .unwrap();
+    let status = parse_json(&output.stdout);
+    assert_eq!(status["members"][0]["broken"], broken);
+    assert!(deletes(&boat).is_empty());
+
+    // The next start deletes it and creates a new sandbox under the same name.
+    let output = setup.cmd(&boat, &repo).arg("launch").output().unwrap();
+    let stderr = text(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.contains("bp-app-1 (bx_old) is broken"), "{stderr}");
+    assert_eq!(deletes(&boat), ["/sandboxes/bx_old"]);
+    let member = &setup.state()["projects"]["app"]["members"][0];
+    assert_eq!(member["name"], "bp-app-1");
+    assert_ne!(member["id"], "bx_old");
+    assert!(
+        member["id"].as_str().unwrap().starts_with("bx_new"),
+        "{member}"
+    );
+    assert!(member["broken"].is_null(), "{member}");
 }

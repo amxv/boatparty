@@ -177,6 +177,7 @@ fn member_json(member: &Member, state: String) -> Value {
         "created_at": member.created_at,
         "last_used_at": member.last_used_at,
         "last_run": member.last_run,
+        "broken": member.broken.as_ref().map(|broken| broken.reason.clone()),
     })
 }
 

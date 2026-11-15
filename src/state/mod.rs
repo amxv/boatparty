@@ -91,8 +91,22 @@ pub struct Member {
     pub last_used_at: u64,
     #[serde(default)]
     pub last_run: Option<Value>,
+    /// Why this member must be replaced (its sandbox is deleted and a new
+    /// one created at its next bring-up), when boatparty found it broken:
+    /// a file restore that stalled or never finished, or a machine the
+    /// provider could not reach for long.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub broken: Option<Broken>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// Why and when a member was found broken.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Broken {
+    pub reason: String,
+    /// Milliseconds since the epoch.
+    pub at: u64,
 }
 
 impl Member {
@@ -301,6 +315,7 @@ mod tests {
                 created_at: 0,
                 last_used_at: 0,
                 last_run: None,
+                broken: None,
                 extra: Map::new(),
             });
         }

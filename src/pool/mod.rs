@@ -74,6 +74,10 @@ pub fn warm_member(
     let Some(id) = member.id.as_deref() else {
         return Ok(None);
     };
+    if member.broken.is_some() {
+        // The bring-up path replaces it.
+        return Ok(None);
+    }
     let target = SshTarget::for_sandbox(paths, id);
     Ok(target.master_alive().then(|| (member.clone(), target)))
 }
@@ -486,6 +490,7 @@ pub fn new_member(name: String, create_key: String, affinity: Option<String>, no
         created_at: now,
         last_used_at: now,
         last_run: None,
+        broken: None,
         extra: serde_json::Map::new(),
     }
 }

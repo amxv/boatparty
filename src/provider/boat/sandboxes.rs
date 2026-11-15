@@ -67,6 +67,10 @@ pub struct SandboxBody {
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
+    health: Option<String>,
+    #[serde(default)]
+    degraded_since: Option<String>,
+    #[serde(default)]
     cost: Option<CostBody>,
 }
 
@@ -85,6 +89,10 @@ struct CostBody {
 pub struct HydrationBody {
     #[serde(default)]
     percent: Option<i64>,
+    /// The restore step; `degraded` and `stuck` mean a step failed and is
+    /// retried.
+    #[serde(default)]
+    phase: Option<String>,
 }
 
 impl SandboxBody {
@@ -99,6 +107,18 @@ impl SandboxBody {
             auto_stop_at: self.archive_after,
             data_expired_at: self.data_expired_at,
             error: self.error,
+            // Progress (with its phase) only comes while hydrated is false.
+            restore_stalled: self.hydrated == Some(false)
+                && self
+                    .hydration
+                    .as_ref()
+                    .and_then(|progress| progress.phase.as_deref())
+                    .is_some_and(|phase| matches!(phase, "degraded" | "stuck")),
+            degraded_since: (self.health.as_deref() == Some("degraded")).then(|| {
+                self.degraded_since
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string())
+            }),
         })
     }
 }
@@ -482,6 +502,35 @@ mod tests {
         serde_json::from_value::<SandboxBody>(body)
             .unwrap()
             .into_sandbox()
+    }
+
+    #[test]
+    fn a_stalled_restore_and_a_degraded_machine_are_reported() {
+        let healthy = parse(json!({
+            "id": "bx_1", "state": "ready", "hydrated": false, "health": "ok",
+            "hydration": {"phase": "hydrating", "entriesDone": 1, "entriesTotal": 4, "percent": 25}
+        }))
+        .unwrap();
+        assert!(!healthy.restore_stalled);
+        assert_eq!(healthy.degraded_since, None);
+        for phase in ["degraded", "stuck"] {
+            let stalled = parse(json!({
+                "id": "bx_1", "state": "ready", "hydrated": false,
+                "hydration": {"phase": phase, "entriesDone": 1, "entriesTotal": 4, "percent": 25}
+            }))
+            .unwrap();
+            assert!(stalled.restore_stalled, "{phase}");
+        }
+        let degraded = parse(json!({
+            "id": "bx_1", "state": "running", "hydrated": true, "health": "degraded",
+            "healthReason": "tunnel blocked", "degradedSince": "2026-11-15T04:43:00Z"
+        }))
+        .unwrap();
+        assert_eq!(
+            degraded.degraded_since.as_deref(),
+            Some("2026-11-15T04:43:00Z")
+        );
+        assert!(!degraded.restore_stalled);
     }
 
     #[test]

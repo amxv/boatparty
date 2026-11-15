@@ -158,7 +158,8 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
           "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
           "created_at": 1794730331934,
           "last_used_at": 1794730332265,
-          "last_run": { "at": "2026-11-15T08:12:12Z", "kind": "run", "command": "cargo test", "exit_code": 0, "seconds": 5.2 }
+          "last_run": { "at": "2026-11-15T08:12:12Z", "kind": "run", "command": "cargo test", "exit_code": 0, "seconds": 5.2 },
+          "broken": null
         }
       ],
       "untracked": [ { "id": "bx_34567890", "name": "bp-app-2", "state": "stopped" } ],
@@ -254,7 +255,7 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
 
 ### status
 
-One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `base` summarizes the project's base snapshot.
+One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `broken` is why boatparty will replace the member at its next start (a file restore that stalled for 10 minutes, or a machine the provider could not reach for as long), else `null`. `base` summarizes the project's base snapshot.
 
 <!-- shape: status -->
 ```json
@@ -282,7 +283,8 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
         "configured": true
       },
       "created_at": 1794730331934,
-      "last_used_at": 1794730332265
+      "last_used_at": 1794730332265,
+      "broken": null
     }
   ],
   "untracked": [ { "id": "bx_34567890", "name": "bp-app-2", "state": "stopped" } ],
@@ -322,6 +324,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
     "last_used_at": 1794730332265,
+    "broken": null,
     "created": false,
     "resumed": true,
     "reclaimed": false,
@@ -609,7 +612,8 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
     "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
-    "last_used_at": 1794730332265
+    "last_used_at": 1794730332265,
+    "broken": null
   }
 }
 ```

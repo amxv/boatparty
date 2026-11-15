@@ -88,6 +88,12 @@ pub struct Sandbox {
     pub data_expired_at: Option<String>,
     /// Why the sandbox failed or stopped, when the provider said.
     pub error: Option<String>,
+    /// The provider says a step of the file restore failed and is being
+    /// retried (boat's hydration phase `degraded` or `stuck`).
+    pub restore_stalled: bool,
+    /// Since when the provider cannot fully reach the machine (boat's
+    /// `health: degraded`), RFC 3339; `None` while it is healthy.
+    pub degraded_since: Option<String>,
 }
 
 impl Sandbox {
@@ -103,6 +109,8 @@ impl Sandbox {
             auto_stop_at: None,
             data_expired_at: None,
             error: None,
+            restore_stalled: false,
+            degraded_since: None,
         }
     }
 }

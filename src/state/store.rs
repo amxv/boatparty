@@ -163,6 +163,7 @@ mod tests {
             created_at: 0,
             last_used_at: 0,
             last_run: None,
+            broken: None,
             extra: serde_json::Map::new(),
         }
     }

@@ -263,6 +263,31 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
     let mut recreated = false;
     let deadline = Deadline::after(START_TIMEOUT);
 
+    if let (Some(broken), Some(id)) = (member.broken.clone(), member.id.clone()) {
+        let me = std::process::id();
+        if member.live_leases().any(|lease| lease.pid != me) {
+            pool.out.note(format_args!(
+                "{} is broken ({}) but still in use; it is replaced once that ends",
+                member.name, broken.reason
+            ));
+        } else {
+            pool.out.note(format_args!(
+                "{} ({id}) is broken: {}; deleting it and creating a new sandbox in its place",
+                member.name, broken.reason
+            ));
+            discard(pool, &member.name, &id)?;
+            let key = system::uuid_v4()?;
+            member = pool.modify(&member, |member| {
+                member.id = None;
+                member.create_key = key;
+                member.sync = SyncState::default();
+                member.created_at = system::now_ms();
+                member.broken = None;
+            })?;
+            fresh = true;
+        }
+    }
+
     let sandbox = 'outer: loop {
         let mut sandbox = match member.id.clone() {
             Some(id) => get(pool.provider, &id)?,
@@ -599,6 +624,27 @@ fn refused(error: &ProviderError) -> bool {
         .status()
         .is_some_and(|status| (400..500).contains(&status))
         && !matches!(error.kind(), ErrorKind::Busy { .. })
+}
+
+/// Ask the provider to delete a broken member's sandbox, without waiting
+/// for the deletion to finish (a sandbox that is already gone is fine), and
+/// forget its SSH files.
+fn discard(pool: &Pool<'_>, name: &str, id: &str) -> Result<(), AppError> {
+    let target = SshTarget::for_sandbox(pool.paths, id);
+    target.close_master();
+    match wait::retry(Duration::from_secs(60), wait::transient, || {
+        pool.provider.delete(id)
+    }) {
+        Ok(_) => {}
+        Err(error) if matches!(error.kind(), ErrorKind::NotFound) => {}
+        Err(error) => {
+            return Err(AppError::from(error).with_hint(format!(
+                "delete {name} with `boatparty rm {name}`, then run the command again"
+            )));
+        }
+    }
+    target.remove_files();
+    Ok(())
 }
 
 /// Make sure the member is reachable: when `force` (after a start) or when

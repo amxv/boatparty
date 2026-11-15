@@ -32,6 +32,89 @@ const IDLE_DELAY_POLLS: u32 = 2;
 const HYDRATION_WAIT: Duration = Duration::from_secs(30 * 60);
 /// How often the idle helper looks at a hydrating member, in polls.
 const HYDRATION_POLLS: u32 = 30;
+/// A restore that makes no progress (or that the provider reports as
+/// failing), or a machine the provider cannot reach, for this long marks the
+/// member broken: its next bring-up replaces it.
+const STALL_LIMIT: Duration = Duration::from_secs(10 * 60);
+/// Overrides [`STALL_LIMIT`] (seconds), for tests and tuning.
+pub const STALL_LIMIT_ENV: &str = "BOATPARTY_RESTORE_STALL_SECONDS";
+
+/// Watches one member's restore across the idle helper's looks and says
+/// when it has been stuck for too long. Pure: the caller passes the time.
+#[derive(Debug, Clone, Default)]
+pub struct StallWatch {
+    /// When the current stall began, and the progress seen then.
+    since: Option<(Instant, Option<u8>)>,
+}
+
+impl StallWatch {
+    /// Record one look at `sandbox` at `now`. Returns why the member is
+    /// broken once a stall has lasted `limit`.
+    pub fn look(
+        &mut self,
+        sandbox: &crate::provider::Sandbox,
+        now: Instant,
+        limit: Duration,
+    ) -> Option<String> {
+        let percent = match sandbox.hydration {
+            crate::provider::Hydration::InProgress { percent } => percent,
+            _ => None,
+        };
+        let restoring = !sandbox.hydration.is_complete();
+        // No progress since the stall began counts as stalled too, when the
+        // provider reports progress at all.
+        let flat = restoring
+            && percent.is_some()
+            && self
+                .since
+                .is_some_and(|(_, seen)| seen.is_some() && seen == percent);
+        let stalled = sandbox.restore_stalled || sandbox.degraded_since.is_some() || flat;
+        if !stalled {
+            // Progress (or nothing to judge): start over from here.
+            self.since = restoring.then_some((now, percent));
+            return None;
+        }
+        let (began, _) = *self.since.get_or_insert((now, percent));
+        if now.saturating_duration_since(began) < limit {
+            return None;
+        }
+        Some(if sandbox.degraded_since.is_some() {
+            format!(
+                "the provider could not reach its machine for {} minutes",
+                limit.as_secs() / 60
+            )
+        } else {
+            format!(
+                "restoring its files after a resume made no progress for {} minutes",
+                limit.as_secs() / 60
+            )
+        })
+    }
+}
+
+/// Record that the member `member_id` of `project` is broken.
+pub fn mark_broken(
+    store: &Store,
+    project: &str,
+    member_id: &str,
+    reason: &str,
+) -> Result<(), AppError> {
+    store.update(|state| {
+        if let Some(member) = state
+            .project_mut(project)
+            .members
+            .iter_mut()
+            .find(|member| member.id.as_deref() == Some(member_id))
+            && member.broken.is_none()
+        {
+            member.broken = Some(crate::state::Broken {
+                reason: reason.to_string(),
+                at: system::now_ms(),
+            });
+        }
+        Ok(())
+    })
+}
 
 /// The deadlines leases work with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +346,11 @@ pub fn idle_helper(paths: &Paths, project: &str, member_id: &str) -> Result<(), 
         })
     };
     let deadline = Instant::now() + HYDRATION_WAIT;
+    let limit = std::env::var(STALL_LIMIT_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .map_or(STALL_LIMIT, Duration::from_secs);
+    let mut watch = StallWatch::default();
     loop {
         if has_live_lease(&store, project, member_id)? {
             return Ok(());
@@ -273,7 +361,13 @@ pub fn idle_helper(paths: &Paths, project: &str, member_id: &str) -> Result<(), 
         if sandbox.state != SandboxState::Running {
             return Ok(());
         }
-        if sandbox.hydration.is_complete() || Instant::now() >= deadline {
+        let broken = watch.look(&sandbox, Instant::now(), limit);
+        if let Some(reason) = &broken {
+            // The next bring-up replaces it; meanwhile it may stop.
+            mark_broken(&store, project, member_id, reason)?;
+        }
+        let healthy = sandbox.hydration.is_complete() && sandbox.degraded_since.is_none();
+        if healthy || broken.is_some() || Instant::now() >= deadline {
             set_ttl(times.idle_seconds)?;
             // A command that took a lease meanwhile may have pushed its
             // deadline just before this shortened it.
@@ -293,6 +387,61 @@ mod tests {
 
     use super::*;
     use crate::pool::new_member;
+
+    fn restoring(percent: Option<u8>, stalled: bool) -> crate::provider::Sandbox {
+        let mut sandbox = crate::provider::Sandbox::gone("bx_1");
+        sandbox.state = SandboxState::Running;
+        sandbox.hydration = crate::provider::Hydration::InProgress { percent };
+        sandbox.restore_stalled = stalled;
+        sandbox
+    }
+
+    #[test]
+    fn a_restore_is_broken_only_after_a_whole_stall() {
+        let limit = Duration::from_secs(600);
+        let t0 = Instant::now();
+        let at = |minutes: u64| t0 + Duration::from_secs(minutes * 60);
+        // Progressing: never broken.
+        let mut watch = StallWatch::default();
+        for (minute, percent) in [(0, 10), (6, 20), (12, 30), (18, 40), (24, 50)] {
+            assert_eq!(
+                watch.look(&restoring(Some(percent), false), at(minute), limit),
+                None
+            );
+        }
+        // No progress for ten minutes: broken.
+        let mut watch = StallWatch::default();
+        assert_eq!(watch.look(&restoring(Some(40), false), at(0), limit), None);
+        assert_eq!(watch.look(&restoring(Some(40), false), at(9), limit), None);
+        let reason = watch
+            .look(&restoring(Some(40), false), at(10), limit)
+            .unwrap();
+        assert!(reason.contains("no progress for 10 minutes"), "{reason}");
+        // A reported stall that recovers starts over.
+        let mut watch = StallWatch::default();
+        assert_eq!(watch.look(&restoring(Some(5), true), at(0), limit), None);
+        assert_eq!(watch.look(&restoring(Some(6), false), at(8), limit), None);
+        assert_eq!(watch.look(&restoring(Some(6), true), at(9), limit), None);
+        assert_eq!(watch.look(&restoring(Some(7), true), at(17), limit), None);
+        assert!(
+            watch
+                .look(&restoring(Some(8), true), at(18), limit)
+                .is_some()
+        );
+        // Unknown progress is not judged; a degraded machine is.
+        let mut watch = StallWatch::default();
+        assert_eq!(watch.look(&restoring(None, false), at(0), limit), None);
+        assert_eq!(watch.look(&restoring(None, false), at(30), limit), None);
+        let mut degraded = restoring(None, false);
+        degraded.hydration = crate::provider::Hydration::Complete;
+        degraded.degraded_since = Some("2026-11-15T04:43:00Z".into());
+        assert_eq!(watch.look(&degraded, at(31), limit), None);
+        let reason = watch.look(&degraded, at(41), limit).unwrap();
+        assert!(reason.contains("could not reach"), "{reason}");
+        let mut healthy = degraded.clone();
+        healthy.degraded_since = None;
+        assert_eq!(watch.look(&healthy, at(42), limit), None);
+    }
 
     #[test]
     fn a_member_in_use_keeps_being_extended_until_its_user_lets_go() {

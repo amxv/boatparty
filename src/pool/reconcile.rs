@@ -277,6 +277,8 @@ mod tests {
             size: None,
             auto_stop_at: None,
             data_expired_at: None,
+            restore_stalled: false,
+            degraded_since: None,
             error: None,
         }
     }
