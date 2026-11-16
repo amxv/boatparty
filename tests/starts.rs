@@ -127,11 +127,11 @@ impl Setup {
         std::fs::write(self.home().join("state/state.json"), state.to_string()).unwrap();
     }
 
-    /// Start `launch`, wait for a stderr line containing `needle`, then
+    /// Start `start`, wait for a stderr line containing `needle`, then
     /// cancel it with SIGINT. Returns everything it printed on stderr.
     fn launch_until(&self, boat: &FakeBoat, needle: &str) -> String {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_boatparty"))
-            .arg("launch")
+            .arg("start")
             .current_dir(self.repo())
             .env("BOATPARTY_HOME", self.home())
             .env("BOATPARTY_BOAT_API_URL", boat.url())
@@ -173,7 +173,7 @@ impl Setup {
         let _ = child.kill();
         let status = child.wait().unwrap();
         assert!(seen.contains(needle), "never printed {needle:?}:\n{seen}");
-        assert!(!status.success(), "launch finished instead of waiting");
+        assert!(!status.success(), "start finished instead of waiting");
         seen
     }
 }
@@ -279,11 +279,7 @@ fn a_rate_limited_create_is_retried_after_the_providers_delay_and_never_surfaces
         }
     });
     let started = std::time::Instant::now();
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     assert!(started.elapsed() >= Duration::from_secs(1));
     let stderr = text(&output.stderr);
@@ -320,11 +316,7 @@ fn a_rate_limited_create_is_retried_after_the_providers_delay_and_never_surfaces
 fn the_day_window_fails_with_a_message_naming_it() {
     let setup = Setup::new("starts-day");
     let boat = boat(|_| rate_limited("day", 3600));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125), "{output:?}");
     let error = &parse_json(&output.stdout)["error"];
     assert_eq!(error["code"], "daily_start_limit");
@@ -389,11 +381,7 @@ fn a_reclaim_resume_releases_its_reservation_and_a_new_machine_keeps_it() {
     let setup = Setup::new("starts-reclaim");
     setup.stopped_member(json!([]));
     let (boat, _) = stopped_boat(resumed_reply(200, "running", "ready"));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(parse_json(&output.stdout)["member"]["reclaimed"], true);
     assert_eq!(setup.state()["starts"], json!([]));
@@ -401,11 +389,7 @@ fn a_reclaim_resume_releases_its_reservation_and_a_new_machine_keeps_it() {
     let setup = Setup::new("starts-new-machine");
     setup.stopped_member(json!([]));
     let (boat, _) = stopped_boat(resumed_reply(202, "resuming", "provisioned"));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(parse_json(&output.stdout)["member"]["reclaimed"], false);
     let state = setup.state();
@@ -421,11 +405,7 @@ fn a_refused_resume_leaves_the_ledger_unchanged() {
     setup.stopped_member(earlier.clone());
     let refused = common::fixture("errors/402-billing-required.json");
     let (boat, _) = stopped_boat(Reply::json(402, &refused));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125));
     assert_eq!(parse_json(&output.stdout)["error"]["code"], "billing");
     assert_eq!(setup.state()["starts"], earlier);
@@ -464,11 +444,7 @@ fn a_project_day_cap_refuses_at_once_naming_the_limit() {
     let earlier = json!([{"at": now_ms() - 2 * 3_600_000, "project": "app", "done_at": now_ms()}]);
     setup.stopped_member(earlier.clone());
     let (boat, _) = stopped_boat(resumed_reply(202, "resuming", "provisioned"));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125), "{output:?}");
     let error = &parse_json(&output.stdout)["error"];
     assert_eq!(error["code"], "daily_start_limit");
@@ -513,11 +489,7 @@ fn a_machine_above_max_machine_is_refused_naming_both_files() {
     text.push_str("\n[sandbox]\nmachine = \"large\"\n");
     std::fs::write(&project, text).unwrap();
     let boat = boat(|_| created());
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125));
     let error = &parse_json(&output.stdout)["error"];
     assert_eq!(error["code"], "config");
@@ -534,7 +506,7 @@ fn a_machine_above_max_machine_is_refused_naming_both_files() {
         .unwrap()
         .replace("\"large\"", "\"small\"");
     std::fs::write(&project, text).unwrap();
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let create = boat
         .requests()
         .into_iter()

@@ -82,7 +82,7 @@ impl Member {
         self.host.env.borrow_mut().push((name.into(), value.into()));
     }
 
-    fn cheers(&self, command: &str, credentials: &RunCredentials) -> (i32, String, String) {
+    fn run(&self, command: &str, credentials: &RunCredentials) -> (i32, String, String) {
         let info = WorktreeInfo::read(&self.local).unwrap();
         let snapshot = sync::snapshot(&info).unwrap();
         let refs = sync::local_refs(&info).unwrap();
@@ -192,7 +192,7 @@ fn the_local_identity_is_read_from_the_repository_and_reaches_remote_commits() {
 
     let command = "git commit --allow-empty -qm remote; \
                    git log -1 --format='%an|%ae|%cn|%ce'; git config user.name || true";
-    let (code, stdout, stderr) = member.cheers(command, &on);
+    let (code, stdout, stderr) = member.run(command, &on);
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(
         stdout, "Ada Lovelace|ada@example.com|Ada Lovelace|ada@example.com\nAda Lovelace\n",
@@ -203,7 +203,7 @@ fn the_local_identity_is_read_from_the_repository_and_reaches_remote_commits() {
     assert!(!config.contains("Ada"), "{config}");
 
     // Switched off: the command sees no identity of the developer's.
-    let (_, stdout, _) = member.cheers(command, &off);
+    let (_, stdout, _) = member.run(command, &off);
     assert!(!stdout.contains("Ada"), "{stdout}");
 
     // [run.env] still wins over the identity.
@@ -211,7 +211,7 @@ fn the_local_identity_is_read_from_the_repository_and_reaches_remote_commits() {
         "cred-identity-env",
         "[run.env]\nGIT_AUTHOR_NAME = \"Bot\"\n",
     );
-    let (code, stdout, stderr) = member.cheers(
+    let (code, stdout, stderr) = member.run(
         "git commit --allow-empty -qm remote; git log -1 --format='%an|%cn'",
         &on,
     );
@@ -289,7 +289,7 @@ fn git_ls_remote_gets_the_token_through_the_helper_and_only_for_its_host() {
          echo ls-remote $?; {other}",
         other = hashed_fill("github.com"),
     );
-    let (code, stdout, stderr) = member.cheers(&command, &with_token());
+    let (code, stdout, stderr) = member.run(&command, &with_token());
     assert_eq!(code, 0, "{stderr}");
     let seen = seen.lock().unwrap().clone();
     let expected = format!(
@@ -327,7 +327,7 @@ fn the_token_reaches_steps_and_the_command_and_leaks_nowhere() {
         github = hashed_fill("github.com"),
         other = hashed_fill("example.com"),
     );
-    let (code, stdout, stderr) = member.cheers(&command, &with_token());
+    let (code, stdout, stderr) = member.run(&command, &with_token());
     assert_eq!(code, 0, "{stderr}");
     let token_hash = git_hash(&format!("{TOKEN}\n"));
     let mut lines = stdout.lines();
@@ -366,7 +366,7 @@ fn the_token_reaches_steps_and_the_command_and_leaks_nowhere() {
     }
 
     // Without a token the command has no helper and no socket.
-    let (code, stdout, _) = member.cheers(
+    let (code, stdout, _) = member.run(
         &format!(
             "{}; echo socket=${{BOATPARTY_CREDENTIAL_SOCKET:-none}}",
             hashed_fill("github.com")
@@ -390,7 +390,7 @@ fn a_store_helper_on_the_member_never_receives_the_token() {
     // helper still configured.
     let command = "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill \
                    | git credential approve; echo done";
-    let (code, stdout, stderr) = member.cheers(command, &with_token());
+    let (code, stdout, stderr) = member.run(command, &with_token());
     assert_eq!(code, 0, "{stderr}");
     assert_eq!(stdout, "done\n");
     assert!(!home.join(".git-credentials").exists());

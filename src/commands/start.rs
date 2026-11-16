@@ -1,4 +1,4 @@
-//! `boatparty launch`: bring this workspace's sandbox up and connect to it.
+//! `boatparty start`: bring this workspace's sandbox up and connect to it.
 
 use serde_json::json;
 
@@ -12,7 +12,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let pool = wctx.pool(ctx);
     let mut up = pool.bring_up(wctx.bring_up_options(true), None)?;
-    // launch holds no lease: like the last command to finish, it leaves the
+    // start holds no lease: like the last command to finish, it leaves the
     // idle deadline to the detached helper (which respects live leases and
     // an unfinished hydration), so an unused member stops after idle_minutes.
     if let Some(id) = up.member.id.as_deref()
@@ -20,7 +20,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     {
         ctx.out.note(format_args!("warning: {error}"));
     }
-    // Read it once more so the reported auto-stop includes this launch's change.
+    // Read it once more so the reported auto-stop includes this start's change.
     if let Ok(latest) = wctx.provider.get(&up.sandbox.id)
         && latest.state == up.sandbox.state
     {
@@ -59,7 +59,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             up.sandbox.id,
             up.sandbox.auto_stop_at.as_deref().unwrap_or("off")
         ));
-        ctx.out.text("enter it with `boatparty board`");
+        ctx.out.text("enter it with `boatparty shell`");
     }
     Ok(0)
 }

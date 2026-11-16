@@ -295,9 +295,9 @@ fn a_second_workspace_waits_at_the_cap_and_is_served_after_release() {
     )
     .unwrap();
     let boat = pool_boat(fakes(&[]));
-    setup.cmd(&boat, &first).arg("launch").assert().success();
+    setup.cmd(&boat, &first).arg("start").assert().success();
 
-    // The first workspace holds a lease, as a running `cheers` would.
+    // The first workspace holds a lease, as a running `run` would.
     let mut holder = std::process::Command::new("sleep")
         .arg("60")
         .spawn()
@@ -316,7 +316,7 @@ fn a_second_workspace_waits_at_the_cap_and_is_served_after_release() {
     let started = std::time::Instant::now();
     let output = setup
         .cmd(&boat, &second)
-        .args(["launch", "--json"])
+        .args(["start", "--json"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(125), "{output:?}");
@@ -356,7 +356,7 @@ fn a_second_workspace_waits_at_the_cap_and_is_served_after_release() {
 
     let output = setup
         .cmd(&boat, &second)
-        .args(["launch", "--json"])
+        .args(["start", "--json"])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -381,7 +381,7 @@ fn a_second_workspace_waits_at_the_cap_and_is_served_after_release() {
     std::fs::remove_dir_all(&second).unwrap();
     let output = setup
         .cmd(&boat, &first)
-        .args(["launch", "--json"])
+        .args(["start", "--json"])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -421,7 +421,7 @@ fn an_idle_member_of_another_workspace_is_taken_after_steal_after() {
     setup.write_members(json!([member]));
     let output = setup
         .cmd(&boat, &second)
-        .args(["launch", "--json"])
+        .args(["start", "--json"])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -690,7 +690,7 @@ use common::e2e::{E2e, ID};
 fn a_warm_cheers_with_other_members_in_the_pool_makes_no_provider_call() {
     let setup = E2e::new("pool-warm");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     // Another workspace's member and a free one share the pool.
     let file = setup.home().join("state/state.json");
     let mut state: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
@@ -707,7 +707,7 @@ fn a_warm_cheers_with_other_members_in_the_pool_makes_no_provider_call() {
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "--", "true"])
+        .args(["run", "--", "true"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -738,14 +738,14 @@ fn launch_and_load_leave_the_member_at_the_idle_deadline() {
     let setup = E2e::new("pool-idle");
     let boat = setup.boat();
     // Created with the lease length (4 minutes in this home) ...
-    setup.launch(&boat);
+    setup.start(&boat);
     let lines = setup.event_lines();
     let create = lines
         .iter()
         .find(|line| line.starts_with("provider POST /sandboxes "))
         .unwrap();
     assert!(create.contains("\"ttlSeconds\":240"), "{create}");
-    // ... then the idle length, set by the helper launch leaves behind.
+    // ... then the idle length, set by the helper start leaves behind.
     let last_patch = |setup: &E2e| {
         setup
             .event_lines()
@@ -761,7 +761,7 @@ fn launch_and_load_leave_the_member_at_the_idle_deadline() {
     setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .arg("load")
+        .arg("sync")
         .assert()
         .success();
     assert!(setup.wait_patches(before), "load set no idle deadline");
@@ -782,11 +782,11 @@ fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_sta
     let boat = pool_boat(Arc::clone(&sandboxes));
     setup.write_members(json!([record("bx_old", "bp-app-1", Some(&repo))]));
 
-    // The idle helper launch leaves behind sees the stuck restore.
+    // The idle helper start leaves behind sees the stuck restore.
     setup
         .cmd(&boat, &repo)
         .env("BOATPARTY_RESTORE_STALL_SECONDS", "0")
-        .arg("launch")
+        .arg("start")
         .assert()
         .success();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -822,7 +822,7 @@ fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_sta
     let mut state = setup.state();
     state["starts"] = json!([{"at": now_ms() - 60_000, "project": "app", "done_at": now_ms()}]);
     std::fs::write(&state_file, state.to_string()).unwrap();
-    let output = setup.cmd(&boat, &repo).arg("launch").output().unwrap();
+    let output = setup.cmd(&boat, &repo).arg("start").output().unwrap();
     let stderr = text(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert!(stderr.contains("cannot start today"), "{stderr}");
@@ -834,7 +834,7 @@ fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_sta
     std::fs::write(&account, before).unwrap();
 
     // The next start deletes it and creates a new sandbox under the same name.
-    let output = setup.cmd(&boat, &repo).arg("launch").output().unwrap();
+    let output = setup.cmd(&boat, &repo).arg("start").output().unwrap();
     let stderr = text(&output.stderr);
     assert!(output.status.success(), "{stderr}");
     assert!(stderr.contains("bp-app-1 (bx_old) is broken"), "{stderr}");

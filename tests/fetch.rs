@@ -36,7 +36,7 @@ fn text(bytes: &[u8]) -> String {
 fn fetch_copies_files_and_directories_by_relative_or_absolute_path() {
     let setup = E2e::new("fetch-paths");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let checkout = setup.remote().join("app");
     write(
         &checkout.join("target/release/app"),
@@ -208,7 +208,7 @@ fn leftover_archives(setup: &E2e) -> Vec<String> {
 fn a_large_fetch_comes_back_by_signed_download_and_falls_back_to_ssh() {
     let setup = E2e::new("fetch-signed");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let payload = noise(3);
     write(&setup.remote().join("app/target/big.txt"), &payload);
     let dest = setup.root.path().join("big-copy.txt");
@@ -271,7 +271,7 @@ fn a_large_fetch_comes_back_by_signed_download_and_falls_back_to_ssh() {
 fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_leaking_it() {
     let setup = E2e::with_history("upload-e2e", None);
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     for n in 0..3 {
         write(&setup.repo().join("history.txt"), &format!("{n}\n"));
         git(&setup.repo(), &["add", "-A"]);
@@ -282,7 +282,7 @@ fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_le
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "0")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     let stderr = text(&output.stderr);
@@ -322,7 +322,7 @@ fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_le
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "0")
-        .args(["cheers", "--", "git", "log", "--oneline"])
+        .args(["run", "--", "git", "log", "--oneline"])
         .output()
         .unwrap();
     let stderr = text(&output.stderr);
@@ -352,14 +352,14 @@ fn the_default_history_is_head_and_a_large_pack_travels_by_signed_url_without_le
 fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
     let setup = E2e::new("upload-refused");
     let boat = setup.boat_with_uploads(500);
-    setup.launch(&boat);
+    setup.start(&boat);
     let before = setup.patches();
     write(&setup.repo().join("payload.txt"), &noise(1));
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "1024")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     let stderr = text(&output.stderr);
@@ -377,19 +377,19 @@ fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
     );
 
     // Small packs never ask the provider for anything: the only calls are
-    // the detached idle helper's, after the load ended.
-    assert!(setup.wait_patches(before), "the load set no idle deadline");
+    // the detached idle helper's, after the sync ended.
+    assert!(setup.wait_patches(before), "the sync set no idle deadline");
     let _ = fs::remove_file(setup.events());
     write(&setup.repo().join("small.txt"), "small\n");
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
     assert_eq!(json_doc(&output.stdout)["pack_route"], "ssh");
-    assert!(setup.wait_patches(0), "the load set no idle deadline");
+    assert!(setup.wait_patches(0), "the sync set no idle deadline");
     for line in setup
         .event_lines()
         .iter()
@@ -405,7 +405,7 @@ fn a_refused_signed_upload_falls_back_to_ssh_and_reports_no_url() {
     }
 }
 
-/// The result frame of `cheers --json`.
+/// The result frame of `run --json`.
 fn result_frame(stdout: &[u8]) -> serde_json::Value {
     let text = text(stdout);
     serde_json::from_str(text.lines().last().expect("a result frame")).unwrap()
@@ -415,14 +415,14 @@ fn result_frame(stdout: &[u8]) -> serde_json::Value {
 fn a_large_copy_back_comes_by_signed_download_and_falls_back_to_ssh() {
     let setup = E2e::new("copyback-signed");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let payload = noise(5);
     let line = format!("printf '%s' '{payload}' > made.txt");
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "1024")
-        .args(["--json", "cheers", "--sh", &line])
+        .args(["--json", "run", "--sh", &line])
         .output()
         .unwrap();
     let stderr = text(&output.stderr);
@@ -463,7 +463,7 @@ fn a_large_copy_back_comes_by_signed_download_and_falls_back_to_ssh() {
         .cmd(&refusing)
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SIGNED_URL_MIN_BYTES", "1024")
-        .args(["--json", "cheers", "--sh", &line])
+        .args(["--json", "run", "--sh", &line])
         .output()
         .unwrap();
     let stderr = text(&output.stderr);

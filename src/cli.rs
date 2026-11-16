@@ -20,7 +20,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Start this workspace's sandbox: create or resume it, then connect.
-    Launch,
+    Start,
     /// Sync the working tree to the sandbox's checkout (no command runs).
     #[command(
         after_help = "Makes the sandbox's checkout (/home/user/<project>, or [sandbox] remote_path) identical to this working tree: \
@@ -33,18 +33,18 @@ pub enum Command {
                       not modified. Large packs go through a signed upload URL when the provider \
                       offers one."
     )]
-    Load,
+    Sync,
     /// Sync, run one command in the sandbox's checkout, stream its output, and
     /// apply its file changes back; exits with the command's status.
-    Cheers(CheersArgs),
+    Run(RunArgs),
     /// Run a long-lived process, such as a dev server, in the sandbox's
     /// checkout until cancelled, with optional port forwards.
-    Cruise(CruiseArgs),
+    Serve(ServeArgs),
     /// Open a shell in the sandbox's checkout, or run one command there
     /// without syncing.
-    Board(BoardArgs),
+    Shell(ShellArgs),
     /// Stop this workspace's sandbox; its disk is kept.
-    Dock(DockArgs),
+    Stop(StopArgs),
     /// Run one command in the sandbox's checkout with this process's standard
     /// input (no sync); for input that must not be in a command line or a log.
     Pipe(PipeArgs),
@@ -86,7 +86,7 @@ pub enum Command {
     /// Show the account's and every project's limits and usage, or change a
     /// limit with `limits set`.
     Limits(LimitsArgs),
-    /// List recent runs (`cheers`, `cruise`, `pipe`), oldest first.
+    /// List recent runs (`run`, `serve`, `pipe`), oldest first.
     Log(LogArgs),
     /// Write boatparty's skill for coding agents to the state directory and
     /// print its path (installs nothing).
@@ -100,17 +100,17 @@ pub enum Command {
 #[command(
     group(ArgGroup::new("what").required(true).multiple(true).args(["sh", "command", "words"])),
     after_help = "Examples:\n  \
-                  boatparty cheers -- cargo test --locked     each word after -- is quoted\n  \
-                  boatparty cheers --sh 'cargo test 2>&1 | tail -n 20'   one shell line\n  \
-                  boatparty cheers test -q                    [commands] test, with -q appended\n  \
-                  boatparty cheers check:rust                 or the script runner: `bun run check:rust`\n\n\
+                  boatparty run -- cargo test --locked     each word after -- is quoted\n  \
+                  boatparty run --sh 'cargo test 2>&1 | tail -n 20'   one shell line\n  \
+                  boatparty run test -q                    [commands] test, with -q appended\n  \
+                  boatparty run check:rust                 or the script runner: `bun run check:rust`\n\n\
                   A NAME runs the line `[commands] NAME` from boatparty.toml (after presets apply) \
                   with ARGS quoted and appended. Without such an entry it runs `[run] script NAME \
                   ARGS` when the project sets a script runner (the node, pnpm and bun presets do); \
                   otherwise it fails and lists the known names. Options such as --json go before \
                   NAME; everything after NAME is passed on, `--` included \
-                  (`boatparty cheers test -- --nocapture` appends `-- --nocapture`).\n\n\
-                  The working tree is synced first (as `boatparty load` does). stdout is passed through \
+                  (`boatparty run test -- --nocapture` appends `-- --nocapture`).\n\n\
+                  The working tree is synced first (as `boatparty sync` does). stdout is passed through \
                   byte for byte. Files the command changes in the checkout are applied to this working \
                   tree afterwards; if the same lines changed here meanwhile, nothing is changed and the \
                   patch is kept under the Git directory.\n\n\
@@ -118,7 +118,7 @@ pub enum Command {
                   SIGINT or SIGTERM, which also stop the remote command. With --json, stdout carries \
                   newline-delimited frames: stdout, stderr and event frames, then one result frame."
 )]
-pub struct CheersArgs {
+pub struct RunArgs {
     /// Run this shell line as given instead of a quoted argument list.
     #[arg(long, value_name = "LINE", conflicts_with = "command")]
     pub sh: Option<String>,
@@ -140,13 +140,13 @@ pub struct CheersArgs {
 #[command(
     group(ArgGroup::new("what").required(true).multiple(true).args(["sh", "command", "words"])),
     after_help = "Examples:\n  \
-                  boatparty cruise --forward 8000:8000 -- python3 -m http.server 8000\n  \
-                  boatparty cruise --forward 3000:3000 --ready-port 3000 dev\n  \
-                  boatparty cruise --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'\n\n\
-                  Takes its command in the same three forms as `cheers` (-- ARGV, --sh LINE, or a \
+                  boatparty serve --forward 8000:8000 -- python3 -m http.server 8000\n  \
+                  boatparty serve --forward 3000:3000 --ready-port 3000 dev\n  \
+                  boatparty serve --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'\n\n\
+                  Takes its command in the same three forms as `run` (-- ARGV, --sh LINE, or a \
                   NAME from [commands] or the script runner); options go before NAME. The working \
                   tree is synced first, with the same credentials, [run.env] and steps as \
-                  `cheers`, and the server starts once the sandbox's files are fully restored. It \
+                  `run`, and the server starts once the sandbox's files are fully restored. It \
                   holds the sandbox (a `serve` lease) until it ends.\n\n\
                   --forward [BIND:]LOCAL:REMOTE makes LOCAL on this machine reach REMOTE on the \
                   sandbox; --reverse [BIND:]REMOTE:LOCAL makes REMOTE on the sandbox reach LOCAL \
@@ -158,13 +158,13 @@ pub struct CheersArgs {
                   120; 0 disables the cap).\n\n\
                   Ctrl-C (SIGINT) or SIGTERM stops the server; if this process dies in any other \
                   way, SIGKILL included, the sandbox stops the server within seconds. Files the \
-                  server changed in the checkout come back like `cheers` only when it exits by \
+                  server changed in the checkout come back like `run` only when it exits by \
                   itself; a stopped server sends nothing back, and the next sync replaces them.\n\n\
                   Exit status: the server's own; 125 when boatparty itself failed; 130 or 143 \
                   after SIGINT or SIGTERM. With --json, stdout carries the same frames as \
-                  `cheers`."
+                  `run`."
 )]
-pub struct CruiseArgs {
+pub struct ServeArgs {
     /// Forward LOCAL on this machine to REMOTE on the sandbox (repeatable).
     #[arg(
         long = "forward",
@@ -206,10 +206,10 @@ pub struct CruiseArgs {
     pub command: Vec<String>,
 }
 
-impl CruiseArgs {
-    /// The command, in the shape `cheers` takes it.
-    pub fn command_args(&self) -> CheersArgs {
-        CheersArgs {
+impl ServeArgs {
+    /// The command, in the shape `run` takes it.
+    pub fn command_args(&self) -> RunArgs {
+        RunArgs {
             sh: self.sh.clone(),
             words: self.words.clone(),
             command: self.command.clone(),
@@ -234,14 +234,14 @@ fn parse_minutes(value: &str) -> Result<f64, String> {
                   Runs the command in the sandbox's checkout (/home/user/<project>, or [sandbox] remote_path) with this \
                   process's standard input as its standard input, byte for byte. Nothing is synced \
                   first and no setup or ensure step runs; the project's credentials ([run] \
-                  git_identity and github_token) and [run.env] apply as for `cheers`. The input is \
+                  git_identity and github_token) and [run.env] apply as for `run`. The input is \
                   never written to runs.jsonl, state.json or boatparty's messages, so use pipe, not \
                   an argument, for a secret. Files the command changes stay on the sandbox.\n\n\
                   If this process dies in any way, SIGKILL included, the sandbox stops the command \
                   within seconds, even while its input is still open. stdout is passed through \
                   byte for byte. Exit status: the command's own; 125 when boatparty itself \
                   failed; 130 or 143 after SIGINT or SIGTERM, which also stop the command. With \
-                  --json, stdout carries the frames `cheers` uses, then one result frame."
+                  --json, stdout carries the frames `run` uses, then one result frame."
 )]
 pub struct PipeArgs {
     /// Run this shell line as given instead of a quoted argument list.
@@ -390,14 +390,25 @@ pub struct IdleHelperArgs {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "The key is read from standard input only, never from an argument, for example:\n  \
-                  boat api-key create boatparty --ttl 90d --actions <...> --json | jq -r .secret | boatparty login --key-stdin\n\
-                  Run `boatparty doctor` to print the full command."
+    after_help = "The key never appears in an argument list or in shell history:\n  \
+                  boatparty login --create-key     create a key with every permission boatparty needs, \
+                  through the signed-in boat CLI, and store it\n  \
+                  ... | boatparty login --key-stdin     store a key you already have, read from a pipe"
 )]
 pub struct LoginArgs {
-    /// Read the API key from standard input (required).
-    #[arg(long, required = true)]
+    /// Read the API key from standard input.
+    #[arg(
+        long,
+        required_unless_present = "create_key",
+        conflicts_with = "create_key"
+    )]
     pub key_stdin: bool,
+
+    /// Create a key with every permission boatparty needs (90 days) through
+    /// the signed-in boat CLI (`boat api-key create`), and store it. The key
+    /// passes from boat to boatparty through a pipe only.
+    #[arg(long)]
+    pub create_key: bool,
 
     /// Store the key without asking the provider whether it is valid.
     #[arg(long)]
@@ -414,11 +425,11 @@ pub struct InitArgs {
 
 #[derive(Debug, Args)]
 #[command(
-    after_help = "Examples:\n  boatparty board                 interactive shell in the checkout\n  \
-                  boatparty board -- uname -a     run one command; exits with its status\n\
-                  Each word after -- is quoted, so `boatparty board -- sh -c 'a | b'` runs exactly that."
+    after_help = "Examples:\n  boatparty shell                 interactive shell in the checkout\n  \
+                  boatparty shell -- uname -a     run one command; exits with its status\n\
+                  Each word after -- is quoted, so `boatparty shell -- sh -c 'a | b'` runs exactly that."
 )]
-pub struct BoardArgs {
+pub struct ShellArgs {
     /// The command to run, after `--`. Without one, an interactive shell opens.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
@@ -507,7 +518,7 @@ pub struct AssignArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct DockArgs {
+pub struct StopArgs {
     /// The sandbox to stop (name or id); defaults to this workspace's.
     pub member: Option<String>,
 
@@ -640,27 +651,27 @@ pub struct PresetEjectArgs {
 mod tests {
     use super::*;
 
-    fn cheers(args: &[&str]) -> Result<CheersArgs, clap::Error> {
-        let mut argv = vec!["boatparty", "cheers"];
+    fn run(args: &[&str]) -> Result<RunArgs, clap::Error> {
+        let mut argv = vec!["boatparty", "run"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv).map(|cli| match cli.command {
-            Command::Cheers(args) => args,
+            Command::Run(args) => args,
             other => panic!("parsed {other:?}"),
         })
     }
 
-    fn cruise(args: &[&str]) -> Result<CruiseArgs, clap::Error> {
-        let mut argv = vec!["boatparty", "cruise"];
+    fn serve(args: &[&str]) -> Result<ServeArgs, clap::Error> {
+        let mut argv = vec!["boatparty", "serve"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv).map(|cli| match cli.command {
-            Command::Cruise(args) => args,
+            Command::Serve(args) => args,
             other => panic!("parsed {other:?}"),
         })
     }
 
     #[test]
     fn cruise_takes_forwards_and_a_command_in_the_cheers_forms() {
-        let args = cruise(&[
+        let args = serve(&[
             "--forward",
             "8000:8000",
             "--forward",
@@ -684,16 +695,16 @@ mod tests {
         assert_eq!(args.max_minutes, 120.0);
         assert_eq!(args.command, ["python3", "-m", "http.server", "8000"]);
 
-        let named = cruise(&["--max-minutes", "0", "dev", "--port", "3000"]).unwrap();
+        let named = serve(&["--max-minutes", "0", "dev", "--port", "3000"]).unwrap();
         assert_eq!(named.words, ["dev", "--port", "3000"]);
         assert_eq!(named.max_minutes, 0.0);
-        let line = cruise(&["--sh", "npm start"]).unwrap();
+        let line = serve(&["--sh", "npm start"]).unwrap();
         assert_eq!(line.command_args().sh.as_deref(), Some("npm start"));
 
-        assert!(cruise(&[]).is_err());
-        assert!(cruise(&["--forward", "8000", "--", "x"]).is_err());
-        assert!(cruise(&["--ready-port", "0", "--", "x"]).is_err());
-        assert!(cruise(&["--max-minutes", "-1", "--", "x"]).is_err());
+        assert!(serve(&[]).is_err());
+        assert!(serve(&["--forward", "8000", "--", "x"]).is_err());
+        assert!(serve(&["--ready-port", "0", "--", "x"]).is_err());
+        assert!(serve(&["--max-minutes", "-1", "--", "x"]).is_err());
     }
 
     #[test]
@@ -729,20 +740,20 @@ mod tests {
 
     #[test]
     fn cheers_takes_a_name_with_arguments_a_quoted_argv_or_a_shell_line() {
-        let named = cheers(&["test", "-q", "--nocapture"]).unwrap();
+        let named = run(&["test", "-q", "--nocapture"]).unwrap();
         assert_eq!(named.words, ["test", "-q", "--nocapture"]);
         assert!(named.command.is_empty() && named.sh.is_none());
-        let argv = cheers(&["--", "cargo", "test"]).unwrap();
+        let argv = run(&["--", "cargo", "test"]).unwrap();
         assert!(argv.words.is_empty());
         assert_eq!(argv.command, ["cargo", "test"]);
-        let line = cheers(&["--sh", "a | b"]).unwrap();
+        let line = run(&["--sh", "a | b"]).unwrap();
         assert_eq!(line.sh.as_deref(), Some("a | b"));
         // After NAME everything is passed on, `--` included.
-        let both = cheers(&["test", "--", "--nocapture"]).unwrap();
+        let both = run(&["test", "--", "--nocapture"]).unwrap();
         assert_eq!(both.words, ["test", "--", "--nocapture"]);
         assert!(both.command.is_empty());
-        assert!(cheers(&[]).is_err());
-        assert!(cheers(&["--sh", "x", "--", "y"]).is_err());
-        assert!(cheers(&["--sh", "x", "test"]).is_err());
+        assert!(run(&[]).is_err());
+        assert!(run(&["--sh", "x", "--", "y"]).is_err());
+        assert!(run(&["--sh", "x", "test"]).is_err());
     }
 }

@@ -8,7 +8,7 @@ import Scene from "./Scene.astro";
     <div class="bp-head bp-reveal">
       <h2>One command, three legs</h2>
       <p class="bp-sub">
-        <code>boatparty cheers -- npm test</code> syncs, runs and copies back in one go. The
+        <code>boatparty run -- npm test</code> syncs, runs and copies back in one go. The
         sandbox stays warm for the next command.
       </p>
     </div>
@@ -17,7 +17,7 @@ import Scene from "./Scene.astro";
       <article class="bp-reveal">
         <p class="bp-label">~/code/app → bp-app-1</p>
         <Scene seed={5}>
-          <div class="dock">
+          <div class="stop">
             <span class="chip">~/code/app</span>
             <span class="dock__pier"></span>
           </div>
@@ -25,7 +25,7 @@ import Scene from "./Scene.astro";
           <span class="packet packet--out">thin pack</span>
           <div class="ride ride--right"><PixelBoat px={4} /></div>
         </Scene>
-        <p class="bp-label legs__cmd">$ boatparty cheers -- npm test</p>
+        <p class="bp-label legs__cmd">$ boatparty run -- npm test</p>
         <h3>Mirror</h3>
         <p>
           Tracked and untracked files travel as a thin Git pack; ignored files never leave. Only
@@ -47,7 +47,7 @@ import Scene from "./Scene.astro";
         <p class="bp-label legs__cmd">live output · exit 0</p>
         <h3>Run</h3>
         <p>
-          The command runs in the sandbox's checkout. Its output streams back byte for byte, and <code>cheers</code>
+          The command runs in the sandbox's checkout. Its output streams back byte for byte, and <code>run</code>
           exits with the command's own status.
         </p>
       </article>
@@ -55,7 +55,7 @@ import Scene from "./Scene.astro";
       <article class="bp-reveal" style="--d:0.16s">
         <p class="bp-label">bp-app-1 → ~/code/app</p>
         <Scene seed={13}>
-          <div class="dock">
+          <div class="stop">
             <span class="chip chip--done">applied</span>
             <span class="dock__pier"></span>
           </div>
@@ -101,7 +101,7 @@ import Scene from "./Scene.astro";
 
   /* Scene pieces, positioned against the 220px scene and its waterline. */
 
-  .dock {
+  .stop {
     position: absolute;
     top: calc(var(--sea-top) - 44px);
     left: 7%;

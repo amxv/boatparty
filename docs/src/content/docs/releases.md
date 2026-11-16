@@ -12,7 +12,7 @@ summary: GitHub-hosted runners build and test Linux and macOS, GitHub Releases h
 curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
-The script (`docs/public/install.sh`, served by this site and attached to every release as `install.sh`) picks the archive for this machine (macOS or Linux, arm64 or x86_64), checks it against the release's `SHA256SUMS` and installs `boatparty` into `~/.local/bin`, replacing the old binary in one rename. Options, after `sh -s --`: `--version vX.Y.Z` for a specific release, `--dir DIR` for another location (or `BOATPARTY_VERSION` and `BOATPARTY_INSTALL_DIR`). Running it again upgrades. It downloads through the GitHub CLI when that is signed in, which a private repository needs, and otherwise with `curl` from the public release URLs.
+The script (`docs/public/install.sh`, served by this site and attached to every release as `install.sh`) picks the archive for this machine (macOS or Linux, arm64 or x86_64), checks it against the release's `SHA256SUMS` and installs `boatparty` into `~/.local/bin`, replacing the old binary in one rename. Options, after `sh -s --`: `--version vX.Y.Z` for a specific release, `--dir DIR` for another location (or `BOATPARTY_VERSION` and `BOATPARTY_INSTALL_DIR`). Running it again upgrades. It needs only `curl`, `tar` and a shell.
 
 ## Where builds run
 

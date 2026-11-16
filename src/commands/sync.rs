@@ -1,4 +1,4 @@
-//! `boatparty load`: make the sandbox's checkout identical to this working
+//! `boatparty sync`: make the sandbox's checkout identical to this working
 //! tree.
 //!
 //! When the workspace's member has a live SSH master no provider call is
@@ -46,7 +46,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let key = workspace.key();
     let (mut member, mut target, warm) = match warm_member(&ctx.paths, name, &key)? {
         Some((member, target))
-            if lease::register(&store, name, &key, &member, LeaseKind::Session, "load")? =>
+            if lease::register(&store, name, &key, &member, LeaseKind::Session, "sync")? =>
         {
             (member, target, true)
         }
@@ -126,7 +126,7 @@ fn bring_up(ctx: &Context) -> Result<(Member, SshTarget), AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let up = wctx.pool(ctx).bring_up(
         wctx.bring_up_options(false),
-        Some(&LeaseRequest::new(LeaseKind::Session, "load")),
+        Some(&LeaseRequest::new(LeaseKind::Session, "sync")),
     )?;
     Ok((up.member, up.target))
 }

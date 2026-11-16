@@ -8,6 +8,25 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## 0.2.0 - 2026-11-17
+
+Breaking: the commands are plain verbs now. The old names are gone (no aliases):
+
+| Before | Now |
+| --- | --- |
+| `cheers` | `run` |
+| `cruise` | `serve` |
+| `board` | `shell` (`shell -- CMD` runs one command without syncing) |
+| `load` | `sync` |
+| `launch` | `start` |
+| `dock` | `stop` |
+
+`pipe`, `fetch`, `forward`, `expose`, `base`, `pool` and the rest keep their names. In `--json`, the `kind` of a `shell -- CMD` result is `shell` (was `board`).
+
+- `boatparty login --create-key` creates a boat API key with exactly the permissions boatparty needs, through the signed-in boat CLI, and stores it; the key passes through a pipe only. `doctor` now points to it. `--key-stdin` still stores a key you already have.
+- The installer needs only `curl`; it no longer uses the GitHub CLI.
+- The README and docs lead with the agent use case and say plainly that boatparty is for boat.dev users.
+
 ## 0.1.5 - 2026-11-15
 
 - boatparty now uses boat's extra (paid) starts when the account has them on: once the included starts are used up it starts anyway and says so on stderr with the price, instead of refusing. `[account] paid_starts = false` (or `boatparty limits set account paid_starts=false`) turns that off. `boatparty limits` shows whether the next start is paid.

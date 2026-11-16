@@ -28,7 +28,7 @@ github_token = true          # use a GitHub token for that fetch (private reposi
 
 [run]
 ram_tmp = true               # a private RAM TMPDIR per command
-script = "bun run"           # the script runner for `cheers NAME`
+script = "bun run"           # the script runner for `run NAME`
 git_identity = true          # commands commit as your user.name and user.email
 github_token = false         # git in commands reaches github.com with your token
 
@@ -57,7 +57,7 @@ test = "cargo test --locked"
 ## Steps
 
 - A `[[setup]]` step (`name`, `check`, `run`) runs before the first command after each start of a sandbox, unless its `check` succeeds.
-- An `[[ensure]]` step (`name`, `dir`, `key_files`, `key_command`, `check`, `run`) runs before a command when its key (the content of `key_files` plus the output of `key_command`) changed since it last succeeded, or when its `check` fails. `load` never runs steps.
+- An `[[ensure]]` step (`name`, `dir`, `key_files`, `key_command`, `check`, `run`) runs before a command when its key (the content of `key_files` plus the output of `key_command`) changed since it last succeeded, or when its `check` fails. `sync` never runs steps.
 - Step output goes to stderr, so stdout stays the command's. A failing step ends the run with the step's exit code and the command does not run.
 
 ## Presets
@@ -76,7 +76,7 @@ Layers merge in order: defaults, each preset, then `boatparty.toml`. Tables merg
 
 ## Credentials for commands
 
-- `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them. This and `[run] github_token` apply to `cheers`, `cruise`, `pipe` and `board`.
+- `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them. This and `[run] github_token` apply to `run`, `serve`, `pipe` and `shell`.
 - `[run] github_token = true` lets git inside commands and steps reach github.com over HTTPS with `BOATPARTY_GITHUB_TOKEN` or `gh auth token`. The token is served from memory for the command's lifetime only and is never written to the sandbox. SSH-style GitHub URLs are rewritten to HTTPS. Go private modules also need `GOPRIVATE` in `[run.env]`, for example `GOPRIVATE = "github.com/your-org/*"`.
 - `[sync] github_token` is separate: it lets a sync fetch a private repository from GitHub (see Seeding).
 

@@ -42,7 +42,7 @@ impl Drop for TempDir {
 }
 
 /// Variables of the environment the tests themselves run in that would leak
-/// into what they observe. Tests run inside `boatparty cheers` too, whose
+/// into what they observe. Tests run inside `boatparty run` too, whose
 /// runner exports the developer's Git identity (GIT_AUTHOR_*, GIT_COMMITTER_*
 /// and user.name and user.email through GIT_CONFIG_COUNT), `BOATPARTY=1`
 /// and, with a token, `BOATPARTY_CREDENTIAL_SOCKET`. Every process a test

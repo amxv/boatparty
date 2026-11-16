@@ -1,4 +1,4 @@
-//! `boatparty board`: a shell, or one command, in the sandbox's checkout.
+//! `boatparty shell`: a shell, or one command, in the sandbox's checkout.
 //!
 //! When the workspace's member has a live SSH master, nothing but `git` (to
 //! find the workspace), a local lease write and `ssh` runs before the
@@ -6,11 +6,11 @@
 //! `session` lease's heartbeat runs in the background, and the idle deadline
 //! is set by a detached helper after the last lease ends.
 //!
-//! The shell or command gets what `cheers` gives a command: the Git
+//! The shell or command gets what `run` gives a command: the Git
 //! identity, the GitHub token when `[run] github_token` is on, `[run.env]`
 //! and `BOATPARTY=1` (see `sync::hold`). Nothing is synced and no step runs.
 //!
-//! With `--json`, a command's output travels as the frames `cheers` uses
+//! With `--json`, a command's output travels as the frames `run` uses
 //! (stdout, stderr, then one result frame); an interactive shell has no
 //! JSON form.
 
@@ -21,7 +21,7 @@ use std::sync::mpsc;
 
 use super::session::{Held, with_session};
 use crate::Context;
-use crate::cli::BoardArgs;
+use crate::cli::ShellArgs;
 use crate::error::AppError;
 use crate::runner::{RunnerHost, RunnerSpec, SshRunner, remote_invocation_in};
 use crate::stream::Stream;
@@ -37,7 +37,7 @@ struct Prepared {
     github_token: bool,
 }
 
-/// Gather the credentials, start a hold for them and build the `board`
+/// Gather the credentials, start a hold for them and build the `shell`
 /// invocation. When the hold cannot start, the command still runs, as a
 /// plain command in the checkout without the credentials or `[run.env]`.
 fn prepare(held: &Held<'_>, argv: &[String], note: &dyn Fn(&str)) -> Prepared {
@@ -82,7 +82,7 @@ fn prepare(held: &Held<'_>, argv: &[String], note: &dyn Fn(&str)) -> Prepared {
     }
 }
 
-pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
+pub fn run(ctx: &Context, args: &ShellArgs) -> Result<u8, AppError> {
     if ctx.out.is_json() {
         return run_json(ctx, args);
     }
@@ -101,8 +101,8 @@ pub fn run(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     Ok(ended.interrupted.unwrap_or(code))
 }
 
-/// `board --json -- COMMAND`: the command's output as frames, then a result.
-fn run_json(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
+/// `shell --json -- COMMAND`: the command's output as frames, then a result.
+fn run_json(ctx: &Context, args: &ShellArgs) -> Result<u8, AppError> {
     let mut stream = Stream::new(true);
     if args.command.is_empty() {
         let error = AppError::new(
@@ -153,7 +153,7 @@ fn run_json(ctx: &Context, args: &BoardArgs) -> Result<u8, AppError> {
     };
     stream.result(serde_json::json!({
         "ok": true,
-        "kind": "board",
+        "kind": "shell",
         "exit_code": code,
         "project": project,
         "member": { "name": member, "id": id },

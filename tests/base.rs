@@ -481,7 +481,7 @@ fn members_start_from_the_base_with_its_sync_knowledge_and_sync_incrementally() 
     let boat = boat(&setup, Arc::clone(&world));
 
     // Without a base: a blank create, and no question about a base.
-    let output = setup.cmd(&boat).args(["--json", "load"]).output().unwrap();
+    let output = setup.cmd(&boat).args(["--json", "sync"]).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -515,7 +515,7 @@ fn members_start_from_the_base_with_its_sync_knowledge_and_sync_incrementally() 
     // A new member starts from the base, knowing what the base holds.
     setup.cmd(&boat).args(["rm"]).assert().success();
     let mark = setup.event_lines().len();
-    setup.launch(&boat);
+    setup.start(&boat);
     let lines = setup.event_lines();
     let create = position(&lines, mark, "provider POST /sandboxes ");
     assert!(
@@ -539,7 +539,7 @@ fn members_start_from_the_base_with_its_sync_knowledge_and_sync_incrementally() 
 
     // Its first sync sends only what changed since the base commit.
     fs::write(setup.repo().join("a.txt"), "changed\n").unwrap();
-    let output = setup.cmd(&boat).args(["--json", "load"]).output().unwrap();
+    let output = setup.cmd(&boat).args(["--json", "sync"]).output().unwrap();
     assert!(
         output.status.success(),
         "{}",

@@ -296,7 +296,7 @@ impl<'a> Pool<'a> {
             ),
         )
         .with_hint(format!(
-            "stop one with `boatparty dock`, or raise the limit with `boatparty limits set \
+            "stop one with `boatparty stop`, or raise the limit with `boatparty limits set \
              project {} max_running=N` (or `limits set account max_running=N`)",
             self.project
         ))
@@ -516,6 +516,6 @@ fn resolve_in(
             "no_member",
             format!("this workspace ({workspace}) has no sandbox in project {project}"),
         )
-        .with_hint("start one with `boatparty launch`"),
+        .with_hint("start one with `boatparty start`"),
     })
 }

@@ -15,11 +15,62 @@ use crate::provider::{self, ErrorKind, ScopeDenial};
 const MAX_INPUT_BYTES: u64 = 4096;
 
 pub fn run(ctx: &Context, args: &LoginArgs) -> Result<u8, AppError> {
-    debug_assert!(args.key_stdin, "clap requires --key-stdin");
+    let raw = if args.create_key {
+        create_key()?
+    } else {
+        read_stdin()?
+    };
+    store(ctx, args, &raw)
+}
+
+/// Create a key with the provider's CLI and return it, never printing it.
+/// The CLI runs with the terminal for its own prompts and messages; only its
+/// stdout (the JSON answer) is captured.
+fn create_key() -> Result<String, AppError> {
+    let help = provider::credential_help();
+    let program = help.create_program;
+    let output = std::process::Command::new(program)
+        .args(&help.create_args)
+        .stdin(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|error| {
+            AppError::io(format!("cannot run `{program}`"), error).with_hint(format!(
+                "install the {program} CLI and sign in, or create a key yourself and pipe it to \
+                 `boatparty login --key-stdin`"
+            ))
+        })?;
+    if !output.status.success() {
+        return Err(AppError::credentials(format!(
+            "`{program} {}` failed (exit {}); nothing was stored",
+            help.create_args[..3].join(" "),
+            output.status.code().unwrap_or(-1)
+        ))
+        .with_hint(format!(
+            "sign the {program} CLI in first, then run this again"
+        )));
+    }
+    let answer: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+        AppError::credentials(format!(
+            "`{program}` did not answer with JSON; nothing was stored"
+        ))
+    })?;
+    answer["secret"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| {
+            AppError::credentials(format!(
+                "`{program}`'s answer holds no key; nothing was stored"
+            ))
+        })
+}
+
+fn read_stdin() -> Result<String, AppError> {
     let mut stdin = std::io::stdin();
     if stdin.is_terminal() {
         return Err(AppError::credentials(format!(
-            "--key-stdin reads the key from a pipe so it is never shown or kept in shell history; for example:\n  {}",
+            "--key-stdin reads the key from a pipe so it is never shown or kept in shell history; \
+             to create and store a key in one step, run:\n  {}",
             provider::credential_help().create_and_login_command
         )));
     }
@@ -33,7 +84,11 @@ pub fn run(ctx: &Context, args: &LoginArgs) -> Result<u8, AppError> {
             "standard input is too long to be an API key",
         ));
     }
-    let key = ApiKey::parse(&raw)?;
+    Ok(raw)
+}
+
+fn store(ctx: &Context, args: &LoginArgs, raw: &str) -> Result<u8, AppError> {
+    let key = ApiKey::parse(raw)?;
 
     let account = load_account(ctx)?;
     let mut warning = None;

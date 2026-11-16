@@ -50,7 +50,7 @@ pub const HELP: &str = "boatparty.toml (version = 1). Every key is optional exce
   [sandbox]   machine (small|default|large|xlarge), remote_path (the checkout; default \
 /home/user/<name>, any directory under /home/user except ~/.boatparty and ~/.cache), environment (a boat environment for new sandboxes; unset = no account secrets)
   [sync]      history (\"head\"|\"full\"), copy_back, seed, github_token (true|false)
-  [run]       ram_tmp (true|false), script (the script runner for `cheers <name>`, e.g. \"bun run\"), \
+  [run]       ram_tmp (true|false), script (the script runner for `run <name>`, e.g. \"bun run\"), \
 git_identity (true|false: commands commit as the local user.name and user.email), github_token \
 (true|false: git in commands authenticates to github.com over HTTPS with BOATPARTY_GITHUB_TOKEN, BOATPARTY_GITHUB_TOKEN_COMMAND or \
 `gh auth token`, served for the command's lifetime only, never stored on the sandbox; a project \
@@ -67,7 +67,7 @@ succeeded, or when check fails
 (directory names under output_dirs holding a compiler's own caches: not floored, dropped when a \
 restore left a file in them unreadable)
   [base]      warm, stale_inputs, ref (used by `base build`)
-  [commands]  NAME = \"shell line\": `boatparty cheers NAME [args...]`
+  [commands]  NAME = \"shell line\": `boatparty run NAME [args...]`
 
 A preset has the same shape without [project]. Layers apply in order: defaults, each preset, \
 boatparty.toml. Tables merge by key; other values (lists too) are replaced. Steps merge by name: \
@@ -160,7 +160,7 @@ pub struct Run {
     pub ram_tmp: bool,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    /// The script runner for `cheers <name>`, for example `"bun run"`.
+    /// The script runner for `run <name>`, for example `"bun run"`.
     pub script: Option<String>,
     /// Commands commit as the local repository's `user.name` and
     /// `user.email`.

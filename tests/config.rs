@@ -1,6 +1,6 @@
 //! Project configuration end to end: `init` stack detection on fixture
 //! projects, `config show|validate`, `preset list|show|eject`, and the
-//! named form of `cheers`.
+//! named form of `run`.
 
 mod common;
 
@@ -273,7 +273,7 @@ fn a_user_preset_applies_to_every_project_and_the_project_file_overrides_it() {
     assert!(own["config"].get("sync").is_none());
 }
 
-// ----- `cheers <name>` -------------------------------------------------------
+// ----- `run <name>` -------------------------------------------------------
 
 fn append(setup: &E2e, text: &str) {
     let file = setup.repo().join("boatparty.toml");
@@ -288,18 +288,18 @@ fn stdout(output: &std::process::Output) -> String {
 
 #[test]
 fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names() {
-    let setup = E2e::new("cheers-named");
+    let setup = E2e::new("run-named");
     append(
         &setup,
         "\n[commands]\ngreet = \"printf 'hello %s\\\\n'\"\nlint = \"true\"\n",
     );
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
 
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "greet", "big world"])
+        .args(["run", "greet", "big world"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -310,7 +310,7 @@ fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names(
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "build"])
+        .args(["run", "build"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(125), "{output:?}");
@@ -328,7 +328,7 @@ fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names(
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "build", "--release"])
+        .args(["run", "build", "--release"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -336,7 +336,7 @@ fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names(
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "greet", "again"])
+        .args(["run", "greet", "again"])
         .output()
         .unwrap();
     assert_eq!(stdout(&output), "hello again\n");
@@ -353,11 +353,11 @@ fn copy_back_off_leaves_the_local_tree_alone() {
     let setup = E2e::new("copy-back-off");
     append(&setup, "copy_back = false\n");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["--json", "cheers", "--sh", "printf 'x\\n' >> a.txt"])
+        .args(["--json", "run", "--sh", "printf 'x\\n' >> a.txt"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");

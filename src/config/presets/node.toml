@@ -6,7 +6,7 @@
 version = 1
 
 [run]
-# `boatparty cheers <name>` runs `npm run <name>` when [commands] has no <name>.
+# `boatparty run <name>` runs `npm run <name>` when [commands] has no <name>.
 script = "npm run"
 
 [[ensure]]

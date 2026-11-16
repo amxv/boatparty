@@ -5,12 +5,12 @@ type Span = { from: number; to: number; kind: "run" | "idle" | "stopped"; label:
 type Mark = { at: number; kind: "start" | "stop"; label: string; sub: string };
 
 const spans: Span[] = [
-  { from: 0, to: 6, kind: "run", label: "cheers -- cargo test" },
+  { from: 0, to: 6, kind: "run", label: "run -- cargo test" },
   { from: 6, to: 8, kind: "idle", label: "" },
-  { from: 8, to: 11, kind: "run", label: "cheers lint" },
+  { from: 8, to: 11, kind: "run", label: "run lint" },
   { from: 11, to: 16, kind: "idle", label: "idle 5 min" },
   { from: 16, to: 21, kind: "stopped", label: "stopped, costs nothing" },
-  { from: 21, to: 24, kind: "run", label: "cheers test" }
+  { from: 21, to: 24, kind: "run", label: "run test" }
 ];
 
 const marks: Mark[] = [

@@ -1,5 +1,5 @@
 //! A `session` lease around work on this workspace's member that does not
-//! sync: `board`, `fetch` and `pipe`.
+//! sync: `shell`, `fetch` and `pipe`.
 //!
 //! When the member has a live SSH master, nothing but `git` (to find the
 //! workspace), a local lease write and the work itself runs: no provider

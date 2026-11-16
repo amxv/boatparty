@@ -1,5 +1,5 @@
-//! Sending a snapshot to the runner, alone (`load`) or followed by a command
-//! (`cheers`): the thin pack, streamed from `git pack-objects` straight into
+//! Sending a snapshot to the runner, alone (`sync`) or followed by a command
+//! (`run`): the thin pack, streamed from `git pack-objects` straight into
 //! the runner's stdin (or, above the host's upload threshold, uploaded by a
 //! faster route and read from a file), the exit-96 install handshake, and
 //! the one `needfull` retry with a pack that assumes nothing.

@@ -11,8 +11,8 @@
 # command fed the caller's input; see "Piped input"), seed, fetch-patch,
 # kill, maintain, settle (a builder's last step before its base is saved),
 # credential (Git's credential helper inside a command; see "Build
-# credentials"), hold and board (`boatparty board`'s shell or command with
-# the credentials and [run.env]; see "Credentials for `boatparty board`").
+# credentials"), hold and shell (`boatparty shell`'s shell or command with
+# the credentials and [run.env]; see "Credentials for `boatparty shell`").
 #
 # The repository keeps this script as parts (src/runner/script/*.sh) that
 # the binary joins in a fixed order; only the joined text is uploaded.

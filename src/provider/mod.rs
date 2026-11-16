@@ -307,4 +307,8 @@ pub struct CredentialHelp {
     pub create_command: String,
     /// A command that creates such a credential and stores it with `boatparty login`.
     pub create_and_login_command: String,
+    /// The provider CLI and its arguments that create such a credential and
+    /// print it as JSON with the key in `secret` (for `login --create-key`).
+    pub create_program: &'static str,
+    pub create_args: Vec<String>,
 }

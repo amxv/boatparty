@@ -1,5 +1,5 @@
 //! Running commands: the runner's `run` mode against scratch repositories,
-//! copy-back, cancellation and client death, and `cheers` end to end with a
+//! copy-back, cancellation and client death, and `run` end to end with a
 //! fake `ssh` that runs the runner locally and a fake boat API that counts
 //! provider calls.
 
@@ -64,8 +64,8 @@ struct Run {
     printed: Collect,
 }
 
-/// The client's side of one `cheers`, with the runner run locally.
-fn cheers(local: &Path, host: &LocalRunner, known: &mut Vec<String>, command: &str) -> Run {
+/// The client's side of one `run`, with the runner run locally.
+fn run(local: &Path, host: &LocalRunner, known: &mut Vec<String>, command: &str) -> Run {
     let info = WorktreeInfo::read(local).unwrap();
     let snapshot = sync::snapshot(&info).unwrap();
     let refs = sync::local_refs(&info).unwrap();
@@ -113,7 +113,7 @@ fn output_streams_the_exit_code_propagates_and_the_command_runs_in_the_checkout(
     let local = base_repo(root.path());
     let host = LocalRunner::new(root.path(), "remote");
     let mut known = Vec::new();
-    let run = cheers(
+    let run = run(
         &local,
         &host,
         &mut known,
@@ -134,7 +134,7 @@ fn a_command_that_edits_files_sends_a_patch_that_applies_locally() {
     write(&local.join("a.txt"), "one\nedited\n");
     let host = LocalRunner::new(root.path(), "remote");
     let mut known = Vec::new();
-    let run = cheers(&local, &host, &mut known, "printf 'formatted\\n' >> a.txt");
+    let run = run(&local, &host, &mut known, "printf 'formatted\\n' >> a.txt");
     let (code, bytes) = done(&run);
     assert_eq!(code, 0);
     assert!(bytes > 0);
@@ -166,7 +166,7 @@ fn a_local_edit_to_the_same_lines_turns_the_copy_back_into_a_kept_conflict_patch
     let local = base_repo(root.path());
     let host = LocalRunner::new(root.path(), "remote");
     let mut known = Vec::new();
-    let run = cheers(
+    let run = run(
         &local,
         &host,
         &mut known,
@@ -201,7 +201,7 @@ fn a_command_re_synced_mid_run_reports_only_its_own_changes() {
     let local = base_repo(root.path());
     let remote = LocalRunner::new(root.path(), "remote");
     let mut known = Vec::new();
-    cheers(&local, &remote, &mut known, "true");
+    run(&local, &remote, &mut known, "true");
 
     std::thread::scope(|scope| {
         let long_known = known.clone();
@@ -211,7 +211,7 @@ fn a_command_re_synced_mid_run_reports_only_its_own_changes() {
             // The same sandbox directories, through a host of this thread's own.
             let host = LocalRunner::new(root_path, "remote");
             let mut known = long_known;
-            let run = cheers(
+            let run = run(
                 local_ref,
                 &host,
                 &mut known,
@@ -223,7 +223,7 @@ fn a_command_re_synced_mid_run_reports_only_its_own_changes() {
         std::thread::sleep(Duration::from_millis(900));
         write(&local.join("second.txt"), "second sync\n");
         let mut known_now = known.clone();
-        let second = cheers(&local, &remote, &mut known_now, "true");
+        let second = run(&local, &remote, &mut known_now, "true");
         assert_eq!(done(&second).0, 0);
         assert!(remote.repo.join("second.txt").exists());
 
@@ -329,7 +329,7 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
     let host = LocalRunner::new(root.path(), "remote");
     let head = git(&local, &["rev-parse", "HEAD"]);
     // Sync once so the run needs no pack.
-    cheers(&local, &host, &mut Vec::new(), "true");
+    run(&local, &host, &mut Vec::new(), "true");
     let child_file = root.path().join("child.pid");
     let command = format!(
         "sleep 120 & echo $! > '{}'; sleep 120",
@@ -402,22 +402,22 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
     ));
 }
 
-// ----- `cheers` end to end -----------------------------------------------
+// ----- `run` end to end -----------------------------------------------
 
 use common::e2e::{E2e, ID};
 
 #[test]
 fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_back() {
-    let setup = E2e::new("cheers-warm");
+    let setup = E2e::new("run-warm");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let _ = fs::remove_file(setup.events());
 
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .args([
-            "cheers",
+            "run",
             "--",
             "sh",
             "-c",
@@ -483,13 +483,13 @@ fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_ba
 
 #[test]
 fn cheers_json_streams_frames_and_ends_with_one_result() {
-    let setup = E2e::new("cheers-json");
+    let setup = E2e::new("run-json");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["--json", "cheers", "--sh", "echo out; echo err >&2; exit 3"])
+        .args(["--json", "run", "--sh", "echo out; echo err >&2; exit 3"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(3), "{}", text(&output.stderr));
@@ -531,7 +531,7 @@ fn cheers_json_streams_frames_and_ends_with_one_result() {
 
 #[test]
 fn cheers_without_a_command_is_a_usage_error() {
-    let root = TempDir::new("cheers-usage");
-    let output = boatparty(root.path()).arg("cheers").output().unwrap();
+    let root = TempDir::new("run-usage");
+    let output = boatparty(root.path()).arg("run").output().unwrap();
     assert_eq!(output.status.code(), Some(2));
 }

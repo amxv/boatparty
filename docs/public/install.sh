@@ -2,17 +2,16 @@
 # Install or upgrade boatparty from its GitHub Releases.
 #
 #   curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
-#   curl -fsSL https://boatparty.ashray.xyz/install.sh | sh -s -- --version v0.1.5
+#   curl -fsSL https://boatparty.ashray.xyz/install.sh | sh -s -- --version v0.2.0
 #
 # Options (or the environment variables beside them):
-#   --version TAG   release to install, such as v0.1.5 (BOATPARTY_VERSION;
+#   --version TAG   release to install, such as v0.2.0 (BOATPARTY_VERSION;
 #                   default: the latest release)
 #   --dir DIR       install directory (BOATPARTY_INSTALL_DIR; default
 #                   ~/.local/bin)
 #
-# Downloads through the GitHub CLI when it is signed in (needed while the
-# repository is private), else with curl from the public release URLs.
-# Supports macOS and Linux on arm64 and x86_64. The archive is checked
+# Downloads with curl from the public GitHub release URLs; nothing else is
+# needed. Supports macOS and Linux on arm64 and x86_64. The archive is checked
 # against the release's SHA256SUMS before anything is installed, and the
 # binary is replaced in one rename. Running it again upgrades.
 set -eu
@@ -55,29 +54,17 @@ if [ "$os" = apple-darwin ] && [ "$arch" = x86_64 ] \
   arch=aarch64
 fi
 target="$arch-$os"
-for tool in tar awk; do
+for tool in curl tar awk; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 
-use_gh=0
-if command -v gh >/dev/null 2>&1 && GH_PROMPT_DISABLED=1 gh auth status >/dev/null 2>&1; then
-  use_gh=1
-elif ! command -v curl >/dev/null 2>&1; then
-  die "curl (or a signed-in GitHub CLI) is required"
-fi
-
 if [ -z "$version" ]; then
-  if [ "$use_gh" = 1 ]; then
-    version="$(GH_PROMPT_DISABLED=1 gh release view -R "$repo" --json tagName --jq .tagName)" \
-      || die "could not find the latest release of $repo"
-  else
-    # The latest release's page redirects to its tag.
-    url="$(curl --proto '=https' --tlsv1.2 -fsSL -o /dev/null -w '%{url_effective}' \
-      "https://github.com/$repo/releases/latest")" \
-      || die "could not reach https://github.com/$repo/releases/latest; a private repository needs a signed-in GitHub CLI (gh auth login)"
-    version="${url##*/}"
-    case "$version" in v[0-9]*) ;; *) die "could not find the latest release of $repo" ;; esac
-  fi
+  # The latest release's page redirects to its tag.
+  url="$(curl --proto '=https' --tlsv1.2 -fsSL -o /dev/null -w '%{url_effective}' \
+    "https://github.com/$repo/releases/latest")" \
+    || die "could not reach https://github.com/$repo/releases/latest"
+  version="${url##*/}"
+  case "$version" in v[0-9]*) ;; *) die "could not find the latest release of $repo" ;; esac
 fi
 number="${version#v}"
 archive="boatparty-$number-$target.tar.gz"
@@ -86,14 +73,9 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/boatparty-install.XXXXXXXX")"
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 
 fetch() { # asset
-  if [ "$use_gh" = 1 ]; then
-    GH_PROMPT_DISABLED=1 gh release download "$version" -R "$repo" -p "$1" -D "$work" \
-      || die "could not download $1 from $repo $version"
-  else
-    curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$work/$1" \
-      "https://github.com/$repo/releases/download/$version/$1" \
-      || die "could not download $1 from $repo $version; a private repository needs a signed-in GitHub CLI (gh auth login)"
-  fi
+  curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$work/$1" \
+    "https://github.com/$repo/releases/download/$version/$1" \
+    || die "could not download $1 from $repo $version"
 }
 
 say "downloading $version for $target"

@@ -171,14 +171,14 @@ mode_credential() {
 
 
 # ---------------------------------------------------------------------------
-# Credentials for `boatparty board`, whose shell or command is not a runner
+# Credentials for `boatparty shell`, whose shell or command is not a runner
 # invocation of its own kind: the client first opens a `hold`, which serves
 # the token for as long as the client keeps its stdin open, then runs
-# `board`, which joins that server.
+# `shell`, which joins that server.
 
 # hold <spec>: stdin holds the credentials block, then nothing until the
 # client is done. Loads the spec first, so a missing runner or spec is
-# reported (exit 96) before `board` relies on them. Prints
+# reported (exit 96) before `shell` relies on them. Prints
 # "ready <socket or ->" on stdout once the token is served (or there is
 # none), then waits for end of file on stdin (the client closed it, or died)
 # and stops the server.
@@ -193,14 +193,14 @@ mode_hold() {
   cat >/dev/null || true
 }
 
-# board <spec> <socket or -> <git name> <git email> [word...]: in the
+# shell <spec> <socket or -> <git name> <git email> [word...]: in the
 # checkout, with the Git identity (either may be empty), [run.env],
 # BOATPARTY=1 and, given a hold's socket, the GitHub token, run the words as
 # one command (builtins included), or a login shell without words. Nothing
 # is synced and no step runs.
 mode_board() {
   if (($# < 4)); then
-    echo "boatparty runner: usage: board <spec> <socket> <name> <email> [word...]" >&2
+    echo "boatparty runner: usage: shell <spec> <socket> <name> <email> [word...]" >&2
     exit 2
   fi
   local sock="$2"

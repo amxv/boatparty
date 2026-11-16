@@ -115,7 +115,7 @@ impl fmt::Display for Forward {
     }
 }
 
-/// `cruise --forward [BIND:]LOCAL:REMOTE`.
+/// `serve --forward [BIND:]LOCAL:REMOTE`.
 pub fn parse_local(value: &str) -> Result<Forward, String> {
     let (bind, listen, target) = parse_triple(value, "[BIND:]LOCAL:REMOTE")?;
     Ok(Forward {
@@ -126,7 +126,7 @@ pub fn parse_local(value: &str) -> Result<Forward, String> {
     })
 }
 
-/// `cruise --reverse [BIND:]REMOTE:LOCAL`.
+/// `serve --reverse [BIND:]REMOTE:LOCAL`.
 pub fn parse_reverse(value: &str) -> Result<Forward, String> {
     let (bind, listen, target) = parse_triple(value, "[BIND:]REMOTE:LOCAL")?;
     Ok(Forward {

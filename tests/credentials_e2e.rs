@@ -1,4 +1,4 @@
-//! Build credentials through the binary: `cheers` sends the local Git
+//! Build credentials through the binary: `run` sends the local Git
 //! identity unless `[run] git_identity = false`, and runs `gh auth token`
 //! only when `[run] github_token = true`, after which the token reaches
 //! Git's credential helper in the command and nothing else: no argument
@@ -107,9 +107,9 @@ fn git_hash(value: &str) -> String {
         .to_string()
 }
 
-/// `cheers --json --sh <line>`: the exit code, the command's stdout, the
+/// `run --json --sh <line>`: the exit code, the command's stdout, the
 /// result frame and everything printed.
-fn cheers(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Value, String) {
+fn run(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Value, String) {
     let shm = setup.root.path().join("shm");
     fs::create_dir_all(&shm).unwrap();
     let output = setup
@@ -117,7 +117,7 @@ fn cheers(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Val
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_RUNNER_SHM", &shm)
         .env_remove("BOATPARTY_GITHUB_TOKEN")
-        .args(["--json", "cheers", "--sh", line])
+        .args(["--json", "run", "--sh", line])
         .output()
         .unwrap();
     let stdout = text(&output.stdout);
@@ -157,12 +157,12 @@ fn identity_and_token_reach_the_command_only_as_configured() {
     let base = fs::read_to_string(&file).unwrap();
     git(&setup.repo(), &["config", "user.name", "Ada Lovelace"]);
     git(&setup.repo(), &["config", "user.email", "ada@example.com"]);
-    setup.launch(&boat);
+    setup.start(&boat);
 
     // Defaults: the identity goes, no token is fetched.
     let commit =
         "git commit --allow-empty -qm remote && git log -1 --format='%an <%ae> / %cn <%ce>'";
-    let (code, out, result, printed) = cheers(&setup, &boat, commit);
+    let (code, out, result, printed) = run(&setup, &boat, commit);
     assert_eq!(code, 0, "{printed}");
     assert_eq!(
         out,
@@ -175,7 +175,7 @@ fn identity_and_token_reach_the_command_only_as_configured() {
 
     // git_identity = false: no identity of the developer's.
     set_run(&setup, &base, "git_identity = false");
-    let (_, out, result, printed) = cheers(&setup, &boat, commit);
+    let (_, out, result, printed) = run(&setup, &boat, commit);
     assert!(!out.contains("Ada"), "{out}");
     assert_eq!(result["git_identity"], false, "{result}");
     assert_eq!(gh_calls(&setup), 0);
@@ -186,7 +186,7 @@ fn identity_and_token_reach_the_command_only_as_configured() {
     set_run(&setup, &base, "github_token = true");
     let fill = "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill \
                 | sed -n 's/^password=//p' | git hash-object --stdin";
-    let (code, out, result, printed) = cheers(&setup, &boat, fill);
+    let (code, out, result, printed) = run(&setup, &boat, fill);
     assert_eq!(code, 0, "{printed}");
     assert_eq!(out.trim(), git_hash(&format!("{TOKEN}\n")), "{printed}");
     assert_eq!(result["github_token"], true, "{result}");
@@ -214,9 +214,9 @@ fn identity_and_token_reach_the_command_only_as_configured() {
     assert!(runs.contains("\"github_token\":true"), "{runs}");
 }
 
-/// `board --json -- sh -c <line>`: the exit code, the command's stdout, the
+/// `shell --json -- sh -c <line>`: the exit code, the command's stdout, the
 /// result frame and everything printed.
-fn board(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Value, String) {
+fn shell(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Value, String) {
     let shm = setup.root.path().join("shm");
     fs::create_dir_all(&shm).unwrap();
     let output = setup
@@ -224,7 +224,7 @@ fn board(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Valu
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_RUNNER_SHM", &shm)
         .env_remove("BOATPARTY_GITHUB_TOKEN")
-        .args(["--json", "board", "--", "sh", "-c", line])
+        .args(["--json", "shell", "--", "sh", "-c", line])
         .output()
         .unwrap();
     let stdout = text(&output.stdout);
@@ -249,14 +249,14 @@ fn board(setup: &E2e, boat: &common::FakeBoat, line: &str) -> (i32, String, Valu
 
 #[test]
 fn board_gets_the_identity_the_token_and_the_environment_like_cheers() {
-    let setup = E2e::with_history("cred-board", None);
+    let setup = E2e::with_history("cred-shell", None);
     let boat = setup.boat();
     spies(&setup);
     let file = setup.repo().join("boatparty.toml");
     let base = fs::read_to_string(&file).unwrap();
     git(&setup.repo(), &["config", "user.name", "Ada Lovelace"]);
     git(&setup.repo(), &["config", "user.email", "ada@example.com"]);
-    setup.launch(&boat);
+    setup.start(&boat);
 
     // The identity, [run.env] and BOATPARTY=1, in the checkout; no token.
     fs::write(
@@ -266,7 +266,7 @@ fn board_gets_the_identity_the_token_and_the_environment_like_cheers() {
     .unwrap();
     let show = "printf '%s|%s|%s|%s|%s\\n' \"$GIT_AUTHOR_NAME\" \"$(git config user.email)\" \
                 \"$BOATPARTY\" \"$GREETING\" \"$(basename \"$PWD\")\"";
-    let (code, out, result, printed) = board(&setup, &boat, &format!("{show}; exit 3"));
+    let (code, out, result, printed) = shell(&setup, &boat, &format!("{show}; exit 3"));
     assert_eq!(code, 3, "{printed}");
     assert_eq!(
         out, "Ada Lovelace|ada@example.com|1|hi from |app\n",
@@ -278,11 +278,11 @@ fn board_gets_the_identity_the_token_and_the_environment_like_cheers() {
     let mut outputs = vec![printed];
 
     // With github_token = true, Git in the command gets the token, and the
-    // server is gone once board returns.
+    // server is gone once shell returns.
     set_run(&setup, &base, "github_token = true");
     let fill = "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill \
                 | sed -n 's/^password=//p' | git hash-object --stdin";
-    let (code, out, result, printed) = board(&setup, &boat, fill);
+    let (code, out, result, printed) = shell(&setup, &boat, fill);
     assert_eq!(code, 0, "{printed}");
     assert_eq!(out.trim(), git_hash(&format!("{TOKEN}\n")), "{printed}");
     assert_eq!(result["github_token"], true, "{result}");
@@ -300,7 +300,7 @@ fn board_gets_the_identity_the_token_and_the_environment_like_cheers() {
         !files_under(&setup.root.path().join("shm"))
             .iter()
             .any(|path| path.to_string_lossy().contains("bpc-")),
-        "the token server outlived the board command"
+        "the token server outlived the shell command"
     );
 
     let argv = fs::read_to_string(setup.root.path().join("argv.log")).unwrap();

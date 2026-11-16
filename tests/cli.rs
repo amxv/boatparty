@@ -303,10 +303,9 @@ fn limits_without_a_key_explains_how_to_get_one() {
     assert_eq!(document["error"]["code"], "credentials");
     let message = document["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains("boat api-key create boatparty"),
+        message.contains("boatparty login --create-key"),
         "{message}"
     );
-    assert!(message.contains("file.read,file.write"), "{message}");
 }
 
 #[test]
@@ -443,12 +442,52 @@ fn doctor_names_missing_actions_and_the_fix() {
             .unwrap()
             .contains("file.read, file.write")
     );
-    let fix = scope["fix"].as_str().unwrap();
+    assert_eq!(scope["fix"], "boatparty login --create-key");
+}
+
+#[test]
+fn login_create_key_takes_the_key_from_the_boat_cli_through_a_pipe() {
+    let home = TempDir::new("login-create");
+    let bin = home.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let argv = home.path().join("boat-argv.log");
+    let fake = bin.join("boat");
+    std::fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" > '{}'\necho 'creating a key' >&2\n\
+             printf '{{\"ok\":true,\"secret\":\"{TEST_KEY}\",\"id\":\"key_1\"}}\\n'\n",
+            argv.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let boat = healthy_boat();
+    let output = boatparty(home.path())
+        .env("BOATPARTY_BOAT_API_URL", boat.url())
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                bin.display(),
+                std::env::var("PATH").unwrap_or_default()
+            ),
+        )
+        .args(["--json", "login", "--create-key"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_no_key(&output);
+    assert_eq!(parse_json(&output.stdout)["verified"], true);
+    let stored = std::fs::read_to_string(home.path().join("config/credentials.toml")).unwrap();
+    assert!(stored.contains(TEST_KEY));
+    let args = std::fs::read_to_string(&argv).unwrap();
     assert!(
-        fix.starts_with("boat api-key create boatparty --ttl 90d --actions sandbox.create,"),
-        "{fix}"
+        args.starts_with("api-key create boatparty --ttl 90d --actions sandbox.create,"),
+        "{args}"
     );
-    assert!(fix.ends_with("| boatparty login --key-stdin"), "{fix}");
+    assert!(args.trim_end().ends_with("file.write --json"), "{args}");
+    assert!(!args.contains(TEST_KEY));
 }
 
 #[test]
@@ -467,7 +506,7 @@ fn doctor_reports_missing_tools_and_key_with_fixes() {
     assert!(stdout.contains("FAIL  git "), "{stdout}");
     assert!(stdout.contains("FAIL  credentials"), "{stdout}");
     assert!(
-        stdout.contains("fix: boat api-key create boatparty"),
+        stdout.contains("fix: boatparty login --create-key"),
         "{stdout}"
     );
     assert!(stdout.contains("skip  key "), "{stdout}");

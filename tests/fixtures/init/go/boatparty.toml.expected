@@ -13,6 +13,6 @@ name = "app"
 presets = ["go"]
 
 [commands]
-# `boatparty cheers <name> [args...]` runs one of these lines in the
+# `boatparty run <name> [args...]` runs one of these lines in the
 # sandbox's checkout with the arguments appended.
 test = "go test ./..."

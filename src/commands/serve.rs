@@ -1,8 +1,8 @@
-//! `boatparty cruise`: a long-lived process, such as a dev server, run like
-//! `cheers` (sync, credentials, [run.env], steps, live output, exit code)
+//! `boatparty serve`: a long-lived process, such as a dev server, run like
+//! `run` (sync, credentials, [run.env], steps, live output, exit code)
 //! until it is cancelled.
 //!
-//! What differs from `cheers`, and lives here:
+//! What differs from `run`, and lives here:
 //!
 //! - The lease is `serve`, and its heartbeat runs from the start, so the
 //!   member stays up for as long as the server does.
@@ -15,7 +15,7 @@
 //! - Stopping: SIGINT or SIGTERM, the time cap, or this process dying in any
 //!   way (the connection then closes, the runner sees end of file on its
 //!   stdin and terminates the server's process group).
-//! - Copy-back: like `cheers`, but only when the server exits by itself. A
+//! - Copy-back: like `run`, but only when the server exits by itself. A
 //!   stopped server sends nothing back (the runner skips the patch of a
 //!   cancelled command), so a server killed mid-write cannot overwrite
 //!   local files; the next sync replaces what it left in the checkout.
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::Context;
-use crate::cli::CruiseArgs;
+use crate::cli::ServeArgs;
 use crate::error::AppError;
 use crate::pool::wait::{self, Deadline};
 use crate::provider::{Hydration, SandboxState};
@@ -40,16 +40,16 @@ const HYDRATION_WAIT: Duration = Duration::from_secs(30 * 60);
 /// Overrides [`HYDRATION_WAIT`] (seconds), as for `base build`.
 const HYDRATION_WAIT_ENV: &str = super::base::build::HYDRATION_TIMEOUT_ENV;
 
-pub fn run(ctx: &Context, args: &CruiseArgs) -> Result<u8, AppError> {
+pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
     let serve = Serve {
         forwards: args.forward.iter().chain(&args.reverse).cloned().collect(),
         ready_port: args.ready_port,
         max_minutes: args.max_minutes,
     };
-    super::cheers::run_as(ctx, &args.command_args(), Some(serve))
+    super::run::run_as(ctx, &args.command_args(), Some(serve))
 }
 
-/// What makes a `cheers` a server.
+/// What makes a `run` a server.
 pub(crate) struct Serve {
     pub forwards: Vec<Forward>,
     pub ready_port: Option<u16>,

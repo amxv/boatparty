@@ -5,7 +5,7 @@
 version = 1
 
 [run]
-# `boatparty cheers <name>` runs `pnpm run <name>` when [commands] has no <name>.
+# `boatparty run <name>` runs `pnpm run <name>` when [commands] has no <name>.
 script = "pnpm run"
 
 [run.env]

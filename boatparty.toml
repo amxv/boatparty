@@ -10,7 +10,7 @@ name = "boatparty"
 # target/ build outputs kept fresh across restores.
 presets = ["rust"]
 
-# `boatparty cheers <name> [args...]` runs one of these in the sandbox's
+# `boatparty run <name> [args...]` runs one of these in the sandbox's
 # checkout with the arguments appended.
 [commands]
 test = "cargo test --locked"

@@ -4,11 +4,11 @@ This file is the contract for `--json`. Scripts, tools built on boatparty and th
 
 ## Conventions
 
-- `--json` is a global option: put it before the command's own arguments (`boatparty --json cheers -- make`).
+- `--json` is a global option: put it before the command's own arguments (`boatparty --json run -- make`).
 - Non-streaming commands print exactly one JSON document on stdout (pretty-printed, so read the whole of stdout). Success has `"ok": true`.
-- Streaming commands (`cheers`, `cruise`, `pipe`, `board -- COMMAND`) print newline-delimited frames, one JSON object per line, in order:
+- Streaming commands (`run`, `serve`, `pipe`, `shell -- COMMAND`) print newline-delimited frames, one JSON object per line, in order:
   - `{"type": "stdout", "data": "..."}` and `{"type": "stderr", "data": "..."}` as output arrives. Output that is not valid UTF-8 travels as `"base64"` instead of `"data"`; a frame never splits a UTF-8 sequence.
-  - `{"type": "event", "event": "started"}` and the other runner events: `preparing` (setup or ensure steps start), `failed-step <section>.<name>`, `ready` (a `cruise --ready-port` listens).
+  - `{"type": "event", "event": "started"}` and the other runner events: `preparing` (setup or ensure steps start), `failed-step <section>.<name>`, `ready` (a `serve --ready-port` listens).
   - Exactly one `{"type": "result", ...}`, always last.
 - A failure of boatparty itself is `{"ok": false, "error": {"code": "...", "message": "..."}}`, with `"type": "result"` for a streaming command, and exit status 125. `code` is stable (see [Error codes](#error-codes)); `message` is for people.
 - The exit status of a streaming command is the remote command's (the result's `exit_code`), 125 for a failure of boatparty, 130 or 143 after SIGINT or SIGTERM.
@@ -328,11 +328,11 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 }
 ```
 
-### launch
+### start
 
 `member` is a `status` member plus how this call brought it up.
 
-<!-- shape: launch -->
+<!-- shape: start -->
 ```json
 {
   "ok": true,
@@ -362,11 +362,11 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 }
 ```
 
-### load
+### sync
 
 `pack_route` is `none`, `ssh` or `signed_url`; `upload_fallback` says why a signed upload failed. `seed_route` is `none` or `github`; `seed_fallback` says why seeding from GitHub failed, `seed_skipped` why it was not tried. `full_retry` is true when the sandbox lacked objects and a full pack was sent.
 
-<!-- shape: load -->
+<!-- shape: sync -->
 ```json
 {
   "ok": true,
@@ -392,11 +392,11 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 }
 ```
 
-### cheers
+### run
 
 Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` that it ran again under the ssh-255 rule. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
 
-<!-- shape: cheers -->
+<!-- shape: run -->
 ```json
 {
   "type": "result",
@@ -430,11 +430,11 @@ Frames, then this result. `exit_code` is the process's exit status; `command_exi
 }
 ```
 
-### cruise
+### serve
 
-Frames, then the `cheers` result with `kind` `serve` and the server's settings. `forwards` and `reverses` list the port forwards; `capped` is true when `--max-minutes` stopped the server; `ready_seconds` is when `--ready-port` started listening.
+Frames, then the `run` result with `kind` `serve` and the server's settings. `forwards` and `reverses` list the port forwards; `capped` is true when `--max-minutes` stopped the server; `ready_seconds` is when `--ready-port` started listening.
 
-<!-- shape: cruise -->
+<!-- shape: serve -->
 ```json
 {
   "type": "result",
@@ -474,16 +474,16 @@ Frames, then the `cheers` result with `kind` `serve` and the server's settings. 
 }
 ```
 
-### board
+### shell
 
-`boatparty --json board -- COMMAND`: frames, then this result. `board` without a command has no JSON form (error `usage`). `git_identity` and `github_token` say whether the command got the local Git identity and a GitHub token (both false when the runner could not prepare the session, which a stderr frame reports).
+`boatparty --json shell -- COMMAND`: frames, then this result. `shell` without a command has no JSON form (error `usage`). `git_identity` and `github_token` say whether the command got the local Git identity and a GitHub token (both false when the runner could not prepare the session, which a stderr frame reports).
 
-<!-- shape: board -->
+<!-- shape: shell -->
 ```json
 {
   "type": "result",
   "ok": true,
-  "kind": "board",
+  "kind": "shell",
   "exit_code": 0,
   "project": "app",
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
@@ -617,11 +617,11 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
 }
 ```
 
-### dock
+### stop
 
 `member` is a `status` member as of the stop request (with `--wait`, once stopped). `stop_requested` is false when it was already stopping or stopped.
 
-<!-- shape: dock -->
+<!-- shape: stop -->
 ```json
 {
   "ok": true,
@@ -851,7 +851,7 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
 
 ## runs.jsonl
 
-`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `cheers`, `cruise` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
+`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `run`, `serve` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
 
 ## Error codes
 
@@ -862,9 +862,9 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `config` | A configuration file, the environment or the command line is invalid (account.toml, boatparty.toml, `BOATPARTY_HOME`) |
 | `credentials` | No usable API key, or it cannot be stored |
 | `io` | A local file operation failed |
-| `usage` | A combination the command cannot do (for example `board --json` without a command) |
+| `usage` | A combination the command cannot do (for example `shell --json` without a command) |
 | `workspace` | Not inside a Git working tree, no commit yet, or no boatparty.toml |
-| `unknown_command` | `cheers NAME` names no `[commands]` entry and there is no script runner |
+| `unknown_command` | `run NAME` names no `[commands]` entry and there is no script runner |
 | `unknown_preset` | A preset name that no layer provides |
 | `invalid_limit` | `limits set` got an unknown key or a bad value |
 | `doctor_failed` | At least one `doctor` check failed (the document also carries `checks`) |

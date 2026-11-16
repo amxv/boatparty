@@ -1,6 +1,6 @@
-//! `boatparty dock`: stop this workspace's sandbox, keeping its disk.
+//! `boatparty stop`: stop this workspace's sandbox, keeping its disk.
 //!
-//! A member whose restored files are still arriving is never stopped: dock
+//! A member whose restored files are still arriving is never stopped: stop
 //! waits until the provider says hydration is complete. An unknown hydration
 //! counts as incomplete.
 
@@ -11,7 +11,7 @@ use serde_json::json;
 use super::WorkspaceContext;
 use super::status::member_json;
 use crate::Context;
-use crate::cli::DockArgs;
+use crate::cli::StopArgs;
 use crate::error::AppError;
 use crate::pool::wait::{self, Deadline};
 use crate::provider::{Hydration, Provider, Sandbox, SandboxState};
@@ -20,7 +20,7 @@ use crate::transport::ssh::SshTarget;
 const HYDRATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-pub fn run(ctx: &Context, args: &DockArgs) -> Result<u8, AppError> {
+pub fn run(ctx: &Context, args: &StopArgs) -> Result<u8, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let pool = wctx.pool(ctx);
     let member = pool.resolve(args.member.as_deref())?;
@@ -33,7 +33,7 @@ pub fn run(ctx: &Context, args: &DockArgs) -> Result<u8, AppError> {
                 member.name
             ),
         )
-        .with_hint("run `boatparty launch` to finish creating it"));
+        .with_hint("run `boatparty start` to finish creating it"));
     };
     let provider = wctx.provider.as_ref();
 

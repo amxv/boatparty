@@ -1,4 +1,4 @@
-//! Seeding through the binary: `load` and `cheers` seed a fresh member from
+//! Seeding through the binary: `sync` and `run` seed a fresh member from
 //! the "GitHub" remote (a local bare repository over file://), take the
 //! token from `gh auth token` only when a seed is attempted, and never let
 //! the token reach an argument list, output, state, runs or the sandbox.
@@ -165,7 +165,7 @@ fn a_fresh_member_is_seeded_with_a_gh_token_that_never_leaks() {
             .env("BOATPARTY_RUNNER_SEED_FILE", "1")
             .env_remove("BOATPARTY_GITHUB_TOKEN");
     };
-    setup.launch(&boat);
+    setup.start(&boat);
     write(&setup.repo().join("local.txt"), "unpushed\n");
     git(&setup.repo(), &["add", "-A"]);
     git(&setup.repo(), &["commit", "-qm", "unpushed"]);
@@ -173,7 +173,7 @@ fn a_fresh_member_is_seeded_with_a_gh_token_that_never_leaks() {
 
     let mut load = setup.cmd(&boat);
     seeded(&mut load);
-    let output = load.args(["--json", "load"]).output().unwrap();
+    let output = load.args(["--json", "sync"]).output().unwrap();
     let (stdout, stderr) = (text(&output.stdout), text(&output.stderr));
     assert_eq!(output.status.code(), Some(0), "{stderr}");
     let doc: Value = serde_json::from_str(&stdout).unwrap();
@@ -192,10 +192,10 @@ fn a_fresh_member_is_seeded_with_a_gh_token_that_never_leaks() {
 
     // A warm run needs no seed, so gh is not asked again.
     write(&setup.repo().join("a.txt"), "edited twice\n");
-    let mut cheers = setup.cmd(&boat);
-    seeded(&mut cheers);
-    let output = cheers
-        .args(["--json", "cheers", "--", "git", "log", "--oneline"])
+    let mut run = setup.cmd(&boat);
+    seeded(&mut run);
+    let output = run
+        .args(["--json", "run", "--", "git", "log", "--oneline"])
         .output()
         .unwrap();
     let (stdout, stderr) = (text(&output.stdout), text(&output.stderr));
@@ -269,7 +269,7 @@ fn seeding_off_or_token_off_in_the_project_file_is_honored() {
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SEED_ALLOW_FILE", "1")
         .env("BOATPARTY_RUNNER_SEED_FILE", "1")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -291,7 +291,7 @@ fn seeding_off_or_token_off_in_the_project_file_is_honored() {
         .env("FAKE_SSH_CHECK", "0")
         .env("BOATPARTY_SEED_ALLOW_FILE", "1")
         .env("BOATPARTY_RUNNER_SEED_FILE", "1")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));

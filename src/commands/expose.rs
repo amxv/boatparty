@@ -74,7 +74,7 @@ pub fn run(ctx: &Context, args: &ExposeArgs) -> Result<u8, AppError> {
 }
 
 /// `expose --hide`: the sandbox's own `host hide <port>` (the provider has
-/// no API for it), over SSH like `board`.
+/// no API for it), over SSH like `shell`.
 fn hide(ctx: &Context, port: u16) -> Result<u8, AppError> {
     let label = format!("expose --hide {port}");
     let ended = with_session(ctx, &label, |held| {

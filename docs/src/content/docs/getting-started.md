@@ -3,7 +3,7 @@ title: Getting started
 description: Install boatparty, store a boat API key, and run a first command on a sandbox.
 order: 2
 category: Start
-summary: Install, log in, doctor, init, cheers.
+summary: Install, log in, doctor, init, run.
 ---
 
 ## Install
@@ -16,15 +16,13 @@ This installs `boatparty` into `~/.local/bin`; see [Releases and installation](/
 
 ## Store a key
 
-boatparty talks to boat's API with a scoped key, read from standard input only:
+boatparty talks to boat's API with a key scoped to exactly what it needs. With the [boat CLI](https://docs.boat.dev) installed and signed in, one command creates that key (valid 90 days) and stores it; the key passes from boat to boatparty through a pipe, so it never appears in an argument list or your shell history:
 
 ```bash
-boat api-key create boatparty --ttl 90d \
-  --actions sandbox.create,sandbox.read,sandbox.update,sandbox.stop,sandbox.resume,sandbox.delete,ssh,host,snapshot.read,snapshot.write,account.read,file.read,file.write \
-  --json | jq -r .secret | boatparty login --key-stdin
+boatparty login --create-key
 ```
 
-`login` checks the key with boat first (`--no-verify` skips that). `BOATPARTY_BOAT_API_KEY` overrides the stored key for one process.
+To store a key you already have, pipe it in: `... | boatparty login --key-stdin`. `login` checks the key with boat first (`--no-verify` skips that). `BOATPARTY_BOAT_API_KEY` overrides the stored key for one process.
 
 ## Check the machine
 
@@ -47,12 +45,12 @@ boatparty init
 ## Run something
 
 ```bash
-boatparty cheers -- cargo test --locked    # every word after -- is quoted
-boatparty cheers --sh 'make 2>&1 | tail'   # one shell line
-boatparty cheers test                      # a [commands] entry
+boatparty run -- cargo test --locked    # every word after -- is quoted
+boatparty run --sh 'make 2>&1 | tail'   # one shell line
+boatparty run test                      # a [commands] entry
 ```
 
-The first command creates the sandbox and installs dependencies; later ones reuse both. `cheers` exits with the command's status, or 125 when boatparty itself failed. Then:
+The first command creates the sandbox and installs dependencies; later ones reuse both. `run` exits with the command's status, or 125 when boatparty itself failed. Then:
 
 ```bash
 boatparty status     # this project's sandboxes

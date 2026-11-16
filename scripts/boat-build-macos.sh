@@ -4,7 +4,7 @@
 #
 # Builds the working tree of the current Git toplevel as it is on disk
 # (uncommitted and untracked files included, ignored files not) by running
-# `boatparty cheers` in the workspace's member: cargo-zigbuild cross-compiles
+# `boatparty run` in the workspace's member: cargo-zigbuild cross-compiles
 # for macOS, in its own target directory (target/darwin) so the member's Linux
 # build stays warm. The binary comes back with `boatparty fetch`. zig and
 # cargo-zigbuild are installed once, pinned and checksum-verified, under
@@ -49,6 +49,9 @@ else
   bp="$HOME/.local/bin/boatparty"
 fi
 [ -x "$bp" ] || die "no boatparty binary at $bp (set BOATPARTY)"
+# boatparty 0.2 renamed `cheers` to `run`; an older binary still says `cheers`.
+run_verb=run
+"$bp" run --help >/dev/null 2>&1 || run_verb=cheers
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a Git worktree"
 [ -f "$root/boatparty.toml" ] || die "$root has no boatparty.toml (run boatparty init)"
@@ -70,7 +73,7 @@ file target/darwin/$target/release/boatparty >&2"
 
 echo "boat-build-macos: building $root for $target on this workspace's boat sandbox" >&2
 status=0
-"$bp" cheers --sh "$remote" || status=$?
+"$bp" "$run_verb" --sh "$remote" || status=$?
 [ "$status" -eq 0 ] || { echo "boat-build-macos: remote build failed (exit $status)" >&2; exit "$status"; }
 
 mkdir -p "$(dirname "$out")"

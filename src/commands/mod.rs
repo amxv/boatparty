@@ -1,18 +1,12 @@
 pub mod base;
-pub mod board;
-pub mod cheers;
 pub mod config;
-pub mod cruise;
-pub mod dock;
 pub mod doctor;
 pub mod expose;
 pub mod fetch;
 pub mod forward;
 pub mod init;
-pub mod launch;
 pub mod ledger;
 pub mod limits;
-pub mod load;
 pub mod log;
 pub mod login;
 pub mod pin;
@@ -20,9 +14,15 @@ pub mod pipe;
 pub mod pool;
 pub mod preset;
 pub mod rm;
+pub mod run;
+pub mod serve;
 mod session;
+pub mod shell;
 pub mod skill;
+pub mod start;
 pub mod status;
+pub mod stop;
+pub mod sync;
 
 use crate::Context;
 use crate::account::{self, ApiKey, KeySource, LoadedAccount, ProjectSettings};
@@ -139,7 +139,7 @@ impl WorkspaceContext {
         pool
     }
 
-    /// How `launch` and `board` bring a member up.
+    /// How `start` and `shell` bring a member up.
     pub fn bring_up_options(&self, extend_running: bool) -> crate::pool::BringUp {
         crate::pool::BringUp {
             size: self.settings.machine,

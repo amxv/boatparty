@@ -1,4 +1,4 @@
-# Servers (`serve` mode, `boatparty cruise`).
+# Servers (`serve` mode, `boatparty serve`).
 #
 # A server runs exactly like a `run` command, plus:
 # - out/<nonce>.serve holds its pid while it runs, so commands beside it skip

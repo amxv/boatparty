@@ -75,7 +75,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     ctx.out.text(format_args!("project {project}"));
     if rows.is_empty() {
         ctx.out
-            .text("no sandboxes; start one with `boatparty launch`");
+            .text("no sandboxes; start one with `boatparty start`");
     }
     for (member, sandbox) in &rows {
         let mine = member.affinity.as_deref() == Some(workspace.as_str());

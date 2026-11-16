@@ -141,7 +141,7 @@ pub fn render_project_file(name: &str, detected: &Detected) -> String {
     if !detected.commands.is_empty() {
         out.push_str(
             "\n[commands]\n\
-             # `boatparty cheers <name> [args...]` runs one of these lines in the\n\
+             # `boatparty run <name> [args...]` runs one of these lines in the\n\
              # sandbox's checkout with the arguments appended.\n",
         );
         for (name, line) in &detected.commands {

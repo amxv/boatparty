@@ -5,7 +5,7 @@ third-party dependency and a test that uses it. `boatparty init` in a copy
 of one of them writes a `boatparty.toml` whose `test` command passes on a
 sandbox, and the second run installs nothing.
 
-| Fixture | Preset | Dependency | `boatparty cheers test` runs |
+| Fixture | Preset | Dependency | `boatparty run test` runs |
 | --- | --- | --- | --- |
 | `rust` | rust | itoa (crates.io) | `cargo test --locked` |
 | `node` | node | ms (npm) | `npm test` |

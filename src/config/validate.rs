@@ -170,7 +170,7 @@ fn step_name(name: &str) -> Result<(), String> {
     }
 }
 
-/// Command names are what follows `boatparty cheers`, so `check:rust` works.
+/// Command names are what follows `boatparty run`, so `check:rust` works.
 pub fn command_name(name: &str) -> Result<(), String> {
     let mut bytes = name.bytes();
     let ok = matches!(bytes.next(), Some(b) if b.is_ascii_alphanumeric() || b == b'_')

@@ -1,11 +1,11 @@
 ---
 const crew = [
-  { name: "launch", flag: "diagonal", meaning: "Start this workspace's sandbox: create or resume it, then connect.", example: "boatparty launch" },
-  { name: "cheers", flag: "check", meaning: "Sync, run one command, stream its output, return its exit code, bring its changes back.", example: "boatparty cheers -- cargo test" },
-  { name: "load", flag: "bands", meaning: "Sync the working tree only.", example: "boatparty load" },
-  { name: "cruise", flag: "cross", meaning: "Run a long-lived process, such as a dev server, with port forwards.", example: "boatparty cruise --forward 3000:3000 -- npm run dev" },
-  { name: "board", flag: "halves", meaning: "Open a shell in the checkout, or run one command there without syncing.", example: "boatparty board" },
-  { name: "dock", flag: "square", meaning: "Stop the sandbox now. Its disk is kept. Rarely needed: idle sandboxes stop by themselves.", example: "boatparty dock" }
+  { name: "start", flag: "diagonal", meaning: "Start this workspace's sandbox: create or resume it, then connect.", example: "boatparty start" },
+  { name: "run", flag: "check", meaning: "Sync, run one command, stream its output, return its exit code, bring its changes back.", example: "boatparty run -- cargo test" },
+  { name: "sync", flag: "bands", meaning: "Sync the working tree only.", example: "boatparty sync" },
+  { name: "serve", flag: "cross", meaning: "Run a long-lived process, such as a dev server, with port forwards.", example: "boatparty serve --forward 3000:3000 -- npm run dev" },
+  { name: "shell", flag: "halves", meaning: "Open a shell in the checkout, or run one command there without syncing.", example: "boatparty shell" },
+  { name: "stop", flag: "square", meaning: "Stop the sandbox now. Its disk is kept. Rarely needed: idle sandboxes stop by themselves.", example: "boatparty stop" }
 ];
 
 const plain = ["init", "status", "pipe", "fetch", "forward", "expose", "limits", "pool", "log", "doctor", "base", "skill"];
@@ -16,7 +16,7 @@ const plain = ["init", "status", "pipe", "fetch", "forward", "expose", "limits",
     <div class="bp-head bp-reveal">
       <h2>Six words to remember</h2>
       <p class="bp-sub">
-        The everyday commands are boat-party themed; everything else has a plain name.
+        Every command is a plain verb that says what it does.
         <code>boatparty &lt;command&gt; --help</code> documents each one.
       </p>
     </div>

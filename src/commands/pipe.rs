@@ -4,7 +4,7 @@
 //! The input is for things that must not appear in a command line or a log
 //! (signed URLs, tokens): it travels only on the runner's stdin, and nothing
 //! boatparty writes (runs.jsonl, state.json, its own messages) holds it.
-//! The command gets the project's credentials and `[run.env]` like `cheers`
+//! The command gets the project's credentials and `[run.env]` like `run`
 //! and holds a `session` lease. When this process dies, SIGKILL included,
 //! the sandbox stops the command within seconds, even if the input it was
 //! given is still open: the input travels framed, so its end and the end of

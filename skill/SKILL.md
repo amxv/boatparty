@@ -16,32 +16,32 @@ is. `boatparty <command> --help` documents every command.
 
 | Command | Plain meaning |
 | --- | --- |
-| `launch` | Start this workspace's sandbox (create or resume it) |
-| `cheers` | Sync, run one command, stream its output, apply its file changes back |
-| `load` | Sync the working tree only |
-| `cruise` | Run a long-lived process (a dev server) until cancelled |
-| `board` | Open a shell in the checkout, or run one command there without syncing |
-| `dock` | Stop the sandbox; its disk is kept |
+| `start` | Start this workspace's sandbox (create or resume it) |
+| `run` | Sync, run one command, stream its output, apply its file changes back |
+| `sync` | Sync the working tree only |
+| `serve` | Run a long-lived process (a dev server) until cancelled |
+| `shell` | Open a shell in the checkout, or run one command there without syncing |
+| `stop` | Stop the sandbox; its disk is kept |
 
 ## The loop
 
 ```bash
 boatparty init                        # once per repository: writes boatparty.toml
-boatparty cheers -- cargo test        # every word after -- is quoted
-boatparty cheers --sh 'make 2>&1 | tail -n 20'   # one shell line
-boatparty cheers test                 # a [commands] entry, or the script runner
-boatparty load                        # sync without running anything
-boatparty cruise --forward 3000:3000 -- npm run dev   # through gg_process or similar
+boatparty run -- cargo test        # every word after -- is quoted
+boatparty run --sh 'make 2>&1 | tail -n 20'   # one shell line
+boatparty run test                 # a [commands] entry, or the script runner
+boatparty sync                        # sync without running anything
+boatparty serve --forward 3000:3000 -- npm run dev   # through gg_process or similar
 boatparty status                      # this project's sandboxes
 boatparty limits                      # starts, running sandboxes, caps
 ```
 
-- `cheers` exits with the command's own status. **Exit 125 means boatparty or
+- `run` exits with the command's own status. **Exit 125 means boatparty or
   the sandbox failed, not the command**: retry once, then report it as an
   infrastructure problem, never as a failing test.
 - stdout is the command's, byte for byte. boatparty's own messages go to
   stderr as `boatparty: ...`. `--json` (before the command) gives JSON instead.
-- Edit locally; the next `cheers` syncs. Ignored files never leave this
+- Edit locally; the next `run` syncs. Ignored files never leave this
   computer, and changes the command makes to tracked or untracked files come
   back. Ignored build outputs stay on the sandbox: get one with
   `boatparty fetch target/release/app [dest]`.
@@ -49,7 +49,7 @@ boatparty limits                      # starts, running sandboxes, caps
 ## Starts are scarce
 
 Every create or resume is a start, and the account has a few per minute,
-hour and day. Do not `dock` between commands: a sandbox stops by itself 5
+hour and day. Do not `stop` between commands: a sandbox stops by itself 5
 minutes after its last command ends and costs nothing while stopped. Do not
 start one only to check that it works. `boatparty limits` shows what is left.
 When the account's included starts are used up and boat's extra starts are
@@ -67,8 +67,8 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 
 ## Project settings (boatparty.toml)
 
-- `[commands]` names lines for `cheers NAME [args]`; `[run] script` (for
-  example `"bun run"`) runs package scripts by name: `cheers check:rust`.
+- `[commands]` names lines for `run NAME [args]`; `[run] script` (for
+  example `"bun run"`) runs package scripts by name: `run check:rust`.
 - `presets = ["rust"]` (also node, pnpm, bun, python, go) install
   dependencies once, keyed by the lockfile. `boatparty preset show rust`,
   `boatparty preset eject rust` to edit one, `boatparty config show --resolved`
@@ -76,7 +76,7 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 - `[run] git_identity` (on by default) lets commands commit as the local user.
   `[run] github_token = true` lets git on the sandbox reach private GitHub
   repositories over HTTPS with `gh auth token`, for the command's lifetime
-  only. Both also apply inside `board`, with `[run.env]`. A narrower token
+  only. Both also apply inside `shell`, with `[run.env]`. A narrower token
   can come from `BOATPARTY_GITHUB_TOKEN` or `BOATPARTY_GITHUB_TOKEN_COMMAND`. Go private modules
   also need `GOPRIVATE` in `[run.env]`.
 - `boatparty base build` saves a snapshot with dependencies built, so new
@@ -86,7 +86,7 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 
 - Do not run `rm`, `pool prune`, `base rm` or `limits set` unless the user
   asks. They delete sandboxes or change account limits.
-- `cruise --forward LOCAL:REMOTE` reaches a server on this computer's
+- `serve --forward LOCAL:REMOTE` reaches a server on this computer's
   127.0.0.1. `boatparty expose PORT` gives a token-gated public URL instead
   (the server must listen on 0.0.0.0, or add `--localhost`); it is printed
   only on stdout, so treat it like a password. `expose PORT --hide` takes it

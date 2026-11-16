@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run boatparty's checks on this workspace's boat sandbox with boatparty
-# itself (`boatparty cheers`), so nothing compiles on the developer's machine.
+# itself (`boatparty run`), so nothing compiles on the developer's machine.
 # The working tree is synced first, uncommitted files included.
 #
 # Usage: scripts/remote-check.sh [MODE] [ARGS...]
@@ -49,6 +49,9 @@ else
   bp="$HOME/.local/bin/boatparty"
 fi
 [ -x "$bp" ] || die "no boatparty binary at $bp (set BOATPARTY)"
+# boatparty 0.2 renamed `cheers` to `run`; an older binary still says `cheers`.
+run_verb=run
+"$bp" run --help >/dev/null 2>&1 || run_verb=cheers
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a Git worktree"
 [ -f "$root/boatparty.toml" ] || die "$root has no boatparty.toml (run boatparty init)"
 cd "$root"
@@ -98,7 +101,7 @@ line="$line
 step \"all passed\""
 
 status=0
-"$bp" cheers --sh "$line" || status=$?
+"$bp" "$run_verb" --sh "$line" || status=$?
 if [ "$status" -eq 0 ]; then
   echo "remote-check: $mode passed" >&2
 elif [ "$status" -eq 125 ]; then

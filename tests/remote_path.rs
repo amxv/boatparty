@@ -1,5 +1,5 @@
 //! `[sandbox] remote_path`: a checkout somewhere other than
-//! /home/user/<project>, honored by `load`, `cheers`, `board` and `fetch`.
+//! /home/user/<project>, honored by `sync`, `run`, `shell` and `fetch`.
 
 mod common;
 
@@ -21,13 +21,13 @@ fn every_command_uses_the_configured_checkout() {
     let mut config = fs::read_to_string(&file).unwrap();
     config.push_str("\n[sandbox]\nremote_path = \"/home/user/work/app-checkout/\"\n");
     fs::write(&file, config).unwrap();
-    setup.launch(&boat);
+    setup.start(&boat);
     let checkout = setup.remote().join("work/app-checkout");
 
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -37,11 +37,11 @@ fn every_command_uses_the_configured_checkout() {
     assert!(checkout.join("boatparty.toml").is_file());
     assert!(!setup.remote().join("app/.git").exists());
 
-    // cheers runs there, and its changes come back.
+    // run runs there, and its changes come back.
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["cheers", "--sh", "pwd; echo made > made.txt"])
+        .args(["run", "--sh", "pwd; echo made > made.txt"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -57,13 +57,13 @@ fn every_command_uses_the_configured_checkout() {
         "made\n"
     );
 
-    // board and fetch find the same directory; the command does not see
+    // shell and fetch find the same directory; the command does not see
     // the runner's checkout variable.
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .args([
-            "board",
+            "shell",
             "--",
             "sh",
             "-c",

@@ -1,4 +1,4 @@
-//! `boatparty cheers`: sync, run one command in the sandbox's checkout,
+//! `boatparty run`: sync, run one command in the sandbox's checkout,
 //! stream its output, return its exit code and apply its file changes back.
 //!
 //! Warm path: when the workspace's member has a live SSH master, nothing
@@ -17,9 +17,9 @@ use std::time::Instant;
 use serde_json::{Value, json};
 
 use super::WorkspaceContext;
-use super::cruise::{self, CapProbe, Serve};
+use super::serve::{self, CapProbe, Serve};
 use crate::Context;
-use crate::cli::CheersArgs;
+use crate::cli::RunArgs;
 use crate::error::AppError;
 use crate::pool::lease::{self, Heartbeat, LeaseTimes};
 use crate::pool::{LeaseRequest, warm_member};
@@ -38,18 +38,14 @@ use crate::sync::{
 use crate::system;
 use crate::transport::ssh::{SshTarget, shell_quote};
 
-pub fn run(ctx: &Context, args: &CheersArgs) -> Result<u8, AppError> {
+pub fn run(ctx: &Context, args: &RunArgs) -> Result<u8, AppError> {
     run_as(ctx, args, None)
 }
 
-/// `cheers`, or with `serve` a server (`cruise`).
-pub(crate) fn run_as(
-    ctx: &Context,
-    args: &CheersArgs,
-    serve: Option<Serve>,
-) -> Result<u8, AppError> {
+/// `run`, or with `serve` a server (`serve`).
+pub(crate) fn run_as(ctx: &Context, args: &RunArgs, serve: Option<Serve>) -> Result<u8, AppError> {
     let mut stream = Stream::new(ctx.out.is_json());
-    let mut cheers = Cheers {
+    let mut run = Run {
         ctx,
         serve,
         interrupted: None,
@@ -64,23 +60,23 @@ pub(crate) fn run_as(
         at: system::now_ms(),
         record: json!({}),
     };
-    let status = match cheers.execute(&mut stream) {
+    let status = match run.execute(&mut stream) {
         Ok(status) => status,
         Err(error) => {
             stream.error(&error);
-            cheers.record["exit_code"] = Value::Null;
-            cheers.record["error"] = json!(error.code());
-            cheers.interrupted.unwrap_or_else(|| error.exit_code())
+            run.record["exit_code"] = Value::Null;
+            run.record["error"] = json!(error.code());
+            run.interrupted.unwrap_or_else(|| error.exit_code())
         }
     };
-    cheers.record["at"] = json!(runs::rfc3339(cheers.at));
-    if cheers.line.is_empty() {
-        cheers.line = args.words.join(" ");
+    run.record["at"] = json!(runs::rfc3339(run.at));
+    if run.line.is_empty() {
+        run.line = args.words.join(" ");
     }
-    cheers.record["command"] = json!(cheers.line);
-    cheers.record["kind"] = json!(cheers.kind().as_str());
-    cheers.record["seconds"] = json!(round(cheers.began.elapsed().as_secs_f64()));
-    if let Err(error) = runs::append(&ctx.paths, &cheers.record) {
+    run.record["command"] = json!(run.line);
+    run.record["kind"] = json!(run.kind().as_str());
+    run.record["seconds"] = json!(round(run.began.elapsed().as_secs_f64()));
+    if let Err(error) = runs::append(&ctx.paths, &run.record) {
         stream.note(format_args!("warning: could not record the run: {error}"));
     }
     Ok(status)
@@ -89,7 +85,7 @@ pub(crate) fn run_as(
 /// The shell line to run: `--sh` as given, or every word after `--`
 /// quoted. `None` for the named form, which needs the project's
 /// configuration.
-pub fn command_line(args: &CheersArgs) -> Option<String> {
+pub fn command_line(args: &RunArgs) -> Option<String> {
     if let Some(line) = &args.sh {
         return Some(line.clone());
     }
@@ -105,14 +101,14 @@ pub fn command_line(args: &CheersArgs) -> Option<String> {
     )
 }
 
-struct Cheers<'a> {
+struct Run<'a> {
     ctx: &'a Context,
-    /// Set for a server (`cruise`).
+    /// Set for a server (`serve`).
     serve: Option<Serve>,
     /// A SIGINT or SIGTERM ended the run before the command started.
     interrupted: Option<u8>,
     line: String,
-    /// `cheers <name> [args...]`: the name and its arguments.
+    /// `run <name> [args...]`: the name and its arguments.
     named: Option<(String, Vec<String>)>,
     /// `[sync] copy_back`.
     copy_back: bool,
@@ -155,7 +151,7 @@ struct Ran {
     ready_seconds: Option<f64>,
 }
 
-impl Cheers<'_> {
+impl Run<'_> {
     fn kind(&self) -> LeaseKind {
         if self.serve.is_some() {
             LeaseKind::Serve
@@ -330,7 +326,7 @@ impl Cheers<'_> {
         let id = conn.id();
         *heartbeat = Some(Heartbeat::for_member(&self.ctx.paths, &id, times));
         let hydration = conn.hydration.unwrap_or(Hydration::Unknown);
-        let interrupted = cruise::wait_hydrated(
+        let interrupted = serve::wait_hydrated(
             self.ctx,
             stream,
             &conn.member.name,
@@ -770,7 +766,7 @@ mod tests {
 
     #[test]
     fn argv_words_are_quoted_and_a_shell_line_is_passed_as_is() {
-        let argv = CheersArgs {
+        let argv = RunArgs {
             sh: None,
             words: Vec::new(),
             command: vec!["sh".into(), "-c".into(), "echo out; exit 7".into()],
@@ -779,7 +775,7 @@ mod tests {
             command_line(&argv).as_deref(),
             Some("sh -c 'echo out; exit 7'")
         );
-        let line = CheersArgs {
+        let line = RunArgs {
             sh: Some("cargo test | tail -n 3".into()),
             words: Vec::new(),
             command: Vec::new(),
@@ -788,7 +784,7 @@ mod tests {
             command_line(&line).as_deref(),
             Some("cargo test | tail -n 3")
         );
-        let named = CheersArgs {
+        let named = RunArgs {
             sh: None,
             words: vec!["test".into(), "-q".into()],
             command: Vec::new(),

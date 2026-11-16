@@ -115,7 +115,7 @@ impl Member {
         }
     }
 
-    fn cheers(&mut self, command: &str) -> Run {
+    fn run(&mut self, command: &str) -> Run {
         let info = WorktreeInfo::read(&self.local).unwrap();
         let snapshot = sync::snapshot(&info).unwrap();
         let refs = sync::local_refs(&info).unwrap();
@@ -211,7 +211,7 @@ fn an_ensure_step_runs_once_until_its_key_file_changes_and_again_when_its_check_
     write(&member.local.join("deps.lock"), "v1\n");
     write(&member.local.join(".gitignore"), "ignored/\ninstalled\n");
 
-    let first = member.cheers("echo out");
+    let first = member.run("echo out");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     assert_eq!(ran(), 1);
     // Step output goes to stderr; stdout is the command's alone.
@@ -224,14 +224,14 @@ fn an_ensure_step_runs_once_until_its_key_file_changes_and_again_when_its_check_
     );
     assert_eq!(first.events, ["preparing", "started"]);
 
-    let second = member.cheers("true");
+    let second = member.run("true");
     assert_eq!(second.exit(), 0);
     assert_eq!(ran(), 1, "an unchanged key skips the step");
     assert_eq!(second.events, ["started"]);
     assert!(!second.stderr.contains("ensure"), "{}", second.stderr);
 
     write(&member.local.join("deps.lock"), "v2\n");
-    let third = member.cheers("true");
+    let third = member.run("true");
     assert_eq!(ran(), 2);
     assert!(
         third.stderr.contains("(its key changed)"),
@@ -240,14 +240,14 @@ fn an_ensure_step_runs_once_until_its_key_file_changes_and_again_when_its_check_
     );
 
     fs::remove_file(member.remote().join("installed")).unwrap();
-    let fourth = member.cheers("true");
+    let fourth = member.run("true");
     assert_eq!(ran(), 3);
     assert!(
         fourth.stderr.contains("(its check failed)"),
         "{}",
         fourth.stderr
     );
-    member.cheers("true");
+    member.run("true");
     assert_eq!(ran(), 3);
 }
 
@@ -267,13 +267,13 @@ fn a_key_command_and_a_step_directory_are_part_of_the_key() {
         ),
     );
     write(&member.local.join("web/web.lock"), "a\n");
-    let first = member.cheers("true");
+    let first = member.run("true");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     assert!(first.stderr.contains("/remote/web\n"), "{}", first.stderr);
-    member.cheers("true");
+    member.run("true");
     assert_eq!(step_log(root.path()), ["web"]);
     write(&version, "2\n");
-    member.cheers("true");
+    member.run("true");
     assert_eq!(step_log(root.path()), ["web", "web"]);
 }
 
@@ -290,7 +290,7 @@ fn setup_steps_run_once_per_boot_unless_their_check_succeeds() {
         ),
     );
     let log = || step_log(root.path());
-    let first = member.cheers("true");
+    let first = member.run("true");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     assert!(
         first
@@ -300,13 +300,13 @@ fn setup_steps_run_once_per_boot_unless_their_check_succeeds() {
         first.stderr
     );
     assert_eq!(log(), ["needed"], "a satisfied setup step does not run");
-    member.cheers("true");
+    member.run("true");
     assert_eq!(log(), ["needed"], "setup runs once per boot");
     // A bare load never runs steps, even on a new boot.
     member.set_env("BOATPARTY_RUNNER_BOOT_ID", "second-boot");
     member.load();
     assert_eq!(log(), ["needed"]);
-    member.cheers("true");
+    member.run("true");
     assert_eq!(log(), ["needed", "needed"], "a new boot runs setup again");
 }
 
@@ -318,7 +318,7 @@ fn a_failing_step_stops_the_command_and_reports_its_exit_code() {
         "steps-fail",
         "[[ensure]]\nname = \"broken\"\nrun = \"echo nope >&2; exit 3\"\n",
     );
-    let run = member.cheers(&format!("touch '{}'", marker.display()));
+    let run = member.run(&format!("touch '{}'", marker.display()));
     assert_eq!(run.exit(), 3);
     assert!(!marker.exists(), "the command must not run");
     assert_eq!(run.events, ["preparing", "failed-step ensure.broken"]);
@@ -329,7 +329,7 @@ fn a_failing_step_stops_the_command_and_reports_its_exit_code() {
         run.stderr
     );
     // Not recorded as done: it runs again.
-    let again = member.cheers("true");
+    let again = member.run("true");
     assert_eq!(again.exit(), 3);
 }
 
@@ -341,7 +341,7 @@ fn run_env_reaches_the_command_expanded_in_the_checkout() {
          QUOTED = 'say \"hi\" to $USER_NAME'\nUSER_NAME = \"crew\"\n",
     );
     let run =
-        member.cheers("printf '%s\\n' \"$BOATPARTY\" \"$TOOL_HOME\" \"${PATH%%:*}\" \"$QUOTED\"");
+        member.run("printf '%s\\n' \"$BOATPARTY\" \"$TOOL_HOME\" \"${PATH%%:*}\" \"$QUOTED\"");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     let remote = member.remote().display().to_string();
     // Exported in name order, so QUOTED sees USER_NAME only if it sorts
@@ -356,7 +356,7 @@ fn run_env_reaches_the_command_expanded_in_the_checkout() {
 fn the_command_gets_a_private_ram_tmpdir_that_is_removed_afterwards() {
     let mut member = Member::new("tmp", "");
     let shm = member.root().join("shm");
-    let run = member.cheers("echo \"$TMPDIR\"; touch \"$TMPDIR/scratch\"; ls \"$TMPDIR\"");
+    let run = member.run("echo \"$TMPDIR\"; touch \"$TMPDIR/scratch\"; ls \"$TMPDIR\"");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     let mut lines = run.stdout.lines();
     let tmp = lines.next().unwrap();
@@ -381,7 +381,7 @@ fn the_command_gets_a_private_ram_tmpdir_that_is_removed_afterwards() {
 
     let mut off = Member::new("tmp-off", "[run]\nram_tmp = false\n");
     off.set_env("TMPDIR", "/var/tmp");
-    let run = off.cheers("echo \"$TMPDIR\"");
+    let run = off.run("echo \"$TMPDIR\"");
     assert_eq!(run.stdout, "/var/tmp\n");
 }
 
@@ -400,13 +400,13 @@ fn build_outputs_are_floored_but_sources_and_cache_directories_are_not() {
         &member.local.join(".gitignore"),
         "ignored/\nout/*\n!out/tracked.txt\npkg/*/out/\n",
     );
-    let first = member.cheers("true");
+    let first = member.run("true");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     let remote = member.remote().to_path_buf();
     set_fractional_mtime(&remote.join("out/tracked.txt"));
     set_fractional_mtime(&remote.join("pkg/a/src.txt"));
 
-    let run = member.cheers(
+    let run = member.run(
         "mkdir -p out/debug/incremental/crate-1 pkg/a/out && \
          printf o > out/debug/app && printf i > out/debug/incremental/crate-1/q && \
          printf p > pkg/a/out/lib && touch out/tracked.txt pkg/a/src.txt",
@@ -458,7 +458,7 @@ fn a_bare_load_runs_no_steps_and_floors_nothing() {
     assert_ne!(nanos(&output), 0, "nothing was floored");
     assert!(!member.host.state.join("floor").exists());
     // The same spec on a command applies everything.
-    let run = member.cheers("true");
+    let run = member.run("true");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     assert_eq!(
         fs::read_to_string(root.path().join("steps.log")).unwrap(),
@@ -480,7 +480,7 @@ fn a_missing_spec_takes_the_exit_96_path_once() {
         .to_string();
     let spec_file = member.host.state.join(format!("specs/{hash}.sh"));
     assert!(!spec_file.exists());
-    let run = member.cheers("echo $GREETING");
+    let run = member.run("echo $GREETING");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     assert_eq!(run.stdout, "ahoy\n");
     assert!(run.outcome.installed);
@@ -501,7 +501,7 @@ fn a_missing_spec_takes_the_exit_96_path_once() {
 #[test]
 fn directory_mtimes_are_saved_and_restored_only_while_hydrating() {
     let mut member = Member::new("dirs", "");
-    let first = member.cheers("true");
+    let first = member.run("true");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     let dir = member.remote().join("dir");
     let saved = mtime(&dir);
@@ -548,7 +548,7 @@ fn an_unreadable_cache_entry_left_by_a_restore_is_dropped_whole() {
         "[build]\noutput_dirs = [\"out\"]\ncache_dirs = [\"incremental\"]\n",
     );
     write(&member.local.join(".gitignore"), "ignored/\nout/\n");
-    member.cheers("true");
+    member.run("true");
     let cache = member.remote().join("out/debug/incremental");
     write(&cache.join("good-1/s-1/a.o"), "a");
     write(&cache.join("bad-2/s-1/b.o"), "b");
@@ -557,7 +557,7 @@ fn an_unreadable_cache_entry_left_by_a_restore_is_dropped_whole() {
     fs::set_permissions(&broken, fs::Permissions::from_mode(0o000)).unwrap();
     // Settled: checked once per boot, so a new boot checks again.
     member.set_env("BOATPARTY_RUNNER_BOOT_ID", "restored");
-    let run = member.cheers("true");
+    let run = member.run("true");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     assert!(
         run.stderr
@@ -574,7 +574,7 @@ fn an_unreadable_cache_entry_left_by_a_restore_is_dropped_whole() {
         let broken = cache.join(format!("bad-{round}/s-1/x.o"));
         write(&broken, "x");
         fs::set_permissions(&broken, fs::Permissions::from_mode(0o000)).unwrap();
-        let run = member.cheers("true");
+        let run = member.run("true");
         assert_eq!(run.exit(), 0, "{}", run.stderr);
         assert!(
             !cache.join(format!("bad-{round}")).exists(),
@@ -590,12 +590,12 @@ fn files_exposed_by_changed_ignore_rules_are_removed_not_sent_back() {
     // build output; under the next repository's rules it is untracked.
     let mut member = Member::new("ignore-change", "");
     write(&member.local.join(".gitignore"), "ignored/\nbuild/\n");
-    let first = member.cheers("mkdir -p build && echo out > build/artifact");
+    let first = member.run("mkdir -p build && echo out > build/artifact");
     assert_eq!(first.exit(), 0, "{}", first.stderr);
     assert!(member.remote().join("build/artifact").exists());
 
     write(&member.local.join(".gitignore"), "ignored/\n");
-    let run = member.cheers("true");
+    let run = member.run("true");
     assert_eq!(run.exit(), 0, "{}", run.stderr);
     match run.outcome.end {
         RunEnd::Done { patch_bytes, .. } => assert_eq!(patch_bytes, 0),

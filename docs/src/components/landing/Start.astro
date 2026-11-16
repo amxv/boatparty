@@ -15,8 +15,8 @@ const steps = [
   },
   {
     title: "Log in",
-    cmd: "boat api-key create boatparty … --json | jq -r .secret | boatparty login --key-stdin",
-    note: "A scoped boat key, read from standard input only. The full scope list is in the guide."
+    cmd: "boatparty login --create-key",
+    note: "Creates a boat key with exactly the permissions boatparty needs, through the signed-in boat CLI. It never touches your shell history."
   },
   {
     title: "Set up the project",
@@ -25,7 +25,7 @@ const steps = [
   },
   {
     title: "Run",
-    cmd: "boatparty cheers -- cargo test",
+    cmd: "boatparty run -- cargo test",
     note: "The first run creates the sandbox and installs dependencies. Every later run reuses both."
   }
 ];

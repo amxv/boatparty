@@ -1,4 +1,4 @@
-//! `init`, `launch`, `board`, `status`, `dock` and `rm` against a fake boat
+//! `init`, `start`, `shell`, `status`, `stop` and `rm` against a fake boat
 //! API and fake `ssh`/`ssh-keygen` executables.
 
 mod common;
@@ -280,15 +280,11 @@ fn init_rejects_bad_names_and_non_git_directories() {
 
 #[test]
 fn launch_records_the_pending_member_before_creating_it() {
-    let setup = Setup::new("launch");
+    let setup = Setup::new("start");
     setup.init();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let boat = running_boat(setup.home(), Arc::clone(&seen));
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     let document = parse_json(&output.stdout);
     assert_eq!(document["member"]["name"], "bp-app-1");
@@ -308,9 +304,9 @@ fn launch_records_the_pending_member_before_creating_it() {
     assert_eq!(body["labels"]["boatparty.project"], "app");
     assert_eq!(body["labels"]["boatparty.role"], "pool");
     // Created with the lease length, then left at the idle length by the
-    // detached helper, since launch holds no lease.
+    // detached helper, since start holds no lease.
     assert_eq!(body["ttlSeconds"], 240);
-    assert!(Setup::wait_idle(&boat, 0), "launch set no idle deadline");
+    assert!(Setup::wait_idle(&boat, 0), "start set no idle deadline");
     assert!(body.get("env").is_none() && body.get("environment").is_none());
     let key = header(creates[0], "idempotency-key").expect("Idempotency-Key sent");
 
@@ -347,7 +343,7 @@ fn launch_records_the_pending_member_before_creating_it() {
 
 #[test]
 fn a_lost_create_answer_is_retried_with_the_same_key() {
-    let setup = Setup::new("launch-retry");
+    let setup = Setup::new("start-retry");
     setup.init();
     let attempts = Arc::new(Mutex::new(0));
     let counter = Arc::clone(&attempts);
@@ -370,7 +366,7 @@ fn a_lost_create_answer_is_retried_with_the_same_key() {
                 _ => Reply::json(404, r#"{"ok":false,"code":"not_found","status":404}"#),
             },
         );
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let requests = boat.requests();
     let keys: Vec<&str> = requests
         .iter()
@@ -391,7 +387,7 @@ fn a_lost_create_answer_is_retried_with_the_same_key() {
 
 #[test]
 fn a_refused_create_drops_the_pending_record() {
-    let setup = Setup::new("launch-refused");
+    let setup = Setup::new("start-refused");
     setup.init();
     // A refusal that a retry cannot fix (rate limits are retried, see
     // tests/starts.rs).
@@ -400,11 +396,7 @@ fn a_refused_create_drops_the_pending_record() {
         "POST" => Reply::json(402, &refused),
         _ => Reply::json(404, r#"{"ok":false,"code":"not_found","status":404}"#),
     });
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125));
     assert_eq!(parse_json(&output.stdout)["error"]["code"], "billing");
     let state = setup.state();
@@ -415,7 +407,7 @@ fn a_refused_create_drops_the_pending_record() {
 
 #[test]
 fn an_unknown_provider_state_is_an_error_and_is_never_resumed() {
-    let setup = Setup::new("launch-unknown");
+    let setup = Setup::new("start-unknown");
     setup.init();
     let boat =
         FakeBoat::start(
@@ -425,11 +417,7 @@ fn an_unknown_provider_state_is_an_error_and_is_never_resumed() {
                 _ => Reply::json(500, r#"{"ok":false,"code":"http_500","status":500}"#),
             },
         );
-    let output = setup
-        .cmd(&boat)
-        .args(["launch", "--json"])
-        .output()
-        .unwrap();
+    let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
     assert_eq!(output.status.code(), Some(125));
     assert_eq!(
         parse_json(&output.stdout)["error"]["code"],
@@ -445,18 +433,18 @@ fn an_unknown_provider_state_is_an_error_and_is_never_resumed() {
 
 #[test]
 fn board_on_a_warm_member_makes_no_synchronous_provider_call_and_returns_the_exit_code() {
-    let setup = Setup::new("board");
+    let setup = Setup::new("shell");
     setup.init();
     let boat = running_boat(setup.home(), Arc::new(Mutex::new(Vec::new())));
-    setup.cmd(&boat).arg("launch").assert().success();
-    // launch leaves the idle deadline to its helper too; let it finish.
-    assert!(Setup::wait_idle(&boat, 0), "launch set no idle deadline");
+    setup.cmd(&boat).arg("start").assert().success();
+    // start leaves the idle deadline to its helper too; let it finish.
+    assert!(Setup::wait_idle(&boat, 0), "start set no idle deadline");
     let before = boat.requests().len();
     let output = setup
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("FAKE_SSH_EXIT", "7")
-        .args(["board", "--", "sh", "-c", "echo it's"])
+        .args(["shell", "--", "sh", "-c", "echo it's"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(7), "{output:?}");
@@ -498,7 +486,7 @@ fn status_json_describes_each_member() {
     let setup = Setup::new("status");
     setup.init();
     let boat = running_boat(setup.home(), Arc::new(Mutex::new(Vec::new())));
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let output = setup
         .cmd(&boat)
         .args(["status", "--json"])
@@ -522,7 +510,7 @@ fn status_json_describes_each_member() {
 
 #[test]
 fn dock_waits_for_hydration_before_stopping() {
-    let setup = Setup::new("dock");
+    let setup = Setup::new("stop");
     setup.init();
     let polls = Arc::new(Mutex::new(0));
     let stopped = Arc::new(Mutex::new(false));
@@ -554,10 +542,10 @@ fn dock_waits_for_hydration_before_stopping() {
             _ => info("ready", Some(true)),
         }
     });
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let output = setup
         .cmd(&boat)
-        .args(["dock", "--wait", "--json"])
+        .args(["stop", "--wait", "--json"])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
@@ -585,7 +573,7 @@ fn dock_and_rm_refuse_a_member_with_a_live_lease() {
     let setup = Setup::new("leased");
     setup.init();
     let boat = running_boat(setup.home(), Arc::new(Mutex::new(Vec::new())));
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let mut state = setup.state();
     state["projects"]["app"]["members"][0]["leases"] = json!([
         {"pid": std::process::id(), "kind": "run", "label": "cargo test", "started_at": 0}
@@ -596,7 +584,7 @@ fn dock_and_rm_refuse_a_member_with_a_live_lease() {
     )
     .unwrap();
     let before = boat.requests().len();
-    for command in ["dock", "rm"] {
+    for command in ["stop", "rm"] {
         let output = setup.cmd(&boat).args([command, "--json"]).output().unwrap();
         assert_eq!(output.status.code(), Some(125));
         assert_eq!(parse_json(&output.stdout)["error"]["code"], "member_in_use");
@@ -642,7 +630,7 @@ fn rm_waits_for_the_deletion_and_drops_the_record() {
             _ => info("ready", Some(true)),
         }
     });
-    setup.cmd(&boat).arg("launch").assert().success();
+    setup.cmd(&boat).arg("start").assert().success();
     let output = setup.cmd(&boat).args(["rm", "--json"]).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     let document = parse_json(&output.stdout);
@@ -688,7 +676,7 @@ fn launch_resumes_a_stopped_member_and_pins_the_new_host_key() {
             _ => info("ready", Some(true)),
         }
     });
-    // A record for a stopped member, as an earlier launch and dock leave it.
+    // A record for a stopped member, as an earlier start and stop leave it.
     let state = json!({
         "version": 1,
         "projects": {"app": {"members": [{
@@ -716,7 +704,7 @@ fn launch_resumes_a_stopped_member_and_pins_the_new_host_key() {
         .cmd(&boat)
         // Even a master that looks alive is replaced after a start.
         .env("FAKE_SSH_CHECK", "0")
-        .args(["launch", "--json"])
+        .args(["start", "--json"])
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");

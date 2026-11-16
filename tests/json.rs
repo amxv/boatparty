@@ -235,7 +235,7 @@ fn run(
     args: &[&str],
     stdin: &[u8],
 ) -> Value {
-    let streaming = ["cheers", "cruise", "board", "pipe"].contains(&args[0]);
+    let streaming = ["run", "serve", "shell", "pipe"].contains(&args[0]);
     let output = setup
         .cmd(boat)
         .arg("--json")
@@ -309,15 +309,12 @@ fn every_subcommand_prints_its_documented_json() {
         "limits set",
         &["limits", "set", "project", "app", "max_sandboxes=3"],
     );
-    go("launch", &["launch"]);
+    go("start", &["start"]);
     go("status", &["status"]);
-    go("load", &["load"]);
-    go(
-        "cheers",
-        &["cheers", "--", "sh", "-c", "echo out; echo err >&2"],
-    );
-    go("cruise", &["cruise", "--", "true"]);
-    go("board", &["board", "--", "echo", "hi"]);
+    go("sync", &["sync"]);
+    go("run", &["run", "--", "sh", "-c", "echo out; echo err >&2"]);
+    go("serve", &["serve", "--", "true"]);
+    go("shell", &["shell", "--", "echo", "hi"]);
     go(
         "fetch",
         &[
@@ -335,7 +332,7 @@ fn every_subcommand_prints_its_documented_json() {
     go("pool", &["pool", "--refresh"]);
     go("pool prune", &["pool", "prune", "--yes"]);
     go("base status", &["base", "status"]);
-    go("dock", &["dock"]);
+    go("stop", &["stop"]);
     go("base rm", &["base", "rm"]);
     go("rm", &["rm"]);
     go("doctor", &["doctor"]);
@@ -369,7 +366,7 @@ fn every_subcommand_prints_its_documented_json() {
         &refused,
         &no,
         "error frame",
-        &["cheers", "--", "true"],
+        &["run", "--", "true"],
         b"",
     );
     seen.check();
@@ -380,12 +377,12 @@ fn every_subcommand_prints_its_documented_json() {
 #[test]
 fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
     let cases: &[&[&str]] = &[
-        &["launch"],
-        &["load"],
-        &["cheers", "--", "true"],
-        &["cruise", "--", "true"],
-        &["board", "--", "true"],
-        &["dock"],
+        &["start"],
+        &["sync"],
+        &["run", "--", "true"],
+        &["serve", "--", "true"],
+        &["shell", "--", "true"],
+        &["stop"],
         &["pipe", "--", "cat"],
         &["fetch", "a.txt"],
         &["forward", "8000"],
@@ -418,7 +415,7 @@ fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
     let shapes = documented();
     let started = Instant::now();
     for args in cases {
-        let streaming = ["cheers", "cruise", "board", "pipe"].contains(&args[0]);
+        let streaming = ["run", "serve", "shell", "pipe"].contains(&args[0]);
         let output = boatparty(Path::new("/"))
             .env("BOATPARTY_HOME", "relative/home")
             .arg("--json")

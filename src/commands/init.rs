@@ -88,7 +88,7 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
                 }
                 for (name, line) in &found.commands {
                     ctx.out.text(format_args!(
-                        "command: `boatparty cheers {name}` runs `{line}`"
+                        "command: `boatparty run {name}` runs `{line}`"
                     ));
                 }
             }
@@ -108,7 +108,7 @@ pub fn run(ctx: &Context, args: &InitArgs) -> Result<u8, AppError> {
             ctx.out.text(note);
         }
         ctx.out
-            .text("next: `boatparty launch` starts this workspace's sandbox");
+            .text("next: `boatparty start` starts this workspace's sandbox");
     }
     Ok(0)
 }

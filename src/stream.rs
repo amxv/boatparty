@@ -1,4 +1,4 @@
-//! Output of streaming commands (`cheers`).
+//! Output of streaming commands (`run`).
 //!
 //! Text mode: the remote stdout is written to stdout byte for byte, the
 //! remote stderr (minus the runner's frames) to stderr, and the tool's own

@@ -156,7 +156,7 @@ impl ProjectConfig {
         }
     }
 
-    /// The shell line `cheers <name> [args...]` runs: the `[commands]`
+    /// The shell line `run <name> [args...]` runs: the `[commands]`
     /// entry with the arguments appended, else the script runner
     /// (`[run] script`) with the name and arguments.
     pub fn named_command(&self, name: &str, args: &[String]) -> Result<String, AppError> {
@@ -196,7 +196,7 @@ impl ProjectConfig {
         )
         .with_hint(format!(
             "add `{name} = \"...\"` under [commands] in {}, or run a command line with \
-             `boatparty cheers -- <command>`",
+             `boatparty run -- <command>`",
             self.resolved.file.display()
         )))
     }

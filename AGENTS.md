@@ -11,7 +11,7 @@ boatparty is a Rust CLI that gives any Git project a pool of warm boat.dev sandb
 One crate, split by responsibility:
 
 - `src/main.rs`: process boundary only. `src/lib.rs`: parses, dispatches, turns errors into exit status 125 and the JSON error shape.
-- `src/cli.rs`: every `clap` type and help text. `src/commands/`: one module per command (`base/` for `base build|status|rm`); `session.rs` is the `session` lease shared by `board`, `fetch`, `pipe`, `expose` and `forward`.
+- `src/cli.rs`: every `clap` type and help text. `src/commands/`: one module per command (`base/` for `base build|status|rm`); `session.rs` is the `session` lease shared by `shell`, `fetch`, `pipe`, `expose` and `forward`.
 - `src/provider/`: the only code that knows boat. The `Provider` trait, typed sandbox states and errors (`error.rs`), and `boat/` (HTTP client, error mapping, sandboxes, snapshots, signed file URLs, hosting, the key-scope probes). Nothing outside it names a boat URL, state or error code.
 - `src/account/`: `account.toml` (`config.rs`, comment-preserving edits in `edit.rs`), the API key (`credentials.rs`), resolved per-project limits (`limits.rs`).
 - `src/state/`: `state.json` and its advisory lock. The lock is held only for one read-modify-write, never across a network call or a child process.
@@ -28,7 +28,7 @@ One crate, split by responsibility:
 
 ## Commands
 
-Nothing compiles on the developer machine: no `cargo build`, `check`, `clippy` or `test`, no `bun` or `astro`. Only `cargo fmt` runs locally. Checks run on this workspace's boat sandbox through boatparty (`scripts/remote-check.sh` runs them with `boatparty cheers`):
+Nothing compiles on the developer machine: no `cargo build`, `check`, `clippy` or `test`, no `bun` or `astro`. Only `cargo fmt` runs locally. Checks run on this workspace's boat sandbox through boatparty (`scripts/remote-check.sh` runs them with `boatparty run`):
 
 ```bash
 cargo fmt --all                 # local, no compilation
@@ -47,7 +47,7 @@ The checks use the boatparty binary in `$BOATPARTY`, else `boatparty` on `PATH`.
 - Every command accepts `--json`. A change to a JSON shape changes `docs/json.md` in the same commit; `tests/json.rs` fails otherwise. Error codes are listed there too.
 - The tool's own messages go to stderr prefixed `boatparty: `; stdout belongs to the result or the remote command.
 - Secrets (the API key, GitHub tokens, signed URLs, `expose` URLs, `pipe` input) never reach argv, logs, `state.json` or `runs.jsonl`.
-- The warm path of `cheers`, `board` and `pipe` makes no provider call before the command starts. Provider TTL changes happen in the background or in the detached idle helper.
+- The warm path of `run`, `shell` and `pipe` makes no provider call before the command starts. Provider TTL changes happen in the background or in the detached idle helper.
 - The runner stays stack-neutral and bash 3.2 compatible: anything specific to a language belongs in a preset, and the runner reads it from the spec. Keep its contract (modes, frames, exit 96 and 97) in sync with the comments at the top of `src/runner/script/core.sh`.
 - Pure decisions (acquisition, admission, staleness) stay pure functions with table tests; side effects sit around them.
 - New code files stay at or below 1,000 lines. `Cargo.lock` stays committed.
@@ -94,8 +94,7 @@ Release with `boatparty-<version>-<target>.tar.gz` archives, `install.sh` and
 builds as a dry run. Users install with
 `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh`: `docs/public/install.sh`,
 served by the docs site and attached to every release, checksum-verified,
-into `~/.local/bin`; it downloads through a signed-in `gh` while the
-repository is private, else with `curl`. The release
+into `~/.local/bin`, with nothing but `curl`. The release
 needs no secret besides the workflow's own `GITHUB_TOKEN`.
 
 For any request to cut or ship a release, read and follow `.agents/skills/release/SKILL.md`.

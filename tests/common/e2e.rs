@@ -298,12 +298,12 @@ impl E2e {
         false
     }
 
-    /// `launch`, then wait for the idle helper it starts to set the idle
+    /// `start`, then wait for the idle helper it starts to set the idle
     /// deadline, so its provider calls do not mix with the next command's.
-    pub fn launch(&self, boat: &FakeBoat) {
+    pub fn start(&self, boat: &FakeBoat) {
         let before = self.patches();
-        self.cmd(boat).arg("launch").assert().success();
-        assert!(self.wait_patches(before), "launch set no idle deadline");
+        self.cmd(boat).arg("start").assert().success();
+        assert!(self.wait_patches(before), "start set no idle deadline");
     }
 
     pub fn event_lines(&self) -> Vec<String> {

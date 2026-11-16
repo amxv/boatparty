@@ -5,7 +5,7 @@
 version = 1
 
 [run]
-# `boatparty cheers <name>` runs `bun run <name>` when [commands] has no <name>.
+# `boatparty run <name>` runs `bun run <name>` when [commands] has no <name>.
 script = "bun run"
 
 [run.env]

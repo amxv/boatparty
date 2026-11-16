@@ -59,7 +59,7 @@ fn input(marker: &str) -> Vec<u8> {
 fn the_input_passes_byte_for_byte_and_is_kept_nowhere() {
     let setup = E2e::new("pipe-exact");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let marker = "pipe-secret-6f1d9a";
     let bytes = input(marker);
     // The first pipe also installs the runner: the attempt that found it
@@ -143,7 +143,7 @@ fn the_input_passes_byte_for_byte_and_is_kept_nowhere() {
 fn the_end_of_the_input_does_not_end_the_command() {
     let setup = E2e::new("pipe-eof");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let output = setup
         .cmd(&boat)
         .args([
@@ -171,7 +171,7 @@ fn the_end_of_the_input_does_not_end_the_command() {
 fn a_killed_client_stops_the_command_while_its_input_is_still_open() {
     let setup = E2e::new("pipe-kill");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let leader_file = setup.root.path().join("leader.pid");
     let child_file = setup.root.path().join("child.pid");
     let line = format!(
@@ -220,7 +220,7 @@ fn a_killed_client_stops_the_command_while_its_input_is_still_open() {
 fn a_cancel_stops_the_command_and_exits_143() {
     let setup = E2e::new("pipe-cancel");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let leader_file = setup.root.path().join("leader.pid");
     let line = format!("echo $$ > '{}'; sleep 300", leader_file.display());
     let mut client = setup

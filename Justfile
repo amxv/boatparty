@@ -44,7 +44,7 @@ docs-build:
 docs-test:
     cd docs && bun run test:vercel
 
-# Full gate (fmt, clippy, test, shellcheck, docs) on this workspace's boat sandbox via boatparty cheers.
+# Full gate (fmt, clippy, test, shellcheck, docs) on this workspace's boat sandbox via boatparty run.
 remote-check *args:
     scripts/remote-check.sh check "$@"
 

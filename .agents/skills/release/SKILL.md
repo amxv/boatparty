@@ -13,7 +13,7 @@ allowed-tools: Bash, Read, Write, Edit
 - macOS arm64 and x86_64 are tested and built natively on `macos-latest`; they are signed ad hoc.
 - The release holds `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`.
 
-Users install with `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh` (`docs/public/install.sh`, also attached to each release; it downloads through a signed-in `gh` while the repository is private). There is no npm or crates.io publication.
+Users install with `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh` (`docs/public/install.sh`, also attached to each release; it needs only `curl`). There is no npm or crates.io publication.
 
 ## 1. Inspect release state
 

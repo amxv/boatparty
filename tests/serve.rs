@@ -1,6 +1,6 @@
 //! Servers, forwards and public URLs: the runner's `serve` mode against
 //! scratch repositories (its serve marker, flooring beside it, the ready
-//! event), and `cruise` and `expose` end to end with a fake `ssh` that runs
+//! event), and `serve` and `expose` end to end with a fake `ssh` that runs
 //! the runner locally and a fake boat API, including a client killed with
 //! SIGKILL.
 
@@ -126,7 +126,7 @@ impl Member {
         }
     }
 
-    /// Run `command` like `cheers`, or as a server with `ready_port`.
+    /// Run `command` like `run`, or as a server with `ready_port`.
     fn run(&mut self, command: &str, serve: Option<Option<u16>>) -> (i32, Collect) {
         let info = WorktreeInfo::read(&self.local).unwrap();
         let snapshot = sync::snapshot(&info).unwrap();
@@ -308,7 +308,7 @@ fn a_server_reports_ready_once_its_port_listens() {
     assert!(!printed.events.contains(&"ready".to_string()));
 }
 
-// ----- `cruise` and `expose` end to end ---------------------------------
+// ----- `serve` and `expose` end to end ---------------------------------
 
 fn state_text(setup: &E2e) -> String {
     fs::read_to_string(setup.home().join("state/state.json")).unwrap_or_default()
@@ -320,9 +320,9 @@ fn runs_text(setup: &E2e) -> String {
 
 #[test]
 fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
-    let setup = E2e::new("cruise-kill");
+    let setup = E2e::new("serve-kill");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let leader_file = setup.root.path().join("leader.pid");
     let child_file = setup.root.path().join("child.pid");
     let line = format!(
@@ -333,7 +333,7 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
     let log = fs::File::create(setup.root.path().join("client.err")).unwrap();
     let mut client = setup
         .spawn_cmd(&boat)
-        .args(["cruise", "--sh", &line])
+        .args(["serve", "--sh", &line])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(log)
@@ -375,16 +375,16 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
 
 #[test]
 fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run() {
-    let setup = E2e::new("cruise-ready");
+    let setup = E2e::new("serve-ready");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let port = free_port();
     let local = free_port();
     let output = setup
         .cmd(&boat)
         .args([
             "--json",
-            "cruise",
+            "serve",
             "--forward",
             &format!("{local}:{port}"),
             "--ready-port",
@@ -464,15 +464,15 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
 
 #[test]
 fn the_time_cap_stops_a_forgotten_server() {
-    let setup = E2e::new("cruise-cap");
+    let setup = E2e::new("serve-cap");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let began = Instant::now();
     let output = setup
         .cmd(&boat)
         .args([
             "--json",
-            "cruise",
+            "serve",
             "--max-minutes",
             "0.02",
             "--",
@@ -497,7 +497,7 @@ fn the_time_cap_stops_a_forgotten_server() {
 
 #[test]
 fn a_taken_local_port_fails_before_anything_runs() {
-    let setup = E2e::new("cruise-port");
+    let setup = E2e::new("serve-port");
     let boat = setup.boat();
     let held = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = held.local_addr().unwrap().port();
@@ -505,7 +505,7 @@ fn a_taken_local_port_fails_before_anything_runs() {
         .cmd(&boat)
         .args([
             "--json",
-            "cruise",
+            "serve",
             "--forward",
             &format!("{port}:80"),
             "--",
@@ -528,7 +528,7 @@ fn a_taken_local_port_fails_before_anything_runs() {
 fn expose_prints_the_gated_url_on_stdout_only() {
     let setup = E2e::new("expose");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     let output = setup
         .cmd(&boat)
         .args(["expose", "8000", "--title", "app"])
@@ -618,7 +618,7 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
 fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
     let setup = E2e::new("forward-reconnect");
     let boat = setup.boat();
-    setup.launch(&boat);
+    setup.start(&boat);
     // In front of the harness's ssh: the first connection carrying a
     // forward ends a moment after it is up; later ones hold.
     let bin = setup.root.path().join("bin");

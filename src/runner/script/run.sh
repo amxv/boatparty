@@ -216,7 +216,7 @@ case "$mode" in
   seed) mode_seed "$@" ;;
   credential) mode_credential "$@" ;;
   hold) mode_hold "$@" ;;
-  board) mode_board "$@" ;;
+  shell) mode_board "$@" ;;
   maintain) mode_maintain ;;
   fetch-patch) mode_fetch_patch "$@" ;;
   kill) mode_kill "$@" ;;

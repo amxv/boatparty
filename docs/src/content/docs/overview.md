@@ -8,8 +8,10 @@ summary: Warm boat.dev sandbox pools for any Git project, one place per account.
 
 boatparty is a command-line tool that runs a Git project's builds, tests and servers on [boat.dev](https://boat.dev) sandboxes instead of your computer. From any checkout it leases a sandbox from that project's pool, mirrors the working tree, runs a command with live output and its real exit code, brings the command's file changes back, and keeps the sandbox warm for the next command.
 
+boatparty is built for [boat.dev](https://boat.dev) users and for coding agents: it needs a boat account, and its exit codes, untouched stdout, `--json` output and stdin-only secrets are made for agents that run builds, tests and servers in parallel. boat is the only provider it supports; the code keeps everything boat-specific behind one module (`src/provider/`), but no other backend exists.
+
 ```bash
-boatparty cheers -- cargo test --locked
+boatparty run -- cargo test --locked
 ```
 
 ## What happens on a command

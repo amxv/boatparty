@@ -457,7 +457,7 @@ fn load_refuses_a_repository_without_a_commit_or_outside_git() {
     );
     let output = boatparty(&home)
         .current_dir(&repo)
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(125));
@@ -476,7 +476,7 @@ fn load_refuses_a_repository_without_a_commit_or_outside_git() {
     let output = boatparty(&home)
         .current_dir(&outside)
         .env("GIT_CEILING_DIRECTORIES", root.path())
-        .args(["--json", "load"])
+        .args(["--json", "sync"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(125));

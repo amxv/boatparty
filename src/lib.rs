@@ -48,7 +48,7 @@ pub fn run() -> ExitCode {
     // before streaming anything.
     let streaming = matches!(
         cli.command,
-        Command::Cheers(_) | Command::Cruise(_) | Command::Pipe(_) | Command::Board(_)
+        Command::Run(_) | Command::Serve(_) | Command::Pipe(_) | Command::Shell(_)
     );
     match dispatch(cli, out) {
         Ok(status) => ExitCode::from(status),
@@ -73,11 +73,11 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Doctor => commands::doctor::run(&ctx),
         Command::Limits(args) => commands::limits::run(&ctx, &args),
         Command::Init(args) => commands::init::run(&ctx, &args),
-        Command::Launch => commands::launch::run(&ctx),
-        Command::Cheers(args) => commands::cheers::run(&ctx, &args),
-        Command::Cruise(args) => commands::cruise::run(&ctx, &args),
-        Command::Board(args) => commands::board::run(&ctx, &args),
-        Command::Load => commands::load::run(&ctx),
+        Command::Start => commands::start::run(&ctx),
+        Command::Run(args) => commands::run::run(&ctx, &args),
+        Command::Serve(args) => commands::serve::run(&ctx, &args),
+        Command::Shell(args) => commands::shell::run(&ctx, &args),
+        Command::Sync => commands::sync::run(&ctx),
         Command::Pipe(args) => commands::pipe::run(&ctx, &args),
         Command::Fetch(args) => commands::fetch::run(&ctx, &args),
         Command::Forward(args) => commands::forward::run(&ctx, &args),
@@ -88,7 +88,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Preset(args) => commands::preset::run(&ctx, &args),
         Command::Release => commands::pin::release(&ctx),
         Command::Assign(args) => commands::pin::assign(&ctx, &args),
-        Command::Dock(args) => commands::dock::run(&ctx, &args),
+        Command::Stop(args) => commands::stop::run(&ctx, &args),
         Command::Rm(args) => commands::rm::run(&ctx, &args),
         Command::Base(args) => commands::base::run(&ctx, &args),
         Command::Log(args) => commands::log::run(&ctx, &args),

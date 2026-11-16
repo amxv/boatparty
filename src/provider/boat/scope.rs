@@ -41,10 +41,21 @@ pub fn help() -> CredentialHelp {
     let create_command = format!("boat api-key create boatparty --ttl 90d --actions {actions}");
     CredentialHelp {
         permissions: REQUIRED_ACTIONS.to_vec(),
-        create_and_login_command: format!(
-            "{create_command} --json | jq -r .secret | boatparty login --key-stdin"
-        ),
+        create_and_login_command: "boatparty login --create-key".to_string(),
         create_command,
+        create_program: "boat",
+        create_args: [
+            "api-key",
+            "create",
+            "boatparty",
+            "--ttl",
+            "90d",
+            "--actions",
+            &actions,
+            "--json",
+        ]
+        .map(String::from)
+        .to_vec(),
     }
 }
 
@@ -357,9 +368,14 @@ mod tests {
         let help = help();
         assert_eq!(help.permissions.len(), REQUIRED_ACTIONS.len());
         assert!(help.create_command.contains(&REQUIRED_ACTIONS.join(",")));
-        assert!(
-            help.create_and_login_command
-                .ends_with("boatparty login --key-stdin")
+        assert_eq!(
+            help.create_and_login_command,
+            "boatparty login --create-key"
         );
+        // `login --create-key` runs this, with the same actions and JSON out.
+        assert_eq!(help.create_program, "boat");
+        assert_eq!(help.create_args[..3], ["api-key", "create", "boatparty"]);
+        assert!(help.create_args.contains(&REQUIRED_ACTIONS.join(",")));
+        assert_eq!(help.create_args.last().map(String::as_str), Some("--json"));
     }
 }

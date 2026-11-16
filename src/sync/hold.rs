@@ -1,12 +1,12 @@
-//! Credentials for `boatparty board`: a `hold` invocation of the runner that
+//! Credentials for `boatparty shell`: a `hold` invocation of the runner that
 //! serves the GitHub token for as long as this process keeps its stdin open,
-//! and the `board` invocation that joins it.
+//! and the `shell` invocation that joins it.
 //!
-//! `board` runs a shell or a command whose stdin (and, for a shell, terminal)
+//! `shell` runs a shell or a command whose stdin (and, for a shell, terminal)
 //! belongs to the user, so the credentials cannot travel at the head of its
 //! stdin the way they do for `run` and `pipe`. The hold carries them
 //! instead: the token reaches the sandbox only on the hold's stdin, and the
-//! board invocation names the hold's socket. The Git identity, which is not
+//! shell invocation names the hold's socket. The Git identity, which is not
 //! secret, travels as arguments. When this process ends, SIGKILL included,
 //! the hold's stdin closes and the runner stops the token server.
 
@@ -33,8 +33,8 @@ pub struct Hold {
 }
 
 impl Hold {
-    /// The arguments of the `board` invocation that joins this hold:
-    /// `board <project> <spec> <socket|-> <name> <email> [words...]`.
+    /// The arguments of the `shell` invocation that joins this hold:
+    /// `shell <project> <spec> <socket|-> <name> <email> [words...]`.
     pub fn board_args(
         &self,
         project: &str,
@@ -46,7 +46,7 @@ impl Hold {
     }
 }
 
-/// The arguments of a `board` invocation.
+/// The arguments of a `shell` invocation.
 pub fn board_args(
     project: &str,
     spec: Option<String>,
@@ -55,7 +55,7 @@ pub fn board_args(
     words: &[String],
 ) -> Vec<String> {
     let mut args = vec![
-        "board".to_string(),
+        "shell".to_string(),
         project.to_string(),
         spec.unwrap_or_else(|| NO_SPEC.to_string()),
         socket.unwrap_or("-").to_string(),
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             args,
             [
-                "board",
+                "shell",
                 "app",
                 "abc",
                 "/dev/shm/bpc-1/s",
@@ -232,6 +232,6 @@ mod tests {
         );
         assert!(!args.iter().any(|arg| arg.contains("gho_secret")));
         let bare = board_args("app", None, None, &RunCredentials::none(), &[]);
-        assert_eq!(bare, ["board", "app", "-", "-", "", ""]);
+        assert_eq!(bare, ["shell", "app", "-", "-", "", ""]);
     }
 }
