@@ -21,7 +21,6 @@ use crate::cli::PipeArgs;
 use crate::error::AppError;
 use crate::runner::{RunnerSpec, SshRunner};
 use crate::runs;
-use crate::signals::Interrupts;
 use crate::stream::Stream;
 use crate::sync::{self, RunCredentials, RunEnd, TokenSource};
 use crate::system;
@@ -97,7 +96,6 @@ fn execute(
         record["sandbox"] = json!(id);
         record["git_identity"] = json!(credentials.has_identity());
         record["github_token"] = json!(credentials.github_token.is_some());
-        let interrupts = Interrupts::install()?;
         let mut input = || Box::new(std::io::stdin()) as Box<dyn Read + Send>;
         let outcome = sync::pipe_command(
             &host,
@@ -106,18 +104,13 @@ fn execute(
             &credentials,
             &mut input,
             stream,
-            &interrupts,
+            held.interrupts,
         );
         drop(credentials);
-        Ok((
-            outcome?,
-            interrupts.exit_status(),
-            held.member.name.clone(),
-            id,
-        ))
+        Ok((outcome?, held.member.name.clone(), id))
     })?;
-    let (outcome, cancelled, member, id) = ended.value?;
-    let cancelled = cancelled.or(ended.interrupted);
+    let (outcome, member, id) = ended.value?;
+    let cancelled = ended.interrupted;
     let status = match outcome.end {
         RunEnd::Done { exit_code, .. } => Some(exit_code),
         RunEnd::Lost { .. } if cancelled.is_some() => None,
