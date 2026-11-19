@@ -16,18 +16,26 @@ pub fn pid_alive(pid: u32) -> bool {
 fn acl_command(path: &Path, script: &str) -> Result<bool, AppError> {
     let system =
         std::env::var_os("SystemRoot").ok_or_else(|| AppError::config("SystemRoot is missing"))?;
-    Command::new(PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .env("BOATPARTY_ACL_PATH", path)
-        .stdin(Stdio::null())
-        .output()
-        .map(|result| result.status.success())
-        .map_err(|error| {
-            AppError::io(
-                "cannot use Windows PowerShell to inspect file permissions",
-                error,
-            )
-        })
+    let output =
+        Command::new(PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env("BOATPARTY_ACL_PATH", path)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| {
+                AppError::io(
+                    "cannot use Windows PowerShell to inspect file permissions",
+                    error,
+                )
+            })?;
+    if !output.status.success() && !output.stderr.is_empty() {
+        return Err(AppError::config(format!(
+            "cannot inspect or set the ACL on {}: {}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(output.status.success())
 }
 
 /// Give the current user full control and let new files inherit that rule.
@@ -43,11 +51,10 @@ pub(crate) fn secure_directory(path: &Path) -> Result<(), AppError> {
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { exit 1 }
         $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
         $acl = [Security.AccessControl.DirectorySecurity]::new()
-        $acl.SetOwner($user)
         $acl.SetAccessRuleProtection($true, $false)
         $rule = [Security.AccessControl.FileSystemAccessRule]::new($user, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
         $acl.AddAccessRule($rule)
-        Set-Acl -LiteralPath $item.FullName -AclObject $acl
+        [IO.Directory]::SetAccessControl($item.FullName, $acl)
     "#,
     )?;
     if ok {
