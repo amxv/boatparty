@@ -1,0 +1,22 @@
+name: Windows installer
+
+on:
+  push:
+    paths:
+      - docs/public/install.ps1
+      - scripts/windows/test-installer.ps1
+      - .github/workflows/windows-installer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prerequisites:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Test prerequisite detection and installation
+        shell: powershell
+        run: ./scripts/windows/test-installer.ps1

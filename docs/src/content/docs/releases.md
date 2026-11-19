@@ -14,15 +14,17 @@ curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 
 The script (`docs/public/install.sh`, served by this site and attached to every release as `install.sh`) picks the archive for this machine (macOS or Linux, arm64 or x86_64), checks it against the release's `SHA256SUMS` and installs `boatparty` into `~/.local/bin`, replacing the old binary in one rename. Options, after `sh -s --`: `--version vX.Y.Z` for a specific release, `--dir DIR` for another location (or `BOATPARTY_VERSION` and `BOATPARTY_INSTALL_DIR`). Running it again upgrades. It needs only `curl`, `tar` and a shell.
 
-On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
+On Windows x64 or Arm64, run this in PowerShell:
 
 ```powershell
 irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
-The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
+The installer offers to install missing Git and OpenSSH tools and, optionally, the boat CLI for sign-in. It verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
 
 Set `$env:BOATPARTY_VERSION` to select a release or `$env:BOATPARTY_INSTALL_DIR` to choose a directory before running the installer. Running the installer again upgrades the executable.
+
+The installer uses `curl.exe` when available. Installing the Windows OpenSSH Client can prompt for administrator approval. For unattended setup, set `$env:BOATPARTY_PREREQUISITES = 'Install'` to install missing required tools, or `'Skip'` to install just boatparty.
 
 ### Running on Windows
 

@@ -14,13 +14,13 @@ curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 
 This installs `boatparty` into `~/.local/bin`; see [Releases and installation](/docs/releases) for options. boatparty needs `ssh`, `ssh-keygen` and `git` on `PATH`, on macOS or Linux.
 
-On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
+On Windows x64 or Arm64, run this in PowerShell:
 
 ```powershell
 irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
-The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
+The installer offers to install missing Git and OpenSSH tools and, optionally, the boat CLI for sign-in. It verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
 
 ## Store a key
 

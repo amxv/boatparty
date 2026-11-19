@@ -36,13 +36,13 @@ curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 
 This installs `boatparty` into `~/.local/bin`, checked against the release's `SHA256SUMS`. Run it again to upgrade; `| sh -s -- --version v0.2.0` installs a given release.
 
-On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
+On Windows x64 or Arm64, run this in PowerShell:
 
 ```powershell
 irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
-The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
+The installer offers to install missing Git and OpenSSH tools and, optionally, the boat CLI for sign-in. It verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
 
 ## First run
 
