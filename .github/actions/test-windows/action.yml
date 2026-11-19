@@ -10,3 +10,21 @@ runs:
       run: cargo build --locked
     - shell: pwsh
       run: cargo test --locked --no-fail-fast
+    # Only the test server runs in Linux. The CLI, Git and OpenSSH client
+    # under test all run as native Windows processes.
+    - uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+      with:
+        distribution: Debian-12
+        additional-packages: openssh-server git perl
+    - shell: wsl-bash {0}
+      run: |
+        set -eu
+        id user >/dev/null 2>&1 || useradd -m -s /bin/bash user
+        passwd -d user
+        mkdir -p /run/sshd /run/boatparty-test
+        ssh-keygen -A
+    - shell: pwsh
+      run: |
+        $env:BOATPARTY_TEST_HOST_KEY = (wsl -u root -- cat /etc/ssh/ssh_host_ed25519_key.pub).Trim()
+        $env:Path = "$env:SystemRoot\System32\OpenSSH;$env:Path"
+        cargo test --locked --test windows -- --ignored --nocapture
