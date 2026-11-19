@@ -28,4 +28,12 @@ curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
 Downloads the archive for this machine, checks it against `SHA256SUMS` and installs `boatparty` into `~/.local/bin`.
+
+On Windows, run this in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://boatparty.ashray.xyz/install.ps1)))
+```
+
+The Windows installer verifies the ZIP and adds the installation directory to your user PATH.
 INSTALL

@@ -8,6 +8,7 @@ on:
     branches: ["**"]
     paths:
       - ".github/workflows/ci.yml"
+      - ".github/workflows/windows-live.yml"
       - ".github/actions/test-windows/**"
       - ".gitattributes"
       - "Cargo.toml"
