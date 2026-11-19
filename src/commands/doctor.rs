@@ -408,9 +408,12 @@ fn credential_check(source: &KeySource) -> Check {
                 "credentials",
                 format!("API key in {} (private ACL)", path.display()),
             ),
-            _ => Check::fail(
+            result => Check::fail(
                 "credentials",
-                format!("cannot verify private access to {}", path.display()),
+                result.err().map_or_else(
+                    || format!("cannot verify private access to {}", path.display()),
+                    |error| error.message().to_string(),
+                ),
                 "store the key again with boatparty login --key-stdin",
             ),
         },

@@ -75,10 +75,14 @@ pub(crate) fn private_acl(path: &Path) -> Result<bool, AppError> {
         $sid = [Security.Principal.SecurityIdentifier]
         $user = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         $trusted = @($user, 'S-1-5-18', 'S-1-5-32-544')
-        $acl = Get-Acl -LiteralPath $env:BOATPARTY_ACL_PATH
-        if ($acl.GetOwner($sid).Value -notin $trusted) { exit 1 }
-        foreach ($rule in $acl.GetAccessRules($true, $true, $sid)) {
-            if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted) { exit 1 }
+        $acl = [IO.File]::GetAccessControl($env:BOATPARTY_ACL_PATH)
+        if ($acl.GetOwner($sid).Value -notin $trusted) { throw 'The credential file has an unexpected owner.' }
+        $rules = $acl.GetAccessRules($true, $true, $sid)
+        if (-not $rules.Count) { throw 'The credential file has no access rules.' }
+        foreach ($rule in $rules) {
+            if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin $trusted) {
+                throw ('The credential file grants access to ' + $rule.IdentityReference.Value)
+            }
         }
     "#,
     )
