@@ -85,7 +85,7 @@ fn hold(
     forward: &Forward,
     began: Instant,
 ) -> Result<Outcome, AppError> {
-    let interrupts = Interrupts::install()?;
+    let interrupts = held.interrupts;
     let reconnect_for = std::env::var(RECONNECT_ENV)
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -104,7 +104,7 @@ fn hold(
                 announce(ctx, held, forward, began);
             }
         };
-        let attempt = connect_once(held, forward, &interrupts, &mut on_ready)?;
+        let attempt = connect_once(held, forward, interrupts, &mut on_ready)?;
         match attempt {
             Attempt::Cancelled { status, ready } => {
                 if !ready && !announced {
@@ -160,7 +160,7 @@ fn hold(
                 }
             }
         }
-        if let Some(status) = pause_for(pause, &interrupts) {
+        if let Some(status) = pause_for(pause, interrupts) {
             return Ok(Outcome::Cancelled(status));
         }
         pause = (pause * 2).min(LONGEST_PAUSE);

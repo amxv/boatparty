@@ -12,6 +12,8 @@ there with live output and its real exit code, and brings the command's file
 changes back. Sandboxes are Linux x86_64 (Ubuntu 24.04), whatever this computer
 is. `boatparty <command> --help` documents every command.
 
+On Windows use Git for Windows and the Windows OpenSSH Client. Pass Linux paths and Bash syntax to remote commands. Ctrl-C cancels a run. Windows opens a fresh SSH connection for each operation.
+
 ## The six everyday commands
 
 | Command | Plain meaning |

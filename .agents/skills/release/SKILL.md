@@ -11,7 +11,8 @@ allowed-tools: Bash, Read, Write, Edit
 - Releases run only on GitHub-hosted runners, never on boat or the developer's machine.
 - Linux x86_64 and aarch64 are tested and built on `ubuntu-latest` with cargo-zigbuild against glibc 2.28.
 - macOS arm64 and x86_64 are tested and built natively on `macos-latest`; they are signed ad hoc.
-- The release holds `boatparty-<version>-<target>.tar.gz` for each target, `install.sh` and `SHA256SUMS`.
+- Windows x64 and Arm64 are built on `windows-latest`, with native x64 tests against a Linux SSH server. Windows users install with the PowerShell installer at `https://boatparty.ashray.xyz/install.ps1`.
+- The release holds `boatparty-<version>-<target>.tar.gz` for Unix, matching `.zip` archives for Windows, `install.sh`, `install.ps1` and `SHA256SUMS`.
 
 Users install with `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh` (`docs/public/install.sh`, also attached to each release; it needs only `curl`). There is no npm or crates.io publication.
 
@@ -39,7 +40,7 @@ Add a `## <version> - <YYYY-MM-DD>` section at the top of `docs/src/content/docs
 
 ## 4. Validate
 
-The CI workflow (`runs-on: boat`) must be green on the release commit: `gh run list -R amxv/boatparty --commit "$(git rev-parse HEAD)"`. The release needs no secret besides the workflow's `GITHUB_TOKEN`.
+The CI workflow (GitHub-hosted Linux and Windows) must be green on the release commit: `gh run list -R amxv/boatparty --commit "$(git rev-parse HEAD)"`. The release needs no secret besides the workflow's `GITHUB_TOKEN`.
 
 For changes to the release machinery itself, the pull request that changes it runs a full dry run. On `main`, `just release-dry-run` does the same on demand.
 
@@ -61,7 +62,7 @@ gh run watch <run-id> --exit-status
 gh release view "v<version>" -R amxv/boatparty --json tagName,url,assets
 ```
 
-Expect four archives, `install.sh` and `SHA256SUMS`. Verify the installer on a clean location: `sh docs/public/install.sh --version v<version> --dir "$(mktemp -d)"`. It downloads, checks the checksum and runs `boatparty --version`.
+Expect four tarballs, two Windows ZIPs, `install.sh`, `install.ps1` and `SHA256SUMS`. Verify the installer on a clean location: `sh docs/public/install.sh --version v<version> --dir "$(mktemp -d)"`. It downloads, checks the checksum and runs `boatparty --version`.
 
 GitHub-hosted runners end with their jobs; nothing needs cleaning up.
 

@@ -18,7 +18,9 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release.yml"
+      - ".github/actions/test-windows/**"
       - "docs/public/install.sh"
+      - "docs/public/install.ps1"
       - "scripts/release/**"
   workflow_dispatch:
 
@@ -129,8 +131,39 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  windows:
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/test-windows
+      - name: Build and package MSVC executables
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          $targets = 'x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc'
+          rustup target add @targets
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory dist | Out-Null
+          foreach ($target in $targets) {
+            cargo build --release --locked --target $target
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            $name = "boatparty-$env:VERSION-$target"
+            $stage = New-Item -ItemType Directory (Join-Path $env:RUNNER_TEMP $name)
+            Copy-Item "target/$target/release/boatparty.exe", README.md, LICENSE $stage
+            Compress-Archive -Path $stage.FullName -DestinationPath "dist/$name.zip"
+          }
+          & target/x86_64-pc-windows-msvc/release/boatparty.exe --version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-windows
+          path: dist/*.zip
+          if-no-files-found: error
+
   publish:
-    needs: [plan, linux, macos]
+    needs: [plan, linux, macos, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -145,7 +178,8 @@ jobs:
       - name: Checksums and installer
         run: |
           cp docs/public/install.sh dist/install.sh
-          (cd dist && sha256sum boatparty-*.tar.gz install.sh > SHA256SUMS && cat SHA256SUMS)
+          cp docs/public/install.ps1 dist/install.ps1
+          (cd dist && sha256sum boatparty-*.tar.gz boatparty-*.zip install.sh install.ps1 > SHA256SUMS && cat SHA256SUMS)
           scripts/release/notes.sh "${{ needs.plan.outputs.version }}" > "$RUNNER_TEMP/notes.md"
       - name: Create the GitHub Release
         if: needs.plan.outputs.publish == 'true'
@@ -164,3 +198,18 @@ jobs:
         run: |
           echo "Dry run: would publish ${{ needs.plan.outputs.tag }} with:"
           ls -l dist
+
+  verify-windows-install:
+    needs: [plan, publish]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install and upgrade from the published release
+        shell: pwsh
+        env:
+          BOATPARTY_VERSION: ${{ needs.plan.outputs.tag }}
+        run: |
+          ./docs/public/install.ps1
+          ./docs/public/install.ps1
+          boatparty --version

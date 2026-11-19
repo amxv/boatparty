@@ -17,7 +17,7 @@ One crate, split by responsibility:
 - `src/state/`: `state.json` and its advisory lock. The lock is held only for one read-modify-write, never across a network call or a child process.
 - `src/pool/`: acquisition (`policy.rs` is the pure decision, `acquire.rs` applies it), bring-up (`bringup.rs`), leases, heartbeats and the detached idle helper (`lease.rs`), reconciliation with the provider's labels (`reconcile.rs`), deletion (`remove.rs`).
 - `src/starts/`: the start ledger. `admission.rs` is the pure admit, wait or refuse computation.
-- `src/transport/`: OpenSSH configs, pinned host keys, the shared control master (`ssh.rs`), port forwards (`forward.rs`).
+- `src/transport/`: OpenSSH configs, pinned host keys, direct connections on Windows and the shared Unix control master (`ssh.rs`), port forwards (`forward.rs`).
 - `src/sync/`: the Git-native mirror. Snapshot into a private index, thin packs, the runner exchange and its framing (`exchange.rs`), sync and run plumbing (`mirror.rs`), piped input (`pipe.rs`), GitHub seeding (`seed.rs`), build credentials (`credentials.rs`), copy-back (`pullback.rs`).
 - `src/runner/`: the remote half. `script/*.sh` are parts of one bash script joined at build time, uploaded under its content hash and run by path; `spec.rs` turns the resolved project configuration into a data-only `RunnerSpec`; `trailer.rs` filters the nonce-keyed event and trailer frames out of stderr.
 - `src/config/`: the strict `boatparty.toml` schema, layering of built-in, user and project presets (`presets/*.toml` are embedded), stack detection for `init`.
@@ -37,6 +37,8 @@ just remote-test [FILTER...]    # cargo test --locked on boat, for example `just
 just remote-check               # the full gate, the same as CI: fmt, clippy, tests, shellcheck, docs check
 just boat-build-macos --out PATH   # a macOS binary of this working tree, built on boat
 ```
+
+Native Windows builds and tests run on GitHub-hosted `windows-latest`. The Windows integration job uses a disposable Linux SSH server in WSL to exercise the native client. WSL is a test dependency only.
 
 The checks use the boatparty binary in `$BOATPARTY`, else `boatparty` on `PATH`. Use a binary built from a landed commit, never one built from the tree being edited. Exit 125 from a check means boatparty or the sandbox failed, not a check: retry once, then report it (and fix it if it is a boatparty bug). Live tests of new code use a binary from `just boat-build-macos` under a scratch `BOATPARTY_HOME`, against scratch repositories only.
 
@@ -85,11 +87,11 @@ Development compiles, checks and tests run on boat through boatparty;
 releases run only on GitHub-hosted runners. Linux release binaries (x86_64,
 aarch64) are tested and cross-built with cargo-zigbuild against glibc 2.28 on
 `ubuntu-latest`; macOS binaries (arm64, x86_64) are tested and built natively
-on `macos-latest`, and signed ad hoc.
+on `macos-latest`, and signed ad hoc. Windows MSVC binaries (x64 and Arm64) build on `windows-latest`, which tests the x64 client.
 
 `.github/workflows/release.yml` is maintained by hand (there is no cargo-dist
 and no npm package). A tag `vX.Y.Z` matching `Cargo.toml` publishes a GitHub
-Release with `boatparty-<version>-<target>.tar.gz` archives, `install.sh` and
+Release with `boatparty-<version>-<target>.tar.gz` archives for Unix, corresponding Windows `.zip` archives, `install.sh`, `install.ps1` and
 `SHA256SUMS`; a pull request touching the release machinery runs the same
 builds as a dry run. Users install with
 `curl -fsSL https://boatparty.ashray.xyz/install.sh | sh`: `docs/public/install.sh`,

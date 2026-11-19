@@ -29,8 +29,9 @@ impl Interrupts {
         let seen = Arc::new(AtomicU32::new(0));
         let recorded = Arc::clone(&seen);
         ctrlc::set_handler(move || {
-            recorded.fetch_or(130, Ordering::SeqCst);
-            recorded.fetch_add(1 << 8, Ordering::SeqCst);
+            // ctrlc dispatches every console event on one thread.
+            let previous = recorded.load(Ordering::SeqCst);
+            recorded.store((previous | 130).saturating_add(1 << 8), Ordering::SeqCst);
         })
         .map_err(|error| AppError::io("cannot handle Ctrl-C", std::io::Error::other(error)))?;
         Ok(Self { seen })

@@ -16,6 +16,8 @@ This file is the contract for `--json`. Scripts, tools built on boatparty and th
 - No document carries a secret (the API key, GitHub tokens, signed URLs, `pipe` input). The one deliberate exception is `expose`, whose `url` may carry an access token.
 - boatparty's own messages always go to stderr, prefixed `boatparty: `.
 
+On Windows, local paths are Windows paths. Remote paths use Linux syntax. Console Ctrl-C returns 130. The `control_sockets` doctor check reports `skipped` because Windows OpenSSH uses direct connections.
+
 ## Errors
 
 <!-- shape: error -->

@@ -39,7 +39,7 @@ boatparty run -- cargo test --locked
 | Path | Content |
 | --- | --- |
 | `~/.config/boatparty/account.toml` | Provider settings and every limit (honors `XDG_CONFIG_HOME`) |
-| `~/.config/boatparty/credentials.toml` | The boat API key, mode 0600 |
+| `~/.config/boatparty/credentials.toml` | The boat API key, protected by a Windows ACL or Unix mode 0600 |
 | `~/.config/boatparty/ssh/` | boatparty's own SSH key |
 | `~/.config/boatparty/presets/` | Your presets |
 | `~/.local/state/boatparty/` | `state.json`, `runs.jsonl`, SSH configs and pinned host keys per sandbox, the skill (honors `XDG_STATE_HOME`) |

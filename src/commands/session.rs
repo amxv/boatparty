@@ -19,6 +19,7 @@ use crate::transport::ssh::SshTarget;
 
 /// What the work receives.
 pub(crate) struct Held<'a> {
+    pub interrupts: &'a Interrupts,
     pub project: &'a str,
     pub config: &'a ProjectConfig,
     pub workspace: &'a Workspace,
@@ -53,6 +54,7 @@ pub(crate) fn with_session<T>(
     let id = member.id.clone().unwrap_or_default();
     let mut heartbeat = Heartbeat::for_member(&ctx.paths, &id, times);
     let result = work(&Held {
+        interrupts: &interrupts,
         project: name,
         config: &project,
         workspace: &workspace,

@@ -36,6 +36,14 @@ curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 
 This installs `boatparty` into `~/.local/bin`, checked against the release's `SHA256SUMS`. Run it again to upgrade; `| sh -s -- --version v0.2.0` installs a given release.
 
+On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://boatparty.ashray.xyz/install.ps1)))
+```
+
+The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
+
 ## First run
 
 With the [boat CLI](https://docs.boat.dev) installed and signed in, create and store a boat API key with exactly the permissions boatparty needs. The key passes from boat to boatparty through a pipe, so it never lands in an argument list or your shell history:
