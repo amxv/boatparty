@@ -8,6 +8,11 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## 0.2.2 - 2026-11-20
+
+- The Windows installer now offers to install missing Git and OpenSSH tools. It also offers the boat CLI for interactive sign-in. Unattended installs can opt in to required tools with `BOATPARTY_PREREQUISITES=Install`.
+- The installer downloads files with `curl.exe` when available and verifies the release checksums before installing.
+
 ## 0.2.1 - 2026-11-20
 
 - Windows x64 and Arm64 clients can now sync Git checkouts, run commands with copy-back, open interactive shells and manage boat sandboxes. Install from PowerShell with `irm https://boatparty.ashray.xyz/install.ps1 | iex`.
