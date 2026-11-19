@@ -544,3 +544,33 @@ fn doctor_flags_a_credentials_file_readable_by_others() {
     assert_eq!(credentials["status"], "fail");
     assert_eq!(credentials["fix"], format!("chmod 600 {}", path.display()));
 }
+
+#[cfg(windows)]
+#[test]
+fn doctor_flags_a_credentials_file_readable_by_everyone() {
+    let home = TempDir::new("doctor-acl");
+    store_key(home.path());
+    let path = home.path().join("config").join("credentials.toml");
+    let result = std::process::Command::new("icacls.exe")
+        .arg(&path)
+        .args(["/grant", "*S-1-1-0:R"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    let boat = healthy_boat();
+    let output = boatparty(home.path())
+        .env("BOATPARTY_BOAT_API_URL", boat.url())
+        .args(["doctor", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(125));
+    let checks = parse_json(&output.stdout);
+    let check = checks["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|check| check["name"] == "credentials")
+        .unwrap();
+    assert_eq!(check["status"], "fail");
+    assert_no_key(&output);
+}

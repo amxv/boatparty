@@ -388,6 +388,16 @@ fn names(paths: &[PathBuf]) -> String {
         .join(", ")
 }
 
+#[cfg(windows)]
+fn remove_command(paths: &[PathBuf]) -> String {
+    let quoted: Vec<_> = paths
+        .iter()
+        .map(|path| format!("'{}'", path.display().to_string().replace('\'', "''")))
+        .collect();
+    format!("Remove-Item -LiteralPath {}", quoted.join(", "))
+}
+
+#[cfg(unix)]
 fn remove_command(paths: &[PathBuf]) -> String {
     let quoted: Vec<String> = paths.iter().map(|path| shell_quote(path)).collect();
     format!("rm -f {}", quoted.join(" "))
@@ -567,6 +577,7 @@ fn install_hint(debian_package: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn shell_quote(path: &Path) -> String {
     let text = path.display().to_string();
     if text
@@ -616,6 +627,7 @@ mod tests {
         assert_eq!(document["checks"][0]["fix"], Value::Null);
     }
 
+    #[cfg(unix)]
     #[test]
     fn shell_quote_only_when_needed() {
         assert_eq!(shell_quote(Path::new("/a/b.toml")), "/a/b.toml");

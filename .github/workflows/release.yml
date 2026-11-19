@@ -7,8 +7,9 @@ name: Release
 #   distributions too;
 # - macOS (arm64, x86_64) natively on macos-latest, which also runs the test
 #   suite on macOS; both binaries are signed ad hoc.
-# A pushed tag vX.Y.Z publishes a GitHub Release with tar.gz archives,
-# SHA256SUMS and install.sh. A manual run, or a pull request that touches the
+# - Windows x64 and Arm64 with MSVC on windows-latest, with x64 native tests.
+# A pushed tag vX.Y.Z publishes a GitHub Release with tarballs, ZIPs,
+# SHA256SUMS and both installers. A manual run, or a pull request that touches the
 # release machinery, builds and packages without publishing (a dry run).
 
 on:
@@ -131,13 +132,22 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
-  windows:
+  windows-test:
     needs: plan
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/test-windows
+
+  windows:
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
       - name: Build and package MSVC executables
         shell: pwsh
         env:
@@ -163,7 +173,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [plan, linux, macos, windows]
+    needs: [plan, linux, macos, windows, windows-test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

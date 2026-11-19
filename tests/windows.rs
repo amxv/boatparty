@@ -141,6 +141,17 @@ fn native_client_runs_the_linux_checkout() {
         .stdout("done\n");
     assert_eq!(fs::read(repo.join("result.bin")).unwrap(), binary);
     cli()
+        .args(["pipe", "--", "cat"])
+        .write_stdin(binary.clone())
+        .assert()
+        .success()
+        .stdout(binary.clone());
+    cli()
+        .args(["fetch", "result.bin", "download.bin"])
+        .assert()
+        .success();
+    assert_eq!(fs::read(repo.join("download.bin")).unwrap(), binary);
+    cli()
         .args(["shell", "--", "cat", "tracked"])
         .assert()
         .success()
