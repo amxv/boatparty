@@ -39,7 +39,7 @@ This installs `boatparty` into `~/.local/bin`, checked against the release's `SH
 On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://boatparty.ashray.xyz/install.ps1)))
+irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
 The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.

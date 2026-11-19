@@ -8,6 +8,11 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## 0.2.1 - 2026-11-20
+
+- Windows x64 and Arm64 clients can now sync Git checkouts, run commands with copy-back, open interactive shells and manage boat sandboxes. Install from PowerShell with `irm https://boatparty.ashray.xyz/install.ps1 | iex`.
+- Windows uses Git for Windows, the OpenSSH Client optional feature and user-specific ACLs for credentials. Each SSH operation opens its own pinned connection. Ctrl-C stops the remote command and returns 130.
+
 ## 0.2.0 - 2026-11-17
 
 Breaking: the commands are plain verbs now. The old names are gone (no aliases):

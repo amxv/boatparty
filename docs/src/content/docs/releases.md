@@ -17,12 +17,12 @@ The script (`docs/public/install.sh`, served by this site and attached to every 
 On Windows x64 or Arm64, install Git for Windows and the Windows OpenSSH Client optional feature. Run this in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://boatparty.ashray.xyz/install.ps1)))
+irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
 The installer verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
 
-Pass `-Version v0.2.1` to select a release or `-InstallDir DIR` to choose a directory. Running the installer again upgrades the executable.
+Set `$env:BOATPARTY_VERSION` to select a release or `$env:BOATPARTY_INSTALL_DIR` to choose a directory before running the installer. Running the installer again upgrades the executable.
 
 ### Running on Windows
 

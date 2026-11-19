@@ -213,13 +213,16 @@ jobs:
     needs: [plan, publish]
     if: needs.plan.outputs.publish == 'true'
     runs-on: windows-latest
+    env:
+      BOATPARTY_VERSION: ${{ needs.plan.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
-      - name: Install and upgrade from the published release
-        shell: pwsh
-        env:
-          BOATPARTY_VERSION: ${{ needs.plan.outputs.tag }}
+      - name: Install from Windows PowerShell
+        shell: powershell
         run: |
-          ./docs/public/install.ps1
-          ./docs/public/install.ps1
+          irm https://boatparty.ashray.xyz/install.ps1 | iex
+          boatparty --version
+      - name: Upgrade from PowerShell 7
+        shell: pwsh
+        run: |
+          irm https://boatparty.ashray.xyz/install.ps1 | iex
           boatparty --version

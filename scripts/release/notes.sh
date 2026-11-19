@@ -32,7 +32,7 @@ Downloads the archive for this machine, checks it against `SHA256SUMS` and insta
 On Windows, run this in PowerShell:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://boatparty.ashray.xyz/install.ps1)))
+irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
 The Windows installer verifies the ZIP and adds the installation directory to your user PATH.
