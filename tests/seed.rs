@@ -2,6 +2,8 @@
 //! local bare repository over file:// standing in for GitHub, and the
 //! runner's repository maintenance. The runner runs locally.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

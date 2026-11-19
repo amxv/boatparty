@@ -162,7 +162,7 @@ pub fn run(
     let mut command = host.command(&spec.args);
     // Its own process group: a terminal's Ctrl-C reaches boatparty, which
     // cancels through stdin, rather than killing the connection outright.
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    crate::system::separate_process_group(&mut command);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

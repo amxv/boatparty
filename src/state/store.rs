@@ -7,9 +7,8 @@
 //! that is renamed over `state.json`, so a lock-free [`Store::load`] always
 //! sees a complete document.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -82,21 +81,18 @@ impl Store {
         if self.dir.is_dir() {
             return Ok(());
         }
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
+        crate::system::private_directory()
             .create(&self.dir)
             .map_err(|error| AppError::io(format!("cannot create {}", self.dir.display()), error))
     }
 
     fn lock(&self) -> Result<File, AppError> {
         self.ensure_dir()?;
-        let file = OpenOptions::new()
+        let file = crate::system::private_file()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .mode(0o600)
             .open(&self.lock)
             .map_err(|error| AppError::io(format!("cannot open {}", self.lock.display()), error))?;
         file.lock()
@@ -116,10 +112,9 @@ impl Store {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         let result = (|| {
-            let mut file = OpenOptions::new()
+            let mut file = crate::system::private_file()
                 .write(true)
                 .create_new(true)
-                .mode(0o600)
                 .open(&temp)?;
             file.write_all(text.as_bytes())?;
             file.sync_all()?;

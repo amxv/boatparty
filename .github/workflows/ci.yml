@@ -8,6 +8,8 @@ on:
     branches: ["**"]
     paths:
       - ".github/workflows/ci.yml"
+      - ".github/actions/test-windows/**"
+      - ".gitattributes"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -28,6 +30,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/test-windows
+
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 45

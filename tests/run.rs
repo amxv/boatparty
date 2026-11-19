@@ -3,6 +3,8 @@
 //! fake `ssh` that runs the runner locally and a fake boat API that counts
 //! provider calls.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::cell::Cell;

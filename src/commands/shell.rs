@@ -15,6 +15,7 @@
 //! JSON form.
 
 use std::io::{IsTerminal, Read};
+#[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -241,12 +242,7 @@ fn exec_framed(target: &SshTarget, line: &str, stream: &mut Stream) -> Result<u8
     let status = child
         .wait()
         .map_err(|error| AppError::io("cannot run ssh", error))?;
-    let code = match (status.code(), status.signal()) {
-        (Some(code), _) => code,
-        (None, Some(signal)) => 128 + signal,
-        (None, None) => 255,
-    };
-    Ok(u8::try_from(code.clamp(0, 255)).unwrap_or(255))
+    Ok(ssh_status(status))
 }
 
 fn exec(target: &SshTarget, line: &str, shell: bool) -> Result<u8, AppError> {
@@ -259,12 +255,19 @@ fn exec(target: &SshTarget, line: &str, shell: bool) -> Result<u8, AppError> {
     let status = command
         .status()
         .map_err(|error| AppError::io("cannot run ssh", error))?;
+    Ok(ssh_status(status))
+}
+
+fn ssh_status(status: std::process::ExitStatus) -> u8 {
+    #[cfg(windows)]
+    let code = status.code().unwrap_or(255);
+    #[cfg(unix)]
     let code = match (status.code(), status.signal()) {
         (Some(code), _) => code,
         (None, Some(signal)) => 128 + signal,
         (None, None) => 255,
     };
-    Ok(u8::try_from(code.clamp(0, 255)).unwrap_or(255))
+    u8::try_from(code.clamp(0, 255)).unwrap_or(255)
 }
 
 #[cfg(test)]

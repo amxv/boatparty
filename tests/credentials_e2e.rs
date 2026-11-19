@@ -4,6 +4,8 @@
 //! Git's credential helper in the command and nothing else: no argument
 //! list, output, state, runs or file on the "sandbox".
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

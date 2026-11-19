@@ -3,6 +3,8 @@
 //! token from `gh auth token` only when a seed is attempted, and never let
 //! the token reach an argument list, output, state, runs or the sandbox.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

@@ -8,7 +8,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+#[cfg(unix)]
 use signal_hook::consts::{SIGINT, SIGTERM};
+#[cfg(unix)]
 use signal_hook::iterator::Signals;
 
 use crate::error::AppError;
@@ -22,6 +24,19 @@ pub struct Interrupts {
 }
 
 impl Interrupts {
+    #[cfg(windows)]
+    pub fn install() -> Result<Self, AppError> {
+        let seen = Arc::new(AtomicU32::new(0));
+        let recorded = Arc::clone(&seen);
+        ctrlc::set_handler(move || {
+            recorded.fetch_or(130, Ordering::SeqCst);
+            recorded.fetch_add(1 << 8, Ordering::SeqCst);
+        })
+        .map_err(|error| AppError::io("cannot handle Ctrl-C", std::io::Error::other(error)))?;
+        Ok(Self { seen })
+    }
+
+    #[cfg(unix)]
     pub fn install() -> Result<Self, AppError> {
         let mut signals = Signals::new([SIGINT, SIGTERM])
             .map_err(|error| AppError::io("cannot handle SIGINT and SIGTERM", error))?;

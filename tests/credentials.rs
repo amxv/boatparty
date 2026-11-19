@@ -4,6 +4,8 @@
 //! list or environment holds it, during or after the command. The runner
 //! runs locally against scratch repositories.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

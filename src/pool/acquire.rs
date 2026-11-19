@@ -417,7 +417,7 @@ pub fn check_invariants(pool: &ProjectState, max_sandboxes: Option<usize>) -> Re
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::process::{Child, Command};
+    use std::process::Child;
     use std::sync::Mutex;
 
     use super::*;
@@ -436,7 +436,7 @@ mod tests {
     }
 
     fn sleeper() -> Child {
-        Command::new("sleep").arg("60").spawn().unwrap()
+        crate::system::test_child()
     }
 
     fn request<'a>(

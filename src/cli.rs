@@ -79,7 +79,7 @@ pub enum Command {
     /// Build, inspect or remove this project's base: a saved snapshot that
     /// new sandboxes start from with dependencies already built.
     Base(BaseArgs),
-    /// Store the boat API key, read from standard input.
+    /// Create a scoped boat API key or store one from standard input.
     Login(LoginArgs),
     /// Check that this machine and the stored API key are ready.
     Doctor,

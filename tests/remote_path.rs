@@ -1,6 +1,8 @@
 //! `[sandbox] remote_path`: a checkout somewhere other than
 //! /home/user/<project>, honored by `sync`, `run`, `shell` and `fetch`.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

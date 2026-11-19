@@ -6,9 +6,10 @@
 //! argument. [`ApiKey`] never prints its value.
 
 use std::fmt;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -135,18 +136,18 @@ pub fn store(paths: &Paths, key: &ApiKey) -> Result<PathBuf, AppError> {
     .map_err(|_| AppError::credentials("cannot encode the credentials file"))?;
     let contents = format!(
         "# boatparty credentials. Written by `boatparty login --key-stdin`.\n\
-         # Keep this file private (mode 0600). {KEY_ENV} overrides it.\n{body}"
+         # Keep this file private. {KEY_ENV} overrides it.\n{body}"
     );
 
     let temp = dir.join(format!(".credentials.toml.{}.tmp", std::process::id()));
     let result = (|| {
-        let mut file = OpenOptions::new()
+        let mut file = crate::system::private_file()
             .write(true)
             .create_new(true)
-            .mode(0o600)
             .open(&temp)?;
         file.write_all(contents.as_bytes())?;
         file.sync_all()?;
+        #[cfg(unix)]
         fs::set_permissions(&temp, fs::Permissions::from_mode(0o600))?;
         fs::rename(&temp, &path)
     })();
@@ -161,19 +162,24 @@ pub fn store(paths: &Paths, key: &ApiKey) -> Result<PathBuf, AppError> {
 }
 
 /// The permission bits of a file, if it exists.
+#[cfg(unix)]
 pub fn file_mode(path: &Path) -> Option<u32> {
     fs::metadata(path)
         .ok()
         .map(|meta| meta.permissions().mode() & 0o777)
 }
 
+#[cfg(windows)]
+fn create_private_dir(dir: &Path) -> Result<(), AppError> {
+    crate::system::windows::secure_directory(dir)
+}
+
+#[cfg(unix)]
 fn create_private_dir(dir: &Path) -> Result<(), AppError> {
     if dir.is_dir() {
         return Ok(());
     }
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
+    crate::system::private_directory()
         .create(dir)
         .map_err(|error| AppError::io(format!("cannot create {}", dir.display()), error))
 }
@@ -198,13 +204,16 @@ mod tests {
         let (root, paths) = temp_paths("roundtrip");
         let key = ApiKey::parse("boat_test_secret_123").unwrap();
         let path = store(&paths, &key).unwrap();
+        #[cfg(unix)]
         assert_eq!(file_mode(&path), Some(0o600));
+        #[cfg(unix)]
         assert_eq!(file_mode(path.parent().unwrap()), Some(0o700));
         assert_eq!(read_file(&path).unwrap(), Some(key.clone()));
 
         // Storing again replaces the key and keeps the mode.
         let other = ApiKey::parse("boat_other_456").unwrap();
         store(&paths, &other).unwrap();
+        #[cfg(unix)]
         assert_eq!(file_mode(&path), Some(0o600));
         assert_eq!(read_file(&path).unwrap(), Some(other));
         fs::remove_dir_all(root).unwrap();

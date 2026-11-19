@@ -3,6 +3,8 @@
 //! other branches, and a switch to `full` deepens it. The runner runs
 //! locally against scratch repositories.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

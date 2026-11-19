@@ -144,8 +144,13 @@ fn store(ctx: &Context, args: &LoginArgs, raw: &str) -> Result<u8, AppError> {
         }));
     } else {
         ctx.out.note(format_args!(
-            "stored the API key in {} (mode 0600){}",
+            "stored the API key in {}{}{}",
             path.display(),
+            if cfg!(windows) {
+                " (private ACL)"
+            } else {
+                " (mode 0600)"
+            },
             if verified {
                 "; the provider accepted it"
             } else {

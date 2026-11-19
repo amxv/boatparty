@@ -1,6 +1,8 @@
 //! `fetch`, the default `head` history and signed uploads end to end, with a
 //! fake `ssh` that runs remote commands locally and a fake boat API.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

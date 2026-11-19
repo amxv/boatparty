@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 pub mod contract;
+#[cfg(unix)]
 pub mod e2e;
 pub mod runner;
 
@@ -258,12 +259,14 @@ pub fn store_key(home: &Path) {
 
 /// A directory holding fake `ssh`, `ssh-keygen` and `git` executables.
 pub fn fake_tools(dir: &Path) -> PathBuf {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     for tool in ["ssh", "ssh-keygen", "git"] {
-        let path = bin.join(tool);
+        let path = bin.join(format!("{tool}{}", std::env::consts::EXE_SUFFIX));
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
     bin

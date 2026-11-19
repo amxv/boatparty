@@ -269,14 +269,13 @@ impl RunnerHost for SshRunner {
 impl SshRunner {
     /// Write a file on the sandbox atomically.
     fn put(&self, path: &str, bytes: &[u8], what: &str) -> Result<(), AppError> {
-        let dir = Path::new(path)
-            .parent()
-            .map(|dir| dir.display().to_string())
-            .unwrap_or_else(|| REMOTE_STATE_DIR.to_string());
+        let dir = path
+            .rsplit_once('/')
+            .map_or(REMOTE_STATE_DIR, |(dir, _)| dir);
         let path = shell_quote(path);
         let remote = format!(
             "mkdir -p {dir} && cat > {path}.$$.tmp && mv {path}.$$.tmp {path}",
-            dir = shell_quote(&dir),
+            dir = shell_quote(dir),
         );
         let mut child = self
             .target

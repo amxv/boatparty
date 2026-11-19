@@ -1,0 +1,12 @@
+name: Test the native Windows client
+description: Build and test the Windows CLI on a GitHub-hosted Windows runner.
+runs:
+  using: composite
+  steps:
+    - shell: pwsh
+      run: rustup toolchain install
+    - uses: Swatinem/rust-cache@v2
+    - shell: pwsh
+      run: cargo build --locked
+    - shell: pwsh
+      run: cargo test --locked --no-fail-fast

@@ -382,10 +382,7 @@ mod tests {
 
     #[test]
     fn a_missing_workspace_only_frees_its_member_and_nothing_in_use_is_touched() {
-        let mut child = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .unwrap();
+        let mut child = crate::system::test_child();
         let mut leased = member("bp-app-2", Some("bx_2"), Some("/gone"));
         leased.leases.push(Lease {
             pid: child.id(),

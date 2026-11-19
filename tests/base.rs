@@ -3,6 +3,8 @@
 //! locally (every sandbox shares the mapped /home/user/, as a member made
 //! from a saved snapshot shares its builder's disk).
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::collections::BTreeMap;

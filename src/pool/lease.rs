@@ -320,7 +320,11 @@ pub fn spawn_idle_helper(project: &str, member_id: &str) -> Result<(), AppError>
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    #[cfg(unix)]
+    crate::system::separate_process_group(&mut command);
+    #[cfg(windows)]
+    // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: survive console closure.
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x208);
     command
         .spawn()
         .map_err(|error| AppError::io("cannot start the idle helper", error))?;
@@ -494,7 +498,7 @@ mod tests {
             })
             .unwrap();
         // Another live process (a child) holds a lease too.
-        let mut other = Command::new("sleep").arg("30").spawn().unwrap();
+        let mut other = crate::system::test_child();
         let other_pid = other.id();
         assert!(register(&store, "app", "/w", &member, LeaseKind::Run, "cargo test").unwrap());
         // A workspace the member does not belong to gets no lease.

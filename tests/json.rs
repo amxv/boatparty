@@ -9,6 +9,8 @@
 //! run where boatparty must fail, and must then print the error shape and
 //! exit 125.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

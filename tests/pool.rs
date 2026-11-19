@@ -2,6 +2,8 @@
 //! reconciliation by label and prune, against a fake boat API that keeps
 //! several sandboxes, with fake `ssh` and `ssh-keygen`.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::collections::BTreeMap;

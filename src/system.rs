@@ -1,9 +1,39 @@
 //! Small operating-system helpers: time, process liveness, user id, random keys.
 
-use std::io::Read;
+use std::fs::{DirBuilder, OpenOptions};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::AppError;
+
+#[cfg(windows)]
+pub(crate) mod windows;
+
+/// Files inherit the containing directory's DACL on Windows.
+pub(crate) fn private_file() -> OpenOptions {
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 7); // read, write, delete
+    options
+}
+
+pub(crate) fn private_directory() -> DirBuilder {
+    let mut builder = DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
+}
+
+/// Route console cancellation through boatparty while it owns the child.
+pub(crate) fn separate_process_group(command: &mut Command) {
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(command, 0);
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(command, 0x200); // CREATE_NEW_PROCESS_GROUP
+}
 
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
@@ -14,6 +44,7 @@ pub fn now_ms() -> u64 {
 }
 
 /// Whether a process with this pid exists (a process owned by another user counts).
+#[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else {
         return false;
@@ -28,17 +59,24 @@ pub fn pid_alive(pid: u32) -> bool {
 }
 
 /// The real user id of this process.
+#[cfg(unix)]
 pub fn uid() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N], AppError> {
     let mut bytes = [0u8; N];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|error| AppError::io("cannot read /dev/urandom", error))?;
+    getrandom::getrandom(&mut bytes).map_err(|error| {
+        AppError::io(
+            "cannot obtain random bytes",
+            std::io::Error::other(error.to_string()),
+        )
+    })?;
     Ok(bytes)
 }
+
+#[cfg(windows)]
+pub use windows::pid_alive;
 
 /// `bytes` random bytes as lowercase hex (at most 32 bytes).
 pub fn random_hex(bytes: usize) -> Result<String, AppError> {
@@ -63,6 +101,16 @@ pub fn uuid_v4() -> Result<String, AppError> {
         &hex[16..20],
         &hex[20..32]
     ))
+}
+
+#[cfg(test)]
+pub(crate) fn test_child() -> std::process::Child {
+    Command::new("git")
+        .args(["hash-object", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap()
 }
 
 #[cfg(test)]

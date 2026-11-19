@@ -671,7 +671,7 @@ pub fn ensure_connected(
     force: bool,
 ) -> Result<(SshTarget, bool), AppError> {
     let target = SshTarget::for_sandbox(paths, id);
-    if !force && target.master_alive() {
+    if !force && target.reachable() {
         return Ok((target, false));
     }
     let public_key = ssh::ensure_key(paths)?;

@@ -9,6 +9,7 @@
 
 use std::env;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -321,6 +322,15 @@ fn ssh_files_check(ctx: &Context) -> Check {
 
 /// Control sockets no SSH master answers on: what a master that died
 /// without cleaning up leaves behind.
+#[cfg(windows)]
+fn control_sockets_check(_: &Context) -> Check {
+    Check::skipped(
+        "control_sockets",
+        "Windows OpenSSH opens a connection per invocation",
+    )
+}
+
+#[cfg(unix)]
 fn control_sockets_check(ctx: &Context) -> Check {
     use std::os::unix::fs::FileTypeExt;
     let dir = ctx.paths.control_dir();
@@ -392,6 +402,19 @@ fn credential_check(source: &KeySource) -> Check {
         KeySource::Environment => {
             Check::ok("credentials", format!("API key from {}", source.describe()))
         }
+        #[cfg(windows)]
+        KeySource::File(path) => match crate::system::windows::private_acl(path) {
+            Ok(true) => Check::ok(
+                "credentials",
+                format!("API key in {} (private ACL)", path.display()),
+            ),
+            _ => Check::fail(
+                "credentials",
+                format!("cannot verify private access to {}", path.display()),
+                "store the key again with boatparty login --key-stdin",
+            ),
+        },
+        #[cfg(unix)]
         KeySource::File(path) => match credentials::file_mode(path) {
             Some(mode) if mode & 0o077 != 0 => Check::fail(
                 "credentials",
@@ -504,12 +527,20 @@ fn render(checks: &[Check]) -> String {
 /// The first executable named `name` on `PATH`. Nothing is run.
 fn find_on_path(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
+    #[cfg(windows)]
+    let name = format!("{name}.exe");
     env::split_paths(&path)
         .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join(name))
+        .map(|dir| dir.join(Path::new(&name)))
         .find(|candidate| is_executable(candidate))
 }
 
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     fs::metadata(path)
         .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
@@ -517,7 +548,12 @@ fn is_executable(path: &Path) -> bool {
 }
 
 fn install_hint(debian_package: &str) -> String {
-    if cfg!(target_os = "macos") {
+    if cfg!(windows) {
+        match debian_package {
+            "git" => "install Git for Windows and add git.exe to PATH".to_string(),
+            _ => "install the Windows OpenSSH Client optional feature and add System32\\OpenSSH to PATH".to_string(),
+        }
+    } else if cfg!(target_os = "macos") {
         match debian_package {
             "git" => "xcode-select --install   (or: brew install git)".to_string(),
             _ => "OpenSSH ships with macOS; restore /usr/bin/ssh or run: brew install openssh"

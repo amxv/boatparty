@@ -1,6 +1,8 @@
 //! `init`, `start`, `shell`, `status`, `stop` and `rm` against a fake boat
 //! API and fake `ssh`/`ssh-keygen` executables.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::os::unix::fs::PermissionsExt;

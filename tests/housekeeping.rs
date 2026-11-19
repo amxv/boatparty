@@ -1,5 +1,7 @@
 //! `boatparty skill` and the leftovers `boatparty doctor` reports.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

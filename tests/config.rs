@@ -7,6 +7,7 @@ mod common;
 use std::fs;
 use std::path::Path;
 
+#[cfg(unix)]
 use common::e2e::E2e;
 use common::runner::git;
 use common::{TempDir, boatparty};
@@ -275,6 +276,7 @@ fn a_user_preset_applies_to_every_project_and_the_project_file_overrides_it() {
 
 // ----- `run <name>` -------------------------------------------------------
 
+#[cfg(unix)]
 fn append(setup: &E2e, text: &str) {
     let file = setup.repo().join("boatparty.toml");
     let mut current = fs::read_to_string(&file).unwrap();
@@ -282,10 +284,12 @@ fn append(setup: &E2e, text: &str) {
     fs::write(&file, current).unwrap();
 }
 
+#[cfg(unix)]
 fn stdout(output: &std::process::Output) -> String {
     String::from_utf8_lossy(&output.stdout).to_string()
 }
 
+#[cfg(unix)]
 #[test]
 fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names() {
     let setup = E2e::new("run-named");
@@ -348,6 +352,7 @@ fn cheers_name_prefers_commands_then_the_script_runner_then_fails_listing_names(
     assert_eq!(last["command"], "printf 'hello %s\\n' again");
 }
 
+#[cfg(unix)]
 #[test]
 fn copy_back_off_leaves_the_local_tree_alone() {
     let setup = E2e::new("copy-back-off");

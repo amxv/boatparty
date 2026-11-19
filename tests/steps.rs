@@ -3,6 +3,8 @@
 //! mtimes while hydrating, and the cache repair after a restore. The runner
 //! runs locally against scratch repositories.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

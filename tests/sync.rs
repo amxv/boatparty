@@ -1,6 +1,8 @@
 //! The Git mirror end to end, with the runner run locally against scratch
 //! repositories instead of over SSH.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

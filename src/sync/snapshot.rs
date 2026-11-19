@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
+#[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
@@ -123,7 +124,15 @@ fn match_ignored_to_real_index(info: &WorktreeInfo, index: &Path) -> Result<(), 
     let add: Vec<&[u8]> = real
         .difference(&private)
         .copied()
-        .filter(|path| fs::symlink_metadata(info.root.join(OsStr::from_bytes(path))).is_ok())
+        .filter(|path| {
+            #[cfg(unix)]
+            let path = OsStr::from_bytes(path);
+            #[cfg(windows)]
+            let Ok(path) = std::str::from_utf8(path) else {
+                return false;
+            };
+            fs::symlink_metadata(info.root.join(path)).is_ok()
+        })
         .collect();
     for (paths, command) in [
         (drop, &["rm", "-q", "--cached", "--ignore-unmatch"][..]),

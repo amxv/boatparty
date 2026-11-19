@@ -79,7 +79,7 @@ pub fn warm_member(
         return Ok(None);
     }
     let target = SshTarget::for_sandbox(paths, id);
-    Ok(target.master_alive().then(|| (member.clone(), target)))
+    Ok(target.reachable().then(|| (member.clone(), target)))
 }
 
 /// A project's pool limits, from `account.toml`.

@@ -194,7 +194,7 @@ fn connect_once(
         .stderr(Stdio::inherit());
     // Its own process group: Ctrl-C reaches this process, which closes the
     // connection itself.
-    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    crate::system::separate_process_group(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| AppError::io("cannot run ssh", error))?;

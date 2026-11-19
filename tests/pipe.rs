@@ -3,6 +3,8 @@
 //! end of the command, and a killed client stops the command although its
 //! input is still open.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;

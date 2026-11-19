@@ -49,7 +49,10 @@ impl Paths {
             });
         }
 
-        let user_home = non_empty(var("HOME")).map(PathBuf::from);
+        let user_home = non_empty(var("HOME"));
+        #[cfg(windows)]
+        let user_home = non_empty(var("USERPROFILE")).or(user_home);
+        let user_home = user_home.map(PathBuf::from);
         let base = |xdg: &str, fallback: &[&str]| -> Result<PathBuf, AppError> {
             if let Some(dir) = non_empty(var(xdg)).map(PathBuf::from)
                 && dir.is_absolute()
@@ -134,6 +137,7 @@ impl Paths {
 
     /// SSH control sockets. Short and outside the state root because macOS
     /// limits a socket path to 104 bytes.
+    #[cfg(unix)]
     pub fn control_dir(&self) -> PathBuf {
         self.control_dir
             .clone()
@@ -163,6 +167,7 @@ mod tests {
         Paths::resolve(|name| vars.get(name).cloned())
     }
 
+    #[cfg(unix)]
     #[test]
     fn defaults_follow_home() {
         let paths = resolve(&[("HOME", "/home/u")]).unwrap();
@@ -181,6 +186,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn xdg_variables_are_honored() {
         let paths = resolve(&[
@@ -193,6 +199,7 @@ mod tests {
         assert_eq!(paths.state_dir(), Path::new("/st/boatparty"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn relative_or_empty_xdg_values_are_ignored() {
         let paths = resolve(&[
@@ -208,6 +215,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn boatparty_home_replaces_both_roots() {
         let paths = resolve(&[
@@ -223,6 +231,20 @@ mod tests {
     #[test]
     fn relative_boatparty_home_is_an_error() {
         assert!(resolve(&[(HOME_ENV, "bp")]).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn defaults_follow_windows_profile() {
+        let paths = resolve(&[("USERPROFILE", "C:/Users/A B")]).unwrap();
+        assert_eq!(
+            paths.config_dir(),
+            Path::new("C:/Users/A B/.config/boatparty")
+        );
+        assert_eq!(
+            paths.state_dir(),
+            Path::new("C:/Users/A B/.local/state/boatparty")
+        );
     }
 
     #[test]

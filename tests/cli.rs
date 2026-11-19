@@ -1,5 +1,6 @@
 mod common;
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use common::{FakeBoat, Reply, TEST_KEY, TempDir, boatparty, fake_tools, fixture, store_key};
@@ -84,7 +85,7 @@ fn login_never_takes_the_key_as_an_argument() {
         .code(2);
     // --key-stdin is required.
     boatparty(home.path()).arg("login").assert().code(2);
-    assert!(!home.path().join("config/credentials.toml").exists());
+    assert!(!home.path().join("config").join("credentials.toml").exists());
 }
 
 #[test]
@@ -103,9 +104,11 @@ fn login_verifies_and_stores_the_key_with_mode_0600() {
     assert_eq!(document["ok"], true);
     assert_eq!(document["verified"], true);
 
-    let path = home.path().join("config/credentials.toml");
+    let path = home.path().join("config").join("credentials.toml");
     assert_eq!(document["credentials_file"], path.display().to_string());
+    #[cfg(unix)]
     let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    #[cfg(unix)]
     assert_eq!(mode, 0o600);
     assert!(std::fs::read_to_string(&path).unwrap().contains(TEST_KEY));
 
@@ -134,7 +137,7 @@ fn login_refuses_a_key_the_provider_rejects() {
     let document = parse_json(&output.stdout);
     assert_eq!(document["ok"], false);
     assert_eq!(document["error"]["code"], "credentials");
-    assert!(!home.path().join("config/credentials.toml").exists());
+    assert!(!home.path().join("config").join("credentials.toml").exists());
 }
 
 #[test]
@@ -384,7 +387,10 @@ fn doctor_passes_with_tools_and_a_complete_key() {
             ("key_scope", "ok"),
             ("pools", "ok"),
             ("ssh_configs", "ok"),
-            ("control_sockets", "ok"),
+            (
+                "control_sockets",
+                if cfg!(windows) { "skipped" } else { "ok" }
+            ),
         ]
     );
     // One validity call plus one probe per other action; none touch a real sandbox.
@@ -445,6 +451,7 @@ fn doctor_names_missing_actions_and_the_fix() {
     assert_eq!(scope["fix"], "boatparty login --create-key");
 }
 
+#[cfg(unix)]
 #[test]
 fn login_create_key_takes_the_key_from_the_boat_cli_through_a_pipe() {
     let home = TempDir::new("login-create");
@@ -479,7 +486,8 @@ fn login_create_key_takes_the_key_from_the_boat_cli_through_a_pipe() {
     assert!(output.status.success(), "{output:?}");
     assert_no_key(&output);
     assert_eq!(parse_json(&output.stdout)["verified"], true);
-    let stored = std::fs::read_to_string(home.path().join("config/credentials.toml")).unwrap();
+    let stored =
+        std::fs::read_to_string(home.path().join("config").join("credentials.toml")).unwrap();
     assert!(stored.contains(TEST_KEY));
     let args = std::fs::read_to_string(&argv).unwrap();
     assert!(
@@ -514,12 +522,13 @@ fn doctor_reports_missing_tools_and_key_with_fixes() {
     assert!(stderr.contains("boatparty: 4 checks failed"), "{stderr}");
 }
 
+#[cfg(unix)]
 #[test]
 fn doctor_flags_a_credentials_file_readable_by_others() {
     let home = TempDir::new("doctor-mode");
     store_key(home.path());
     let tools = fake_tools(home.path());
-    let path = home.path().join("config/credentials.toml");
+    let path = home.path().join("config").join("credentials.toml");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     let boat = healthy_boat();
     let output = boatparty(home.path())

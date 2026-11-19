@@ -5,9 +5,10 @@
 //! `HostKeyAlias`, so a pinned key never depends on the address the sandbox
 //! happens to have after a resume.
 
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -39,8 +40,13 @@ impl SshTarget {
     /// stopped behind it, ssh exits 255 at once instead of dialing the old
     /// address (the caller's 255 rule then brings the member up again).
     pub fn ssh(&self) -> Command {
-        let mut command = self.ssh_connect();
-        command.args(NO_FALLBACK);
+        let command = self.ssh_connect();
+        #[cfg(unix)]
+        let command = {
+            let mut command = command;
+            command.args(NO_FALLBACK);
+            command
+        };
         command
     }
 
@@ -64,7 +70,13 @@ impl SshTarget {
     }
 
     /// Whether the control master answers. False when no config exists.
-    pub fn master_alive(&self) -> bool {
+    #[cfg(windows)]
+    pub fn reachable(&self) -> bool {
+        self.config.exists() && matches!(self.run_quiet("true"), Ok((0, _)))
+    }
+
+    #[cfg(unix)]
+    pub fn reachable(&self) -> bool {
         if !self.config.exists() {
             return false;
         }
@@ -78,6 +90,10 @@ impl SshTarget {
     }
 
     /// Ask the control master to exit, if there is one.
+    #[cfg(windows)]
+    pub fn close_master(&self) {}
+
+    #[cfg(unix)]
     pub fn close_master(&self) {
         if !self.config.exists() {
             return;
@@ -119,9 +135,13 @@ impl SshTarget {
 /// client whose master is missing or fails connects by itself; the
 /// `ProxyCommand` makes that fallback fail at once (exit 255) instead of
 /// dialing an address the sandbox may no longer have.
+#[cfg(unix)]
 pub const NO_FALLBACK: [&str; 4] = ["-o", "ControlMaster=no", "-o", "ProxyCommand=false"];
 
 /// Options for a connection of its own (see [`SshTarget::ssh_dedicated`]).
+#[cfg(windows)]
+pub const DEDICATED: [&str; 2] = ["-o", "ExitOnForwardFailure=yes"];
+#[cfg(unix)]
 pub const DEDICATED: [&str; 6] = [
     "-o",
     "ControlMaster=no",
@@ -138,7 +158,7 @@ pub fn render_config(
     target: &SshTarget,
     access: &SshAccess,
     identity: &Path,
-    control_dir: &Path,
+    #[cfg(unix)] control_dir: &Path,
 ) -> String {
     let lines = [
         format!(
@@ -149,17 +169,26 @@ pub fn render_config(
         format!("  HostName {}", access.host),
         format!("  Port {}", access.port),
         format!("  User {}", access.user),
-        format!("  IdentityFile \"{}\"", identity.display()),
+        format!("  IdentityFile \"{}\"", config_path(identity)),
         "  IdentitiesOnly yes".to_string(),
         "  IdentityAgent none".to_string(),
         format!("  HostKeyAlias {}", target.alias),
-        format!("  UserKnownHostsFile \"{}\"", target.known_hosts.display()),
+        format!(
+            "  UserKnownHostsFile \"{}\"",
+            config_path(&target.known_hosts)
+        ),
+        #[cfg(unix)]
         "  GlobalKnownHostsFile /dev/null".to_string(),
+        #[cfg(windows)]
+        "  GlobalKnownHostsFile none".to_string(),
         "  StrictHostKeyChecking yes".to_string(),
         "  UpdateHostKeys no".to_string(),
         "  BatchMode yes".to_string(),
+        #[cfg(unix)]
         "  ControlMaster auto".to_string(),
+        #[cfg(unix)]
         format!("  ControlPath {}/%C", control_dir.display()),
+        #[cfg(unix)]
         "  ControlPersist 60m".to_string(),
         "  ServerAliveInterval 5".to_string(),
         "  ServerAliveCountMax 3".to_string(),
@@ -171,6 +200,13 @@ pub fn render_config(
     lines.join("\n")
 }
 
+fn config_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    #[cfg(windows)]
+    let path = path.replace('\\', "/");
+    path.replace('%', "%%").replace('"', r#"\""#)
+}
+
 /// The `known_hosts` line pinning the sandbox's host key under its alias.
 pub fn render_known_hosts(target: &SshTarget, access: &SshAccess) -> String {
     format!("{} {}\n", target.alias, access.host_key.trim())
@@ -179,12 +215,20 @@ pub fn render_known_hosts(target: &SshTarget, access: &SshAccess) -> String {
 /// Write the pinned host key and the config for a sandbox, replacing both.
 pub fn write_target(paths: &Paths, target: &SshTarget, access: &SshAccess) -> Result<(), AppError> {
     private_dir(&paths.ssh_state_dir())?;
+    #[cfg(unix)]
     let control_dir = paths.control_dir();
+    #[cfg(unix)]
     private_dir(&control_dir)?;
     write_atomic(&target.known_hosts, &render_known_hosts(target, access))?;
     write_atomic(
         &target.config,
-        &render_config(target, access, &paths.ssh_key_file(), &control_dir),
+        &render_config(
+            target,
+            access,
+            &paths.ssh_key_file(),
+            #[cfg(unix)]
+            &control_dir,
+        ),
     )
 }
 
@@ -199,11 +243,10 @@ pub fn ensure_key(paths: &Paths) -> Result<String, AppError> {
         private_dir(dir)?;
         // Serialize generation between processes with a lock of its own.
         let lock_path = dir.join("keygen.lock");
-        let lock = OpenOptions::new()
+        let lock = crate::system::private_file()
             .write(true)
             .create(true)
             .truncate(false)
-            .mode(0o600)
             .open(&lock_path)
             .map_err(|error| AppError::io(format!("cannot open {}", lock_path.display()), error))?;
         lock.lock()
@@ -249,11 +292,15 @@ fn public_key_path(private: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+#[cfg(windows)]
+fn private_dir(dir: &Path) -> Result<(), AppError> {
+    crate::system::windows::secure_directory(dir)
+}
+
+#[cfg(unix)]
 fn private_dir(dir: &Path) -> Result<(), AppError> {
     if !dir.is_dir() {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
+        crate::system::private_directory()
             .create(dir)
             .map_err(|error| AppError::io(format!("cannot create {}", dir.display()), error))?;
     }
@@ -282,11 +329,10 @@ fn write_atomic(path: &Path, contents: &str) -> Result<(), AppError> {
         std::process::id()
     ));
     let result = (|| {
-        let mut file = OpenOptions::new()
+        let mut file = crate::system::private_file()
             .write(true)
             .create(true)
             .truncate(true)
-            .mode(0o600)
             .open(&temp)?;
         file.write_all(contents.as_bytes())?;
         file.sync_all()?;
@@ -331,6 +377,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn config_pins_the_host_key_and_multiplexes() {
         let text = render_config(
@@ -365,6 +412,7 @@ mod tests {
         assert!(!text.contains("accept-new"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn control_sockets_live_under_tmp_per_user() {
         let home = std::ffi::OsString::from("/home/u/bp");
@@ -385,6 +433,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn commands_use_the_master_without_falling_back_and_only_connect_opens_one() {
         let target = target();

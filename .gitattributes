@@ -1,0 +1,4 @@
+# The Windows client embeds shell scripts and preset text for a Linux host.
+*.sh text eol=lf
+*.toml text eol=lf
+*.expected text eol=lf

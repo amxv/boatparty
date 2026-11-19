@@ -3,6 +3,8 @@
 //! uploaded pack. The runner runs locally; the "upload" copies the pack into
 //! its state directory, as the signed upload does on a sandbox.
 
+#![cfg(unix)] // These fixtures execute the Linux runner or POSIX tool shims locally.
+
 mod common;
 
 use std::fs;
