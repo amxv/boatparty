@@ -20,8 +20,9 @@ const grouped = docCategories.map((category) => ({
     <p class="section-label">Documentation</p>
     <h1>Run a Git project's builds, tests and servers on warm boat.dev sandboxes.</h1>
     <p>
-      Start with the overview and the first run, then read about commands, configuration
-      and the limits that keep boat's starts and idle time under control.
+      New here? Read what boatparty is, install it and make your first run. Then learn how
+      sync, pools and limits work, follow the guides for servers, agents, gates, bases and
+      secrets, and look up any command or setting in the reference.
     </p>
   </section>
   <section class="shell docs-index">
@@ -35,7 +36,7 @@ const grouped = docCategories.map((category) => ({
             <a class="docs-index__card" href={`/docs/${entry.id}`}>
               <h2>{entry.data.title}</h2>
               <p>{entry.data.description}</p>
-              <span>Open guide</span>
+              <span>Read</span>
             </a>
           ))}
         </div>

@@ -5,7 +5,7 @@ const generatedIdentity = {
   "description": "Warm boat.dev sandbox pools for any Git project",
   "repoUrl": "https://github.com/amxv/boatparty",
   "footerText": "Warm boat.dev sandbox pools for any Git project",
-  "distributionText": "GitHub Releases for macOS and Linux, installed with gh."
+  "distributionText": "GitHub Releases for macOS, Linux and Windows, installed with one curl or PowerShell command."
 } as const;
 
 export const siteConfig = {
@@ -34,7 +34,7 @@ export const siteConfig = {
   ]
 } as const;
 
-export const docCategories = ["Start", "Guides", "Reference", "Distribution"] as const;
+export const docCategories = ["Start", "Concepts", "Guides", "Reference", "Project"] as const;
 
 export const primaryNav = [
   { href: "/docs", label: "Docs" },

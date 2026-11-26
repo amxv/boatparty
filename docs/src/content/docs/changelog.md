@@ -1,12 +1,14 @@
 ---
 title: Changelog
-description: Release notes for this CLI.
+description: Release notes for every boatparty version, newest first, describing user-visible changes and upgrade notes.
 order: 99
-category: Distribution
+category: Project
 summary: User-facing release history.
 ---
 
-Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
+<!-- Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects. -->
+
+Every boatparty release, newest first, with what changed for users and anything to do when upgrading. To upgrade, run the installer again (see [Installation](/docs/installation#upgrading)).
 
 ## 0.5.1 - 2026-11-26
 

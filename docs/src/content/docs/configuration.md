@@ -1,135 +1,267 @@
 ---
-title: Configuration and presets
-description: The boatparty.toml schema, presets and how layers merge, credentials and the base snapshot.
-order: 4
-category: Guides
-summary: One checked-in file per project, composed from plain-text presets.
+title: boatparty.toml reference
+description: Every key in boatparty.toml, the per-project configuration file, with its type, default and meaning, plus how to validate the file and see the effective settings after presets.
+order: 41
+category: Reference
+summary: The complete schema of the checked-in project file.
 ---
 
-A project describes itself in `boatparty.toml` at the repository root. The schema is strict: an unknown key is an error that names its path and file. `boatparty config validate` checks the file and every preset it can see; `boatparty config show --resolved --origin` prints the effective settings and where each came from.
+Every project describes itself in `boatparty.toml` at the root of its repository. `boatparty init` writes a first version; you commit it, and every checkout and every machine uses the same settings.
+
+The schema is **strict**. An unknown key or a value of the wrong type is an error that names its path, its file and the keys that are allowed, so a typo never silently does nothing:
+
+```text
+boatparty: error: /Users/you/code/app/boatparty.toml: unknown key sync.histroy (known keys in sync: history, copy_back, seed, github_token)
+```
+
+Only `version` and `[project] name` are required. Everything else has a default, comes from a [preset](/docs/presets), or is optional.
+
+## A complete example
 
 ```toml
 version = 1
 
 [project]
-name = "app"                 # lowercase letters, digits and hyphens
-presets = ["rust"]           # applied in order; this file wins
+name = "app"                     # lowercase letters, digits and hyphens
+presets = ["rust", "pnpm"]       # applied in order; this file wins
 
 [sandbox]
-desktop = "auto"             # "keep" skips idle desktop shutdown
-machine = "default"          # small, default, large, xlarge (at most the project's max_machine)
-# remote_path = "/home/user/code/app"  # the checkout; default /home/user/<name>, must be under /home/user
-# environment = "ci"         # a boat environment for new sandboxes; unset: no account secrets
+machine = "large"                # small, default, large, xlarge
+desktop = "auto"                 # "keep" leaves desktop streaming running
+remote_path = "/home/user/app"   # the checkout on the sandbox
+environment = "app"              # a boat environment for new sandboxes
 
 [sync]
-history = "head"             # "head": HEAD's commit only; "full": branches, tags and history
-copy_back = true             # apply the command's file changes locally
-seed = true                  # fetch pushed commits on the sandbox from GitHub instead of sending them
-github_token = true          # use a GitHub token for that fetch (private repositories)
+history = "head"                 # "head" or "full"
+copy_back = true
+seed = true
+github_token = true
 
 [run]
-ram_tmp = true               # a private RAM TMPDIR per command
-script = "bun run"           # the script runner for `run NAME`
-git_identity = true          # commands commit as your user.name and user.email
-github_token = false         # git in commands reaches github.com with your token
+ram_tmp = true
+script = "pnpm run"
+git_identity = true
+github_token = false
 
 [run.env]
 RUST_BACKTRACE = "1"
-PATH = "$HOME/.local/bin:$PATH"   # a value naming its own variable extends it
+PATH = "$HOME/.local/bin:$PATH"
+
+[[setup]]
+name = "postgres"
+check = "pg_isready -q"
+run = "sudo service postgresql start"
 
 [[ensure]]
-name = "deps"
-key_files = ["Cargo.lock"]
-run = "cargo fetch --locked"
+name = "web-deps"
+dir = "web"
+requires = ["package.json"]
+key_files = ["pnpm-lock.yaml"]
+run = "pnpm install --frozen-lockfile"
 
 [build]
-output_dirs = ["target"]
+output_dirs = ["target", "web/.next"]
 floor_mtimes = true
 cache_dirs = ["incremental"]
 cache_max_age_days = 3
 min_free_gb = 25
 
 [base]
-warm = "cargo test --locked --no-run"
-stale_inputs = ["Cargo.lock", "rust-toolchain.toml"]
+warm = "cargo build --locked --all-targets"
+stale_inputs = ["Cargo.lock", "web/pnpm-lock.yaml"]
+ref = "origin/main"
+auto_refresh = true
+max_commits_behind = 50
+max_age_hours = 168
+
+[gate]
+command = "cargo test --locked && pnpm -C web test"
 
 [commands]
 test = "cargo test --locked"
+lint = "cargo clippy --all-targets -- -D warnings"
+web = "pnpm -C web dev"
 ```
 
-After a run, boatparty checks matching cache directories up to four levels under each output directory. It removes stale entries first, then the least recently used entries until the disk has `min_free_gb` decimal GB available. Set either threshold to zero to disable that part. During a base build, settling also removes entries untouched since the warm-up began.
+## Top level
 
-## Steps
+| Key | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `version` | integer | yes | The file format version. Must be `1` |
 
-- A `[[setup]]` step (`name`, `check`, `run`) runs before the first command after each start of a sandbox, unless its `check` succeeds.
-- An `[[ensure]]` step (`name`, `dir`, `key_files`, `key_command`, `check`, `run`) runs before a command when its key (the content of `key_files` plus the output of `key_command`) changed since it last succeeded, or when its `check` fails. A successful first check records the initial key and skips the command. Set `requires = ["manifest", "alternative"]` to skip the entire step, including its key command, unless at least one listed file exists relative to `dir`. Built-in presets use this to skip dependency work in empty repositories. `sync` never runs steps.
-- Step output goes to stderr, so stdout stays the command's. A failing step ends the run with the step's exit code and the command does not run.
+## [project]
 
-## Presets
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | required | The project's name: lowercase letters, digits and hyphens. It names the pool (`bp-<name>-1`, ...), the default checkout path and the project's entry in `account.toml`, so keep it stable |
+| `presets` | list of strings | `[]` | Presets to apply, in order. Later presets and then this file override earlier ones. A name may appear only once |
 
-Built-in presets: `rust`, `node`, `pnpm`, `bun`, `python`, `go`. Each carries only what boat's image lacks for its stack: lockfile-keyed dependency installs, caches placed where they survive a resume, build output directories, and a warm command for the base. The `node`, `pnpm` and `bun` presets set the script runner.
+## [sandbox]
 
-Presets are plain TOML with the same shape as `boatparty.toml` minus `[project]`. They are looked up in three places, from least to most specific: built in, `~/.config/boatparty/presets/NAME.toml`, and `.boatparty/presets/NAME.toml` in the project. A file in a more specific place replaces the one below it entirely.
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `machine` | string | `account.toml`'s `[defaults] machine` | Machine size for new sandboxes: `small`, `default`, `large` or `xlarge`. Must not exceed the project's `max_machine` |
+| `desktop` | string | `"auto"` | `"auto"` stops idle desktop streaming services in the background; `"keep"` leaves them running. See [Desktop](/docs/desktop) |
+| `remote_path` | string | `/home/user/<name>` | The checkout's location on the sandbox. Must be a directory under `/home/user/` using letters, digits, `/`, `.`, `_` and `-`, and not inside `~/.boatparty` or `~/.cache` |
+| `environment` | string | unset | A boat environment attached to new sandboxes. Unset means sandboxes get none of the account's stored secrets. See [Secrets and environments](/docs/secrets-and-environments) |
 
-```bash
-boatparty preset list              # every preset, where it comes from, whether this project uses it
-boatparty preset show rust         # the text this project would get
-boatparty preset eject rust        # copy it into .boatparty/presets/ to edit (--user: for every project)
-```
+Changing `machine` or `environment` affects sandboxes created afterwards. Existing members keep what they were created with; `boatparty rm` a member to recreate it.
 
-Layers merge in order: defaults, each preset, then `boatparty.toml`. Tables merge by key; other values, lists included, are replaced. Steps merge by `name`: a later step with a known name replaces only the keys it sets, a new name is appended, and `enabled = false` switches a step off.
+## [sync]
 
-## Credentials for commands
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `history` | string | `"head"` | `"head"` sends only HEAD's commit (the sandbox's `git log` shows one commit). `"full"` sends every local branch and tag and the default remote branch with their history |
+| `copy_back` | bool | `true` | Apply the files a `run` changes in the checkout to the local working tree |
+| `seed` | bool | `true` | Let a sandbox fetch pushed commits from GitHub itself, so only what GitHub lacks is uploaded |
+| `github_token` | bool | `true` | Use a GitHub token for that seed fetch (needed for private repositories) |
 
-- `[run] git_identity` (on by default) exports your local `user.name` and `user.email`, so commits made on the sandbox carry them. This and `[run] github_token` apply to `run`, `serve`, `pipe` and `shell`.
-- `[run] github_token = true` lets git inside commands and steps reach github.com over HTTPS with `BOATPARTY_GITHUB_TOKEN` or `gh auth token`. The token is served from memory for the command's lifetime only and is never written to the sandbox. SSH-style GitHub URLs are rewritten to HTTPS. Go private modules also need `GOPRIVATE` in `[run.env]`, for example `GOPRIVATE = "github.com/your-org/*"`.
-- `[sync] github_token` is separate: it lets a sync fetch a private repository from GitHub (see Seeding).
+See [Sync and copy-back](/docs/sync-and-copy-back).
 
-### Which GitHub token, and what it can reach
+## [run]
 
-The token comes from `BOATPARTY_GITHUB_TOKEN` when set, else from the first line printed by `BOATPARTY_GITHUB_TOKEN_COMMAND` (a shell command), else from `gh auth token`. Either program runs only when a token is about to be used, and the token stays in boatparty's memory: never an argument list, a file, `state.json`, `runs.jsonl` or a log, here or on the sandbox.
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `ram_tmp` | bool | `true` | Give each command a private, in-memory `TMPDIR`, removed when it ends |
+| `script` | string | unset (the `node`, `pnpm` and `bun` presets set it) | The script runner for `boatparty run NAME` when `[commands]` has no NAME, for example `"npm run"` |
+| `git_identity` | bool | `true` | Commands commit as the local `user.name` and `user.email` |
+| `github_token` | bool | `false` | Git in commands and steps reaches `github.com` over HTTPS with your token, served from memory for the command's lifetime only. See [Git identity and GitHub access](/docs/github-access) |
 
-By default that is your `gh` login: a long-lived OAuth token with every scope `gh` was granted (usually `repo`, so every repository you can reach, with write access). While a command runs with `[run] github_token = true`, anything the command runs on the sandbox, dependency build scripts included, can ask the credential helper for it. A seed hands it only to that one `git fetch`. GitHub offers no way to derive a shorter-lived or narrower token from a `gh` login, so to limit what a leaked token could do, give boatparty a different one:
+`git_identity`, `github_token` and `[run.env]` apply to `run`, `serve`, `gate`, `pipe` and `shell`.
 
-- a fine-grained personal access token with read-only **Contents** access to just the repositories your builds fetch, and a short expiry, in `BOATPARTY_GITHUB_TOKEN`;
-- or a command that mints a short-lived token, for example a GitHub App installation token (one hour, limited to the app's repositories and permissions) from a helper or your secret manager, in `BOATPARTY_GITHUB_TOKEN_COMMAND`.
-
-Leave both `github_token` settings off for projects that only need public repositories.
-
-## Seeding
-
-With `[sync] seed` on and a GitHub remote, a sandbox fetches pushed commits from GitHub itself, and your machine sends only what GitHub lacks (unpushed commits and uncommitted files). That happens on a sandbox's first sync, and again whenever HEAD moved to pushed commits whose objects the sandbox lacks and those add up to 8 MiB or more (a large pull, or a switch to a distant branch; `BOATPARTY_SEED_WARM_MIN_BYTES` changes the size). Below that, sending the difference is faster than a fetch from GitHub. A sync whose HEAD did not move never looks. A failed fetch falls back to sending everything.
-
-## The base snapshot
-
-`boatparty base build` brings up the project's builder sandbox, syncs the base ref (`[base] ref`, by default the default remote branch, else HEAD), runs the setup and ensure steps and `[base] warm`, and saves the result as the saved snapshot `bp-<project>`. New sandboxes start from it with dependencies built, and their first sync sends only what changed since. `boatparty base status` reports its age, commits behind, changed `stale_inputs` and size. Background rebuilds are opt-in. `boatparty base rm` deletes it and the builder.
-
-## Getting build outputs back
-
-Ignored files never travel in either direction. Copy an output back explicitly:
-
-```bash
-boatparty fetch target/release/app ./app-linux
-```
-
-### Automatic base refresh
-
-After the first manual base build, these settings allow a new member created from that base to schedule one detached refresh. The creating command continues immediately. The helper compares against the locally known base ref, so fetch to update a remote-tracking ref. A changed stale input, missing base commit, or either threshold reaching its limit makes the base stale.
+## [run.env]
 
 ```toml
-[base]
-auto_refresh = true       # default false
-max_commits_behind = 50
-max_age_hours = 168
+[run.env]
+RUST_BACKTRACE = "1"
+DATABASE_URL = "postgres://localhost/app_test"
+PATH = "$HOME/.local/bin:$PATH"
+BETTER_AUTH_URL = "$BOATPARTY_FORWARD_URL"
 ```
 
-The helper uses the builder, normal start ledger, reserves and running limits. New members continue using the saved base during the rebuild. `base status` and `status` report activity and the last refresh failure. The state directory holds a per-project `base-refresh-<project>.log` with timestamps and outcomes.
+Variables exported before steps and commands. Values are expanded by bash in the checkout, so `$HOME`, `$PATH` and `$PWD` (the checkout) work. A value that names its own variable (`PATH = "/x/bin:$PATH"`) **extends** the value from earlier layers instead of replacing it, so presets and your file can all add to `PATH`.
 
-### Gate command
+Names must be valid environment variable names, and names starting with `BOATPARTY` are reserved. Values are committed with the file, so keep secrets out; use [project secrets](/docs/secrets-and-environments) instead. During `serve`, the forward URLs (`BOATPARTY_FORWARD_URL` and friends) are set before these values are expanded.
+
+## [[setup]]
+
+Steps that prepare a machine, run before the first command after each boot of the sandbox's machine (a create, or a resume onto a new machine), and again when the steps themselves change.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | Required. Letters, digits, `-` and `_`. Layers merge steps by name |
+| `check` | string | A shell command; when it succeeds, the step is skipped |
+| `run` | string | Required. The shell commands to run |
+| `enabled` | bool | `false` switches off a step an earlier layer (a preset) defined |
+
+## [[ensure]]
+
+Steps that keep dependencies current, run before a command when their inputs changed.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | Required. Letters, digits, `-` and `_` |
+| `dir` | string | The directory to run in, relative to the checkout. `key_files` and `requires` are relative to it |
+| `requires` | list of strings | Skip the whole step (including `key_command`) unless at least one of these files exists |
+| `key_files` | list of strings | Files whose content forms the step's key, typically lockfiles |
+| `key_command` | string | A shell command whose output is added to the key, typically a tool version (`node --version`) |
+| `check` | string | A shell command; when it fails, the step runs even if the key did not change |
+| `run` | string | Required. The shell commands to run |
+| `enabled` | bool | `false` switches off a step an earlier layer defined |
+
+An ensure step runs when its key changed since it last succeeded, or when its `check` fails. On the very first run, a passing `check` records the key and skips the step. See [Presets and steps](/docs/presets#steps).
+
+## [build]
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `output_dirs` | list of strings | `[]` | Directories holding build outputs, relative to the checkout (globs allowed). The `rust` preset sets `["target"]` |
+| `floor_mtimes` | bool | `true` | After each command, round modification times in `output_dirs` down to whole seconds, so a restore that truncates them does not trigger rebuilds |
+| `cache_dirs` | list of strings | `[]` | Names of directories under `output_dirs` holding a compiler's own caches (such as `incremental`). They are not floored, and are dropped when a restore left a file in them unreadable |
+| `cache_max_age_days` | integer | `3` | After a run, remove cache entries untouched for this many days. `0` disables age-based removal |
+| `min_free_gb` | integer | `25` | After a run, also remove the least recently used cache entries until the disk has this many decimal GB free. `0` disables it |
+
+Cache cleanup looks at matching cache directories up to four levels under each output directory. During a base build, settling also removes entries untouched since the warm-up began.
+
+## [base]
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `warm` | string | from the preset | Shell commands that build everything, run by `base build` after the steps |
+| `stale_inputs` | list of strings | from the preset | Files whose change makes the base stale |
+| `ref` | string | the default remote branch, else HEAD | The Git ref the base is built from |
+| `auto_refresh` | bool | `false` | Rebuild a stale base in the background after a new member is created from it |
+| `max_commits_behind` | integer | `50` | Commits behind `ref` that make the base stale |
+| `max_age_hours` | integer | `168` | Age in hours that makes the base stale |
+
+See [Base snapshots](/docs/bases).
+
+## [gate]
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | string | unset | The shell line `boatparty gate` runs when no command is given. Read from the commit being checked |
+
+See [Checking commits with gate](/docs/gate).
+
+## [commands]
 
 ```toml
-[gate]
-command = "make check"
+[commands]
+test = "cargo test --locked"
+"check:all" = "make check"
 ```
 
-The command runs against the selected commit on the gate member. `gate NAME` selects a named command and `gate -- CMD...` supplies an argument list.
+Named shell lines for `boatparty run NAME [ARGS...]`, `serve NAME` and `gate NAME`. Arguments are quoted and appended. A name starts with a letter, digit or `_`, then uses letters, digits and `- _ : . +`. A name with characters TOML does not allow in a bare key (like `:`) must be quoted.
+
+## How layers combine
+
+The effective configuration is built from layers, applied in order:
+
+1. boatparty's built-in defaults;
+2. each preset in `[project] presets`, in the listed order;
+3. `boatparty.toml` itself, which wins.
+
+Tables merge key by key. Other values, lists included, are replaced whole by a later layer. Two exceptions: a `[run.env]` value that names its own variable extends the earlier value, and steps merge by `name` (a later step with a known name replaces only the keys it sets, a new name is appended, and `enabled = false` switches a step off).
+
+## Checking and inspecting the file
+
+```bash
+boatparty config validate                 # check the file and every preset it can see
+boatparty config show                     # the file as parsed
+boatparty config show --resolved          # the effective configuration
+boatparty config show --resolved --origin # ...with where each value came from
+```
+
+`--origin` is the quickest way to answer "why is this set?":
+
+```text
+# The effective configuration of project hello-api: boatparty's defaults, then preset node (built-in), then /Users/you/code/hello-api/boatparty.toml.
+
+version = 1  # boatparty.toml
+
+[project]
+name = "hello-api"  # boatparty.toml
+presets = ["node"]  # boatparty.toml
+
+[sandbox]
+desktop = "auto"  # default
+remote_path = "/home/user/hello-api"  # default
+
+[sync]
+history = "head"  # default
+copy_back = true  # default
+seed = true  # default
+github_token = true  # default
+
+[run]
+ram_tmp = true  # default
+script = "npm run"  # preset node (built-in)
+git_identity = true  # default
+github_token = false  # default
+```
+
+## Related files
+
+- Presets: [Presets and steps](/docs/presets).
+- Limits for each project live outside the repository, in `account.toml`: [account.toml reference](/docs/account-file).

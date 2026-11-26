@@ -1,36 +1,24 @@
 ---
-title: Releases and installation
-description: How boatparty is built, released and installed without compiling anything on a developer machine.
-order: 3
-category: Distribution
-summary: GitHub-hosted runners build and test Linux, macOS and Windows, GitHub Releases host the archives.
+title: Releases and builds
+description: How boatparty is built, tested and released on GitHub-hosted runners for Linux, macOS and Windows, without compiling anything on a developer machine.
+order: 90
+category: Project
+summary: GitHub-hosted runners build and test every target; GitHub Releases host the archives.
 ---
 
-## Install
+boatparty is released as prebuilt binaries on [GitHub Releases](https://github.com/amxv/boatparty/releases). To install or upgrade, see [Installation](/docs/installation). This page is for the curious and for contributors: where each binary is built, what a release contains, and how one is cut.
 
-```bash
-curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
-```
+## What a release contains
 
-The script (`docs/public/install.sh`, served by this site and attached to every release as `install.sh`) picks the archive for this machine (macOS or Linux, arm64 or x86_64), checks it against the release's `SHA256SUMS` and installs `boatparty` into `~/.local/bin`, replacing the old binary in one rename. Options, after `sh -s --`: `--version vX.Y.Z` for a specific release, `--dir DIR` for another location (or `BOATPARTY_VERSION` and `BOATPARTY_INSTALL_DIR`). Running it again upgrades. It needs only `curl`, `tar` and a shell.
+Each release `vX.Y.Z` publishes:
 
-On Windows x64 or Arm64, run this in PowerShell:
-
-```powershell
-irm https://boatparty.ashray.xyz/install.ps1 | iex
-```
-
-The installer offers to install missing Git and OpenSSH tools and, optionally, the boat CLI for sign-in. It verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
-
-Set `$env:BOATPARTY_VERSION` to select a release or `$env:BOATPARTY_INSTALL_DIR` to choose a directory before running the installer. Running the installer again upgrades the executable.
-
-The installer uses `curl.exe` when available. Installing the Windows OpenSSH Client can prompt for administrator approval. For unattended setup, set `$env:BOATPARTY_PREREQUISITES = 'Install'` to install missing required tools, or `'Skip'` to install just boatparty.
-
-### Running on Windows
-
-Run boatparty in PowerShell, Command Prompt or Windows Terminal. The sandbox runs Linux, so `--sh`, named commands and remote paths use Linux shell syntax. `BOATPARTY_HOME` accepts an absolute Windows path. The default roots are `.config\boatparty` and `.local\state\boatparty` under your Windows profile. Windows ACLs protect the credentials and SSH keys.
-
-Windows OpenSSH opens a new authenticated connection for each operation. Its client lacks the control sockets used for multiplexing on macOS and Linux, so a warm command can take longer. Ctrl-C cancels a running command and returns 130. Windows has no Unix SIGTERM. The optional `BOATPARTY_GITHUB_TOKEN_COMMAND` helper uses `sh` on PATH. Normal commands need only Git and OpenSSH, and `fetch` also needs `tar.exe`. Mirrored paths must be valid on both filesystems.
+| File | For |
+| --- | --- |
+| `boatparty-X.Y.Z-aarch64-apple-darwin.tar.gz`, `boatparty-X.Y.Z-x86_64-apple-darwin.tar.gz` | macOS on Apple silicon and Intel |
+| `boatparty-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz`, `boatparty-X.Y.Z-aarch64-unknown-linux-gnu.tar.gz` | Linux with glibc 2.28 or newer |
+| `boatparty-X.Y.Z-x86_64-pc-windows-msvc.zip`, `boatparty-X.Y.Z-aarch64-pc-windows-msvc.zip` | Windows x64 and Arm64, containing `boatparty.exe` |
+| `install.sh`, `install.ps1` | The installers, also served by this site |
+| `SHA256SUMS` | Checksums the installers verify before installing anything |
 
 ## Where builds run
 

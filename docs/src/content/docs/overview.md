@@ -1,59 +1,90 @@
 ---
-title: Overview
-description: What boatparty does, the words it uses, and where its files live.
+title: What is boatparty?
+description: boatparty runs your Git project's builds, tests and dev servers on warm boat.dev Linux sandboxes, so you and your coding agents can work in parallel without overloading your computer.
 order: 1
 category: Start
-summary: Warm boat.dev sandbox pools for any Git project, one place per account.
+summary: The problem boatparty solves, what it does on every command, and where to read next.
 ---
 
-boatparty is a command-line tool that runs a Git project's builds, tests and servers on [boat.dev](https://boat.dev) sandboxes instead of your computer. From any checkout it leases a sandbox from that project's pool, mirrors the working tree, runs a command with live output and its real exit code, brings the command's file changes back, and keeps the sandbox warm for the next command.
-
-boatparty is built for [boat.dev](https://boat.dev) users and for coding agents: it needs a boat account, and its exit codes, untouched stdout, `--json` output and stdin-only secrets are made for agents that run builds, tests and servers in parallel. boat is the only provider it supports; the code keeps everything boat-specific behind one module (`src/provider/`), but no other backend exists.
+boatparty is a command-line tool that moves the heavy part of software work (compiling, testing and running servers) off your computer and onto [boat.dev](https://boat.dev) Linux sandboxes. You keep editing files locally, in your own editor, in your own Git checkout. When you want to build or test, you put `boatparty run` in front of the command:
 
 ```bash
 boatparty run -- cargo test --locked
 ```
 
+That single command copies your working tree to a sandbox, runs `cargo test` there with its output streaming to your terminal, exits with the test suite's real exit code, and brings back any files the command changed. The sandbox then stays warm for your next command, and stops by itself a few minutes after you go quiet.
+
+## Why it exists
+
+Coding agents changed how many builds a single laptop is asked to run. One person with three or four agents, each in its own Git worktree, can easily start four Rust compiles, two test suites and a couple of dev servers at once. A laptop handles that badly: fans spin, everything slows down, and the agents' timings become unreliable.
+
+boatparty gives every checkout its own Linux machine instead. Each worktree leases its own sandbox from a small pool that belongs to the project, so agents can compile, test and serve side by side while your computer stays cool and responsive.
+
+It is also careful with the things that cost money or are scarce on boat. Sandboxes stop when idle, the number of sandboxes per project is capped, and every sandbox start goes through one ledger so boatparty never burns through your account's start allowance by surprise. You can read more about that in [Starts, limits and costs](/docs/limits).
+
+## Who it is for
+
+boatparty is for [boat.dev](https://boat.dev) users. It needs a boat account and talks to boat's API; it does not support other sandbox providers.
+
+It works well for people, but it was designed first for coding agents, which need a few guarantees that ordinary remote-build tools rarely give:
+
+- **Exit codes you can trust.** A command's own exit status comes back unchanged. When boatparty itself fails (a lost connection, a missing key, a limit), it exits with `125` instead, so an agent can tell "your tests failed" apart from "the infrastructure failed".
+- **Clean output.** The command's stdout passes through byte for byte. boatparty's own messages go to stderr, each prefixed with `boatparty: `.
+- **Machine-readable results.** Every command accepts `--json`, with a documented, tested contract.
+- **Secrets stay out of logs.** `boatparty pipe` feeds input to a remote command on stdin, so tokens never appear in a command line, a log or a state file.
+- **A ready-made skill.** `boatparty skill` writes a skill file that teaches an agent how to use boatparty.
+
+[Using boatparty with coding agents](/docs/coding-agents) covers all of this in detail.
+
 ## What happens on a command
 
-1. **Lease.** The checkout (a *workspace*) takes its sandbox from the project's *pool*: the one it used last, else a free one, else a new one below the project's cap. When that sandbox is already up, nothing talks to boat before the command starts.
-2. **Sync.** The working tree (tracked and untracked files, minus ignored ones) travels as a thin Git pack. By default only HEAD's commit travels, not its history. Only files whose content changed are rewritten on the sandbox, so build tools see unchanged mtimes. The sandbox's repository stays bounded: its packs are rolled up as they accumulate, and once a day objects that no ref needs any more (old snapshots and results) are pruned.
-3. **Run.** The command runs in the sandbox's checkout (`/home/user/<project>`, or `[sandbox] remote_path`) with the project's environment and dependency steps. stdout passes through byte for byte.
-4. **Copy back.** Files the command changed in the checkout are applied to your working tree; a patch above 512 KiB comes back by signed download, which is several times faster than SSH. If the same lines changed locally meanwhile, nothing is touched and the patch is kept.
-5. **Idle.** The sandbox stops by itself `idle_minutes` (default 5) after the last command ends. Its disk is kept, and the next command resumes it.
+Here is the life of one `boatparty run`, from the moment you press Enter to the moment your prompt comes back:
 
-## Words
+```mermaid
+flowchart LR
+    A["Lease a sandbox<br/>from the project's pool"] --> B["Sync the working tree<br/>(only changed files)"]
+    B --> C["Prepare<br/>(install deps if the lockfile changed)"]
+    C --> D["Run the command<br/>with live output"]
+    D --> E["Copy changed files<br/>back to your checkout"]
+    E --> F["Release the lease<br/>sandbox stops when idle"]
+```
+
+1. **Lease.** Your checkout takes a sandbox from the project's pool: the one it used last if possible. If that sandbox is already running, boatparty does not even talk to boat's API before your command starts.
+2. **Sync.** Your working tree (tracked and untracked files, minus anything Git ignores) travels to the sandbox as a compact Git pack. Only files whose content changed are rewritten, so build tools see unchanged timestamps and do not rebuild needlessly.
+3. **Prepare.** If your lockfile changed, the project's dependency step (for example `npm ci` or `cargo fetch`) runs first. Otherwise this step is skipped.
+4. **Run.** The command runs in the sandbox's copy of your repository, with output streaming to your terminal as it happens.
+5. **Copy back.** Files the command created or changed (a formatter's edits, generated code, a new lockfile) are applied to your local working tree.
+6. **Idle.** When no command is using the sandbox, it stops by itself after 5 minutes. Its disk is kept, so the next command resumes exactly where you left off.
+
+[How boatparty works](/docs/how-it-works) goes through each of these steps in depth.
+
+## The sandboxes
+
+Every sandbox is a Linux x86_64 machine running Ubuntu 24.04 with boat's standard tool image: Git, compilers and runtimes for the common stacks (Rust, Node.js, Bun, pnpm, Python, Go and more). It does not matter whether your own computer is a Mac, a Linux box or a Windows PC; the commands always run on the same Linux environment.
+
+By default, sandboxes are created without any of your boat account's stored secrets. A project can opt in to a boat environment when it needs variables or secret files; see [Secrets and environments](/docs/secrets-and-environments).
+
+## The words boatparty uses
+
+You will see these terms throughout the docs and in boatparty's own messages.
 
 | Word | Meaning |
 | --- | --- |
-| Project | A named unit with its own pool and limits, named in `boatparty.toml` |
-| Workspace | One checkout of a project on this machine, identified by its Git toplevel |
-| Member | One sandbox in a project's pool, named `bp-<project>-<n>` at boat |
-| Lease | A live claim on a member by one boatparty process (`run`, `serve` or `session`) |
-| Base | An optional saved snapshot new members start from, with dependencies built |
-| Preset | A TOML file of settings a project names: dependency steps, environment, build outputs |
-| Runner | The bash script that is boatparty's remote half, uploaded under its content hash |
+| **Project** | A named unit with its own pool and limits. The name comes from `boatparty.toml` at the root of the repository. |
+| **Workspace** | One checkout of a project on your computer, identified by its Git top-level directory. Each Git worktree is a separate workspace. |
+| **Pool** | The set of sandboxes a project owns, capped by `max_sandboxes` (8 by default). |
+| **Member** | One sandbox in a project's pool, named `bp-<project>-<n>` at boat (for example `bp-app-1`). |
+| **Lease** | A live claim on a member by one running boatparty process, such as a `run`, a `serve` or a `shell`. |
+| **Start** | Every time boat creates a sandbox or resumes one onto a new machine. Boat limits starts per minute, hour and day. |
+| **Base** | An optional saved snapshot that new members start from, with dependencies already installed and built. |
+| **Gate member** | A dedicated sandbox, `bp-<project>-gate`, that `boatparty gate` uses to check committed code. |
+| **Preset** | A small TOML file of settings for a stack (dependency installs, environment, build outputs) that a project can name. |
+| **Runner** | boatparty's remote half: a bash script it uploads to each sandbox and runs there. |
 
-## Where things live
+## Where to go next
 
-| Path | Content |
-| --- | --- |
-| `~/.config/boatparty/account.toml` | Provider settings and every limit (honors `XDG_CONFIG_HOME`) |
-| `~/.config/boatparty/credentials.toml` | The boat API key, protected by a Windows ACL or Unix mode 0600 |
-| `~/.config/boatparty/ssh/` | boatparty's own SSH key |
-| `~/.config/boatparty/presets/` | Your presets |
-| `~/.local/state/boatparty/` | `state.json`, `runs.jsonl`, SSH configs and pinned host keys per sandbox, the skill (honors `XDG_STATE_HOME`) |
-| `/tmp/boatparty-<uid>/` | SSH control sockets |
-| `<project>/boatparty.toml`, `<project>/.boatparty/presets/` | The project's configuration, checked in |
-
-`BOATPARTY_HOME` replaces both roots with `$BOATPARTY_HOME/config` and `$BOATPARTY_HOME/state`.
-
-## Sandboxes
-
-Every sandbox is Linux x86_64 (Ubuntu 24.04) with boat's tool image: Git, compilers and runtimes for the common stacks. Sandboxes are created without the account's stored secrets unless the project names a boat environment. The API key never appears in a process argument list, a log, `state.json` or `runs.jsonl`.
-
-A sandbox resumed onto a new machine restores its files in the background. A cold `run` waits for that restore before syncing. It prints progress each minute. Other commands waiting on bring-up see the holder PID, its current step and any failure reason.
-
-A stalled restore or repeated SSH failure triggers recovery. When the disk has finished restoring and a completed snapshot is available, boatparty force-stops the sandbox and resumes from that snapshot. Writes after the snapshot can be lost. If a restart is unavailable, recently attempted or fails to restore service, boatparty replaces the member. The Rust preset invalidates Cargo units written near the recovered snapshot and units that reference a retired home directory.
-
-A degraded provider tunnel leaves direct SSH usable. `expose` and `desktop` need the tunnel and can reboot the member over SSH when no other lease is live. It waits up to five minutes for health to recover and permits one reboot per 30 minutes.
+- New here? Start with [Installation](/docs/installation), then [Your first run](/docs/getting-started).
+- Want to understand the moving parts? Read [How boatparty works](/docs/how-it-works) and [Sync and copy-back](/docs/sync-and-copy-back).
+- Setting it up for agents? Read [Using boatparty with coding agents](/docs/coding-agents) and [Sharing a workspace between agents](/docs/sharing-a-workspace).
+- Looking for a specific flag or setting? See the [command reference](/docs/commands) and the [boatparty.toml reference](/docs/configuration).
+- Something went wrong? See [Troubleshooting](/docs/troubleshooting).
