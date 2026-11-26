@@ -574,6 +574,8 @@ implementation detail. The runner supplies it to the Rust preset for cleanup.
 
 ## Named environments (2026-11-26)
 
+On 2026-11-27 the sandbox listing reported `environment: "base"` and `environmentVersion: 1` for all five members of the boatparty project, which omits `[sandbox] environment`. Boatparty sends `noEnv: true` when creating those members.
+
 Boat exposes the environment name and pinned version on sandbox listings. The scoped v1 environment listing includes the latest version’s dotenv contents and secret files. Project output must select names only and discard provider error bodies for secret operations. Earlier versions list counts and IDs without contents. The creation endpoint enables all credential types initially. Configure its flags before attaching a newly created environment or writing any secrets. A 0.3.0 key received HTTP 403 on the environment listing, while a temporary key with `environment.read` succeeded.
 
 The public upgrade endpoint accepted `{"agentIds":["bx_…"]}` but reported zero upgraded and left the selected sandbox at v3. An unfiltered request on the isolated test environment moved it to v4. Boatparty verifies the pin after a scoped request and reports the recreation path if it stays stale. It never sends an unfiltered upgrade.

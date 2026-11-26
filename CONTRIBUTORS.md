@@ -18,8 +18,9 @@ just remote-check            # the full gate: fmt, clippy, tests, shellcheck, do
 ```
 
 Without a boat account, the same gate runs in GitHub Actions on every push
-and pull request (`.github/workflows/ci.yml`), or locally with the pinned
-toolchain from `rust-toolchain.toml`: `just check`.
+and pull request (`.github/workflows/ci.yml`), with just the docs check for
+changes limited to `docs/` and top-level Markdown files. To run the gate locally
+with the pinned toolchain from `rust-toolchain.toml`, use `just check`.
 
 ## Conventions in short
 

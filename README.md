@@ -136,7 +136,7 @@ Every command has `--help`, and the [command reference](https://boatparty.ashray
 
 ## Development
 
-The maintainers run every check on a boat sandbox through boatparty itself, so nothing compiles on their machines; without a boat account, `just check` runs the same gate locally and CI runs it on every push. See [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+The maintainers run every check on a boat sandbox through boatparty itself, so nothing compiles on their machines; without a boat account, `just check` runs the same gate locally and CI runs it on pushes and pull requests. Changes limited to `docs/` and top-level Markdown files run just the docs check. See [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
 
 ```bash
 just remote-check        # the full gate: fmt, clippy, tests, shellcheck, docs

@@ -56,6 +56,10 @@ pub struct EnvironmentPin {
 
 impl EnvironmentPin {
     pub fn warning(&self, expected: Option<&str>, version: Option<u64>) -> Option<String> {
+        // Boat reports this pin for sandboxes created with noEnv.
+        if expected.is_none() && self.name.as_deref() == Some("base") && self.version == Some(1) {
+            return None;
+        }
         if self.name.as_deref() == expected && (version.is_none() || version == self.version) {
             return None;
         }

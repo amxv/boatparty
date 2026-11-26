@@ -6,21 +6,7 @@ name: CI
 on:
   push:
     branches: ["**"]
-    paths:
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/windows-live.yml"
-      - ".github/actions/test-windows/**"
-      - ".gitattributes"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "Justfile"
-      - "boatparty.toml"
-      - "docs/**"
-      - "scripts/**"
-      - "src/**"
-      - "tests/**"
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -31,7 +17,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.diff.outputs.full }}
+    steps:
+      - uses: actions/checkout@v6
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          fetch-depth: 0
+      - id: diff
+        name: Check for changes outside documentation
+        env:
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          full=true
+          head=$GITHUB_SHA
+          base=$BEFORE
+          if [[ $GITHUB_EVENT_NAME == pull_request ]]; then
+            head=$PR_HEAD
+            base=$(git merge-base "$PR_BASE" "$head")
+          elif [[ $base == 0000000000000000000000000000000000000000 ]]; then
+            # A new branch has no previous tip. Compare its whole topic to the default branch.
+            base=$(git merge-base "origin/$DEFAULT_BRANCH" "$head" || true)
+          fi
+          # Missing history (e.g. a force push) keeps all checks enabled.
+          if [[ -n $base && $base != "$head" ]] &&
+             git diff --quiet --no-renames "$base" "$head" -- . ':(exclude)docs/**' ':(exclude,glob)*.md'; then
+            full=false
+          fi
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+
   windows:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full != 'false' }}
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
@@ -39,6 +61,8 @@ jobs:
       - uses: ./.github/actions/test-windows
 
   rust:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.full != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:

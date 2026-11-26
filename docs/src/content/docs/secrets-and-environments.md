@@ -105,6 +105,8 @@ boatparty notices the difference and warns you. `status`, `pool`, `run` and `ser
 boatparty: bp-app-1: env: app v1 (expected app v2); see boatparty env apply
 ```
 
+If you omit `[sandbox] environment`, boat reports the default pin as `base` v1. Boatparty treats that pin as current and still flags a member on another named environment.
+
 On a warm connection, `run` compares against the last version boatparty saw, so it stays fast. After changing an environment outside boatparty (for example with `boat env`), run `boatparty env status` to refresh what boatparty knows.
 
 ### Checking and upgrading pins

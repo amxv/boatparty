@@ -321,7 +321,7 @@ boatparty env apply [MEMBER | --all]
 
 | Subcommand | Meaning |
 | --- | --- |
-| `status` | Each member's environment, pinned version and injected variable names, with a warning when the pin is not the latest |
+| `status` | Each member's environment, pinned version and injected variable names, with a warning for drift from the project setting. The default pin (`base` v1) is current for an unconfigured project |
 | `apply` | Upgrade old pins to the latest version: one MEMBER, `--all`, or this workspace's member. Members on another environment need recreation, which it reports |
 
 ### base

@@ -172,7 +172,7 @@ The service must listen on `0.0.0.0`. For a service bound to `127.0.0.1` on the 
 
 ### "env: app v1 (expected app v2); see boatparty env apply"
 
-A member is pinned to an older version of the project's environment, so it does not have your latest secrets. Run `boatparty env apply --all`. See [Secrets and environments](/docs/secrets-and-environments#environment-versions-and-pins).
+A member is pinned to an older version of the project's environment, so it does not have your latest secrets. Run `boatparty env apply --all`. When the project has no configured environment, a `base` v1 pin is current and requires no action. See [Secrets and environments](/docs/secrets-and-environments#environment-versions-and-pins).
 
 ## Still stuck?
 

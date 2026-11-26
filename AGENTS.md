@@ -58,6 +58,8 @@ The checks use the boatparty binary in `$BOATPARTY`, else `boatparty` on `PATH`.
 
 Keep all web tooling in `docs/`: package metadata, Bun dependencies, Astro config, generated Astro state, and Vercel config.
 
+On branch pushes and pull requests, `.github/workflows/ci.yml` always checks the docs. Changes limited to `docs/**` and top-level Markdown files skip the Rust and Windows jobs. Manual CI runs enable every job.
+
 The `.github/workflows/docs.yml` job, on a GitHub-hosted runner, is triggered
 by `docs/**` changes: pushes to `main` deploy production, and same-repository
 pull requests get a Preview deployment whose URL is commented on the PR. A

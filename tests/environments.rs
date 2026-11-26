@@ -9,6 +9,41 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
+fn unconfigured_project_accepts_the_default_pin_but_flags_a_named_pin() {
+    let setup = E2e::new("default-environment");
+    let boat = FakeBoat::start(|r| {
+        let value = match (r.method.as_str(), r.path.split('?').next().unwrap()) {
+            ("GET", "/environments") => json!({"environments":[]}),
+            ("GET", "/sandboxes") => json!({"sandboxes":[
+                {"id":ID,"state":"idle","environment":"base","environmentVersion":1},
+                {"id":"bx_other","state":"idle","environment":"other","environmentVersion":1}
+            ]}),
+            _ => return Reply::json(404, "{}"),
+        };
+        Reply::json(200, &value.to_string())
+    });
+    for args in [vec!["env", "status"], vec!["env", "apply", "--all"]] {
+        let output = setup
+            .cmd(&boat)
+            .arg("--json")
+            .args(&args)
+            .assert()
+            .success();
+        let doc: Value = serde_json::from_slice(&output.get_output().stdout).unwrap();
+        let members = &doc["members"];
+        assert_eq!(doc["environment"], Value::Null);
+        assert_eq!(members[0]["environment"], "base");
+        assert_eq!(members[0]["version"], 1);
+        assert_eq!(members[0]["warning"], Value::Null);
+        assert_eq!(members[1]["warning"], "env: other v1 (expected none)");
+        if args.contains(&"apply") {
+            assert_eq!(members[0]["action"], "current");
+            assert_eq!(members[1]["action"], "recreate");
+        }
+    }
+}
+
+#[test]
 fn safe_creation_secret_changes_and_scoped_member_upgrade() {
     let setup = E2e::new("environment");
     let version = AtomicU64::new(1);

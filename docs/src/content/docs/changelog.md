@@ -10,6 +10,10 @@ summary: User-facing release history.
 
 Every boatparty release, newest first, with what changed for users and anything to do when upgrading. To upgrade, run the installer again (see [Installation](/docs/installation#upgrading)).
 
+## Unreleased
+
+- Projects without a configured sandbox environment no longer warn about drift when a member is on boat's default environment (`base` v1).
+
 ## 0.5.1 - 2026-11-26
 
 - Local forwards now publish `http://localhost:PORT` and listen on both `127.0.0.1` and `::1` when IPv6 is available. If you pinned `127.0.0.1` in CORS or auth configuration, add the localhost origin or pass an explicit bind address to keep the old URL.

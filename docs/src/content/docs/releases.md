@@ -29,7 +29,7 @@ Nothing is compiled on a developer machine.
 | Linux x86_64 and aarch64 releases | GitHub's `ubuntu-latest` | the test suite, then `cargo zigbuild` against glibc 2.28, so the binaries run on older distributions. aarch64 is built, not test-run |
 | macOS arm64 and x86_64 releases | GitHub's `macos-latest` | the test suite on macOS, then a native `cargo build` per target; both binaries are signed ad hoc |
 | Windows x64 and Arm64 releases | GitHub’s `windows-latest` | x64 native tests including SSH to Linux, followed by MSVC builds for both architectures |
-| CI checks (fmt, clippy, tests, docs) | GitHub's `ubuntu-latest` | `.github/workflows/ci.yml` and `docs.yml`, on every branch |
+| CI checks | GitHub's `ubuntu-latest` and `windows-latest` | `ci.yml` checks docs on every branch push and pull request. Rust and Windows checks also run when changes extend beyond `docs/` and top-level Markdown files, or on manual dispatch. |
 | Development checks and macOS binaries of a working tree | this workspace's boat sandbox, through boatparty | `just remote-check`, `just boat-build-macos` |
 
 ## The release workflow

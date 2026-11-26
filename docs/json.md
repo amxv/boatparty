@@ -287,7 +287,7 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
 
 ### Secrets and environment pins
 
-Names only. For older pins, boatparty uses locally observed names for the last 32 versions of that environment. A null names field means names are unavailable for that pin. Apply reports current, upgraded or recreate per member. Status and pool members have a nullable environment_warning.
+Names only. For older pins, boatparty uses locally observed names for the last 32 versions of that environment. A null names field means names are unavailable for that pin. Apply reports current, upgraded or recreate per member. Status and pool members have a nullable `environment_warning`. When the project has no configured environment, `env status` reports top-level `environment` and `version` as null. A member on the provider default retains its reported `environment` (`"base"`) and `version` (`1`), with `warning: null`. `env apply` reports `current` for that member.
 
 #### secret set
 
