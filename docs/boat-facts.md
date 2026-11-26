@@ -549,6 +549,8 @@ EXTRA_HDR="X-Ascii-Confirm-Delete: $ID" ./api.sh DELETE /sandboxes/$ID | tee out
 ./api.sh GET '/sandboxes?label=boatparty.phase1%3Dtrue'
 ```
 
+Background base refresh uses the same stopped-builder save and generation check described above. Only a create from a recorded snapshot can trigger the helper. Gates use a separately labelled sandbox (`boatparty.role=gate`) with the normal create, resume and idle deadlines.
+
 ## Desktop streaming and host CPU
 
 A 2026-11-26 scope probe against `POST /sandboxes/bx_00000000/desktop` with the older scoped key returned 403 and named the missing action `desktop`. New keys include it. The endpoint returns a private `desktopUrl` and can report `desktop_not_ready` during startup. The boat image can run lightdm, sunshine, moonlight-web, ascii-streaming-audio and gnome-remote-desktop as system services. Stopping the active streaming stack frees CPU for builds.

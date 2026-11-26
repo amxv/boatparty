@@ -69,7 +69,7 @@ fn parse(shape: &str, stdout: &[u8], streaming: bool) -> Value {
 
 /// Shapes whose success another test checks, where the fakes can produce
 /// it: a whole base build needs `tests/base.rs`'s provider.
-const CHECKED_ELSEWHERE: &[&str] = &["base build"];
+const CHECKED_ELSEWHERE: &[&str] = &["base build", "gate"];
 
 /// Collected outputs and how they compare.
 #[derive(Default)]
@@ -248,7 +248,7 @@ fn run(
     args: &[&str],
     stdin: &[u8],
 ) -> Value {
-    let streaming = ["run", "serve", "shell", "pipe"].contains(&args[0]);
+    let streaming = ["run", "gate", "serve", "shell", "pipe"].contains(&args[0]);
     let output = setup
         .cmd(boat)
         .env("BOATPARTY_RUNNER_SYSTEMCTL", "true")
@@ -427,6 +427,7 @@ fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
         &["release"],
         &["assign", "bp-app-1"],
         &["rm"],
+        &["gate", "--", "true"],
         &["base", "build"],
         &["base", "status"],
         &["base", "rm"],
@@ -442,7 +443,7 @@ fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
     let shapes = documented();
     let started = Instant::now();
     for args in cases {
-        let streaming = ["run", "serve", "shell", "pipe"].contains(&args[0]);
+        let streaming = ["run", "gate", "serve", "shell", "pipe"].contains(&args[0]);
         let output = boatparty(Path::new("/"))
             .env("BOATPARTY_HOME", "relative/home")
             .arg("--json")

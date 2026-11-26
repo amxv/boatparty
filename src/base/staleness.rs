@@ -1,7 +1,7 @@
 //! How fresh a base is, judged locally: its age, how many commits the base
 //! ref gained since the base commit, and whether any `[base] stale_inputs`
-//! file differs between the two. Nothing is fetched and nothing is rebuilt
-//! automatically; `base status`, `status` and `init` report it.
+//! file differs between the two. Evaluation uses only local refs. Status and the optional
+//! background refresh helper use the same thresholds.
 
 use serde::Serialize;
 
@@ -36,17 +36,16 @@ pub struct Staleness {
 pub fn assess(
     info: &WorktreeInfo,
     base: &BaseRecord,
-    configured_ref: Option<&str>,
-    stale_inputs: &[String],
+    settings: &crate::config::Base,
     now: u64,
 ) -> Staleness {
     let age_ms = now.saturating_sub(base.built_at);
-    let current = reference::resolve(info, configured_ref).ok();
+    let current = reference::resolve(info, settings.git_ref.as_deref()).ok();
     let have_base = reference::commit_of(info, &base.commit).is_some();
     let (behind, inputs_changed) = match (&current, have_base) {
         (Some(current), true) => (
             count(info, &format!("{}..{}", base.commit, current.commit)),
-            changed(info, &base.commit, &current.commit, stale_inputs),
+            changed(info, &base.commit, &current.commit, &settings.stale_inputs),
         ),
         _ => (None, None),
     };
@@ -56,6 +55,7 @@ pub fn assess(
         inputs_changed.as_deref(),
         current.as_ref().map(|current| current.name.as_str()),
         have_base,
+        settings,
     );
     Staleness {
         age_ms,
@@ -75,6 +75,7 @@ pub fn reasons(
     inputs_changed: Option<&[String]>,
     git_ref: Option<&str>,
     have_base: bool,
+    settings: &crate::config::Base,
 ) -> Vec<String> {
     let mut reasons = Vec::new();
     if let Some(files) = inputs_changed
@@ -83,7 +84,7 @@ pub fn reasons(
         reasons.push(format!("{} changed since the base", files.join(", ")));
     }
     if let Some(behind) = behind
-        && behind >= STALE_COMMITS
+        && behind >= settings.max_commits_behind.unwrap_or(STALE_COMMITS)
     {
         reasons.push(format!(
             "{behind} commits behind {}",
@@ -93,8 +94,17 @@ pub fn reasons(
     if !have_base {
         reasons.push("this repository does not have the base commit".to_string());
     }
-    if age_ms >= STALE_AGE_MS {
-        reasons.push(format!("{} days old", age_ms / (24 * 3_600_000)));
+    if age_ms
+        >= settings
+            .max_age_hours
+            .map_or(STALE_AGE_MS, |hours| hours.saturating_mul(3_600_000))
+    {
+        let hours = age_ms / 3_600_000;
+        reasons.push(if hours < 24 {
+            format!("{hours} hours old")
+        } else {
+            format!("{} days old", hours / 24)
+        });
     }
     reasons
 }
@@ -140,14 +150,24 @@ mod tests {
 
     #[test]
     fn a_fresh_base_has_no_reasons() {
-        assert!(reasons(1000, Some(3), Some(&[]), Some("HEAD"), true).is_empty());
+        assert!(
+            reasons(
+                1000,
+                Some(3),
+                Some(&[]),
+                Some("HEAD"),
+                true,
+                &Default::default()
+            )
+            .is_empty()
+        );
     }
 
     #[test]
     fn each_reason_is_named() {
         let files = vec!["Cargo.lock".to_string()];
         assert_eq!(
-            reasons(0, Some(0), Some(&files), None, true),
+            reasons(0, Some(0), Some(&files), None, true, &Default::default()),
             ["Cargo.lock changed since the base"]
         );
         assert_eq!(
@@ -156,16 +176,24 @@ mod tests {
                 Some(STALE_COMMITS),
                 None,
                 Some("refs/remotes/origin/main"),
-                true
+                true,
+                &Default::default()
             ),
             [format!("{STALE_COMMITS} commits behind origin/main")]
         );
         assert_eq!(
-            reasons(STALE_AGE_MS + 1, None, None, None, true),
+            reasons(
+                STALE_AGE_MS + 1,
+                None,
+                None,
+                None,
+                true,
+                &Default::default()
+            ),
             ["7 days old"]
         );
         assert_eq!(
-            reasons(0, None, None, None, false),
+            reasons(0, None, None, None, false, &Default::default()),
             ["this repository does not have the base commit"]
         );
     }

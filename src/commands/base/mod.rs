@@ -1,6 +1,7 @@
 //! `boatparty base build|status|rm`: the project's base snapshot.
 
 pub mod build;
+pub mod refresh;
 
 use std::path::Path;
 use std::time::Duration;
@@ -32,9 +33,35 @@ pub fn run(ctx: &Context, args: &BaseArgs) -> Result<u8, AppError> {
     }
 }
 
+/// Serialize changes to a saved snapshot, including removal before the
+/// background helper has acquired the builder. The OS releases this separate
+/// per-base lock if its owner dies. The state lock remains short-lived.
+fn lock_base(ctx: &Context, project: &str) -> Result<std::fs::File, AppError> {
+    let dir = ctx.paths.state_dir();
+    system::private_directory()
+        .create(dir)
+        .map_err(|e| AppError::io("creating state directory", e))?;
+    let lock = system::private_file()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join(format!("base-{project}.lock")))
+        .map_err(|e| AppError::io("opening base lock", e))?;
+    lock.try_lock().map_err(|e| match e {
+        std::fs::TryLockError::WouldBlock => AppError::new(
+            "base_busy",
+            format!("another process is changing the base of {project}"),
+        ),
+        std::fs::TryLockError::Error(err) => AppError::io("locking base", err),
+    })?;
+    Ok(lock)
+}
+
 fn run_build(ctx: &Context) -> Result<u8, AppError> {
     let started = std::time::Instant::now();
     let wctx = WorkspaceContext::open(ctx)?;
+    let _guard = lock_base(ctx, wctx.project.name())?;
     let interrupts = Interrupts::install()?;
     let built = match build::build(ctx, &wctx, &interrupts) {
         Ok(built) => built,
@@ -104,6 +131,7 @@ fn status(ctx: &Context) -> Result<u8, AppError> {
     let name = project.name();
     let snapshot_name = base::snapshot_name(name);
     let (record, builder) = recorded(ctx, name)?;
+    let (refreshing, last_refresh_error) = refresh::status(ctx, name)?;
     let staleness = record
         .as_ref()
         .map(|record| assess(&project, &workspace.root, record))
@@ -127,6 +155,8 @@ fn status(ctx: &Context) -> Result<u8, AppError> {
             "saved": saved.as_ref().map(saved_json),
             "staleness": staleness,
             "stale": staleness.as_ref().map(|staleness| staleness.stale),
+            "refreshing": refreshing,
+            "last_refresh_error": last_refresh_error,
             "allowance": allowance.as_ref().map(allowance_json),
             "builder": builder.as_ref().map(|builder| json!({
                 "name": builder.name,
@@ -135,6 +165,7 @@ fn status(ctx: &Context) -> Result<u8, AppError> {
         }));
         return Ok(0);
     }
+    refresh::print(ctx, refreshing, last_refresh_error.as_deref());
     let Some(record) = &record else {
         ctx.out.text(format_args!("project {name} has no base"));
         if let Some(saved) = &saved {
@@ -228,8 +259,7 @@ fn assess(
     Ok(staleness::assess(
         &info,
         record,
-        config.base.git_ref.as_deref(),
-        &config.base.stale_inputs,
+        &config.base,
         system::now_ms(),
     ))
 }
@@ -239,6 +269,7 @@ fn rm(ctx: &Context, args: &BaseRmArgs) -> Result<u8, AppError> {
     let pool = wctx.pool(ctx);
     let provider = wctx.provider.as_ref();
     let name = pool.project.clone();
+    let _guard = lock_base(ctx, &name)?;
     let snapshot_name = base::snapshot_name(&name);
     let (record, builder) = recorded(ctx, &name)?;
     if let Some(builder) = &builder {

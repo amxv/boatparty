@@ -66,7 +66,8 @@ succeeded, or when check fails
   [build]     output_dirs (relative, globs allowed), floor_mtimes (true|false), cache_dirs \
 (directory names under output_dirs holding a compiler's own caches: not floored, dropped when a \
 restore left a file in them unreadable), cache_max_age_days (3), min_free_gb (25)
-  [base]      warm, stale_inputs, ref (used by `base build`)
+  [base]      warm, stale_inputs, ref, auto_refresh, max_commits_behind, max_age_hours
+  [gate]      command (default shell line for `gate`)
   [commands]  NAME = \"shell line\": `boatparty run NAME [args...]`
 
 A preset has the same shape without [project]. Layers apply in order: defaults, each preset, \
@@ -121,6 +122,8 @@ pub struct Config {
     pub build: Build,
     #[serde(default)]
     pub base: Base,
+    #[serde(default)]
+    pub gate: Gate,
     #[serde(default)]
     pub commands: BTreeMap<String, String>,
 }
@@ -208,7 +211,17 @@ pub struct Build {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct Gate {
+    pub command: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Base {
+    #[serde(default)]
+    pub auto_refresh: bool,
+    pub max_commits_behind: Option<u64>,
+    pub max_age_hours: Option<u64>,
     pub warm: Option<String>,
     #[serde(default)]
     pub stale_inputs: Vec<String>,
@@ -273,6 +286,14 @@ pub fn load(root: &Path, paths: &Paths) -> Result<Resolved, AppError> {
 
 /// Resolve a project file's text against the presets in `dirs`.
 pub fn resolve(text: &str, file: &Path, dirs: &PresetDirs) -> Result<Resolved, AppError> {
+    resolve_with(text, file, |name| load_preset(name, dirs))
+}
+
+pub(crate) fn resolve_with(
+    text: &str,
+    file: &Path,
+    preset_file: impl Fn(&str) -> Result<PresetFile, String>,
+) -> Result<Resolved, AppError> {
     let own = parse(text, FileKind::Project)
         .map_err(|message| AppError::config(format!("{}: {message}", file.display())))?;
     let project = own
@@ -309,7 +330,7 @@ pub fn resolve(text: &str, file: &Path, dirs: &PresetDirs) -> Result<Resolved, A
                 file.display()
             )));
         }
-        let found = load_preset(preset, dirs).map_err(|message| {
+        let found = preset_file(preset).map_err(|message| {
             AppError::config(format!("{}: project.presets: {message}", file.display()))
         })?;
         let table = parse(&found.text, FileKind::Preset).map_err(|message| {
@@ -373,7 +394,7 @@ pub fn check_preset(preset: &PresetFile) -> Result<(), AppError> {
     validate::check(&config, &origins).map_err(fail)
 }
 
-fn load_preset(name: &str, dirs: &PresetDirs) -> Result<PresetFile, String> {
+pub(crate) fn load_preset(name: &str, dirs: &PresetDirs) -> Result<PresetFile, String> {
     presets::valid_name(name)?;
     match dirs.find(name) {
         Ok(Some(found)) => Ok(found),

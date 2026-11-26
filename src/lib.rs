@@ -48,7 +48,11 @@ pub fn run() -> ExitCode {
     // before streaming anything.
     let streaming = matches!(
         cli.command,
-        Command::Run(_) | Command::Serve(_) | Command::Pipe(_) | Command::Shell(_)
+        Command::Run(_)
+            | Command::Gate(_)
+            | Command::Serve(_)
+            | Command::Pipe(_)
+            | Command::Shell(_)
     );
     match dispatch(cli, out) {
         Ok(status) => ExitCode::from(status),
@@ -74,6 +78,10 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Limits(args) => commands::limits::run(&ctx, &args),
         Command::Init(args) => commands::init::run(&ctx, &args),
         Command::Start => commands::start::run(&ctx),
+        Command::Gate(args) => commands::gate::run(&ctx, &args),
+        Command::RefreshBase { project, built_at } => {
+            commands::base::refresh::run(&ctx, &project, built_at)
+        }
         Command::Run(args) => commands::run::run(&ctx, &args),
         Command::Serve(args) => commands::serve::run(&ctx, &args),
         Command::Shell(args) => commands::shell::run(&ctx, &args),

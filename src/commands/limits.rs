@@ -108,7 +108,10 @@ fn usage(
 ) -> ProjectUsage {
     let settings = ProjectSettings::resolve(config, &name);
     let members = state.project(&name).map_or(0, |pool| {
-        pool.members.iter().filter(|m| m.role == Role::Pool).count()
+        pool.members
+            .iter()
+            .filter(|m| m.role != Role::Builder)
+            .count()
     });
     let (starts_hour, starts_day) = starts::project_usage(state, &name, now);
     let mut usage = ProjectUsage {

@@ -78,6 +78,9 @@ pub const BUILD: &[Field] = &[
 ];
 
 pub const BASE: &[Field] = &[
+    field("auto_refresh", Kind::Bool),
+    field("max_commits_behind", Kind::Int),
+    field("max_age_hours", Kind::Int),
     field("warm", Kind::Str),
     field("stale_inputs", Kind::StrList),
     field("ref", Kind::Str),
@@ -94,6 +97,7 @@ pub const TOP: &[Field] = &[
     field("ensure", Kind::Steps(ENSURE)),
     field("build", Kind::Section(BUILD)),
     field("base", Kind::Section(BASE)),
+    field("gate", Kind::Section(&[field("command", Kind::Str)])),
     field("commands", Kind::StrMap),
 ];
 

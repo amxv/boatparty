@@ -218,7 +218,7 @@ fn render(ctx: &Context, view: &ProjectView, now: u64) {
     let pool_size = view
         .members
         .iter()
-        .filter(|member| member.role == crate::state::Role::Pool)
+        .filter(|member| member.role != crate::state::Role::Builder)
         .count();
     ctx.out.text(format_args!(
         "project {}: {pool_size} of at most {} sandboxes",
@@ -231,6 +231,7 @@ fn render(ctx: &Context, view: &ProjectView, now: u64) {
     let states = states_of(view);
     for member in &view.members {
         let owner = match member.affinity.as_deref() {
+            None if member.role != crate::state::Role::Pool => member.role.as_str().to_string(),
             None => "free".to_string(),
             Some(workspace) if workspace_exists(workspace) => workspace.to_string(),
             Some(workspace) => format!("{workspace} (gone)"),

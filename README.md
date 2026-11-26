@@ -69,6 +69,7 @@ boatparty run -- cargo test       # the first run creates the sandbox, later run
 | --- | --- |
 | `run` | Sync, run one command, stream its output, return its exit code, bring its changes back |
 | `desktop [--open]` | Start the streamed desktop and print or open its private link |
+| `gate [--commit REV]` | Check a commit on a dedicated warm sandbox and save edits as a patch |
 | `serve` | Run a long-lived process, such as a dev server, with port forwards |
 | `serve --desktop` | Run a GUI application in the sandbox desktop session |
 | `shell` | Open a shell in the sandbox's checkout, or run one command there without syncing |
@@ -80,6 +81,8 @@ boatparty run -- cargo test       # the first run creates the sandbox, later run
 `run` can reconnect to the same command for up to ten minutes after SSH drops. Output resumes where it stopped. Ctrl-C still cancels the command.
 
 Every command has `--help`. The [command reference](https://boatparty.ashray.xyz/docs/commands) covers the rest (`pipe`, `fetch`, `forward`, `expose`, `base`, `pool` and more), and [limits and pools](https://boatparty.ashray.xyz/docs/limits) explains how sandboxes are shared and stopped.
+
+Set `[gate] command` in the committed `boatparty.toml` to choose the default check, or run `boatparty gate -- make check`. For projects with a saved base, `[base] auto_refresh = true` lets new sandboxes trigger a background rebuild when the base is stale.
 
 ## Development
 

@@ -67,12 +67,18 @@ pub fn resolve(info: &WorktreeInfo, configured: Option<&str>) -> Result<BaseRef,
 pub fn commit_of(info: &WorktreeInfo, name: &str) -> Option<String> {
     let commit = text(
         info,
-        &["rev-parse", "-q", "--verify", &format!("{name}^{{commit}}")],
+        &[
+            "rev-parse",
+            "-q",
+            "--verify",
+            "--end-of-options",
+            &format!("{name}^{{commit}}"),
+        ],
     )?;
     (!commit.is_empty()).then_some(commit)
 }
 
-fn default_remote_branch(info: &WorktreeInfo) -> Option<String> {
+pub(crate) fn default_remote_branch(info: &WorktreeInfo) -> Option<String> {
     let head = text(info, &["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]).unwrap_or_default();
     [
         head.as_str(),

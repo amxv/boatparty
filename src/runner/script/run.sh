@@ -56,6 +56,11 @@ finish() {
       echo "boatparty: could not stage the command's file changes" >&2
     fi
   fi
+  if [[ "$mode" == gate ]]; then
+    # The gate lease is exclusive. Restore tracked and untracked changes,
+    # keeping ignored build outputs warm between checks.
+    apply_snapshot "$wip" "$wip" "" ""
+  fi
   if [[ "$ran" == 1 ]]; then
     floor_mtimes || echo "boatparty: flooring build output mtimes failed" >&2
   fi
@@ -251,6 +256,13 @@ case "$mode" in
   supervise) CHECKOUT_CHANGED="$BOATPARTY_CHECKOUT_CHANGED"; unset BOATPARTY_CHECKOUT_CHANGED; mode_run "$@" ;;
   reattach) stream_job "$@" ;;
   cancel-run) run_directory "$1"; [[ ! -d "$job" ]] || touch "$job/cancel" ;;
+  gate)
+    # A killed client can lose its local lease a little before its runner
+    # finishes cancelling. Hold this lock through patch capture and reset.
+    exec 5>"$state/gate.lock"
+    if command -v flock >/dev/null 2>&1 && ! flock -n 5; then exit 95; fi
+    (exec 5>&-; mode_run "$@")
+    ;;
   serve)
     serve_mode=1
     mode_run "$@"

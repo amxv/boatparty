@@ -84,8 +84,14 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
   only. Both also apply inside `shell`, with `[run.env]`. A narrower token
   can come from `BOATPARTY_GITHUB_TOKEN` or `BOATPARTY_GITHUB_TOKEN_COMMAND`. Go private modules
   also need `GOPRIVATE` in `[run.env]`.
+- `boatparty gate [--commit REV | --default-branch]` runs the committed
+  `[gate] command` on the project’s dedicated member. Override it with
+  `gate test` or `gate -- make check`. Gate edits come back as a patch path.
+  A second concurrent gate reports `gate_busy`.
 - `boatparty base build` saves a snapshot with dependencies built, so new
-  sandboxes start warm. `boatparty base status` says how stale it is.
+  sandboxes start warm. `boatparty base status` says how stale it is. Set
+  `[base] auto_refresh = true` to refresh a stale base in the background
+  when a new sandbox starts from it. Refreshes use the normal start ledger.
 
 A cold `run` reports restore progress before starting the command. When another
 client is bringing up the member, its PID and step appear in the wait message.

@@ -171,6 +171,29 @@ pub fn run_command_with(
     run_input(host, request, &run, sink, cancel)
 }
 
+/// A gate runs attached and restores the committed checkout after recording its patch.
+pub fn gate_command(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    credentials: &RunCredentials,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
+    run_input(
+        host,
+        request,
+        &RunInput {
+            command,
+            credentials,
+            kind: RunKind::Gate,
+            reconnect: None,
+        },
+        sink,
+        cancel,
+    )
+}
+
 /// A CLI run has a bounded disconnected lifetime and can resume its stream.
 pub fn detached_command(
     host: &dyn RunnerHost,
@@ -410,6 +433,7 @@ struct RunInput<'a> {
 /// Which runner mode carries the command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunKind {
+    Gate,
     Run,
     Serve(ServeOptions),
 }
@@ -703,6 +727,7 @@ fn attempt(
         None => "sync",
         Some(RunKind::Run) if command.is_some_and(|run| run.reconnect.is_some()) => "run",
         Some(RunKind::Run) => "attached-run",
+        Some(RunKind::Gate) => "gate",
         Some(RunKind::Serve(_)) => "serve",
     };
     let mut args: Vec<String> = [

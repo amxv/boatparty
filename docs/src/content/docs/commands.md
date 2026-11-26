@@ -45,6 +45,17 @@ boatparty serve --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'
 
 Forwards listen on 127.0.0.1 unless you name another address. `--max-minutes` (default 120) stops a forgotten server. If the client dies in any way, SIGKILL included, the sandbox stops the server within seconds.
 
+### gate
+
+`boatparty gate` checks HEAD on the project’s dedicated warm member. Set `[gate] command = "make check"` in the commit or pass a command explicitly.
+
+```sh
+boatparty gate --commit HEAD~1 test
+boatparty gate --default-branch -- make check
+```
+
+The selected commit supplies the source, project configuration and project presets. The gate uses the locally known default remote branch for `--default-branch`, falling back to local `main` or `master`. Fetch before running to check recent upstream changes. The command exits with the check's status. File edits are saved under the local Git directory as a binary-capable patch, and the remote checkout is reset while ignored caches stay warm. A concurrent gate fails with `gate_busy`. The member counts against `max_sandboxes` and can be removed by name with `boatparty rm bp-<project>-gate`.
+
 ### shell
 
 `boatparty shell` opens a login shell in the checkout. `boatparty shell -- CMD...` runs one command without syncing and exits with its status; on a warm sandbox it costs two SSH round trips over the shared connection and no provider call, so scripts can call it often. The shell or command gets what `run` gives a command: your Git identity, the GitHub token when `[run] github_token` is on, and `[run.env]`. No setup or ensure step runs.
@@ -95,7 +106,7 @@ The command gets the project's credentials and `[run.env]`, and its stdout is pa
 
 | Status | Meaning |
 | --- | --- |
-| the command's own | `run`, `serve`, `pipe`, `shell -- CMD` |
+| the command's own | `run`, `gate`, `serve`, `pipe`, `shell -- CMD` |
 | 0 | Other commands succeeded |
 | 2 | Usage error |
 | 125 | boatparty itself failed: configuration, credentials, provider, connection, limits. Not the command |

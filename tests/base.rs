@@ -693,3 +693,227 @@ fn a_rebuild_waits_for_the_new_artifact_not_a_stale_ready() {
     assert_eq!(polls, 5, "{lines:#?}");
     assert!(world.lock().unwrap().stale["bp-app"] == 0);
 }
+
+fn result_frame(bytes: &[u8]) -> Value {
+    let line = bytes
+        .split(|b| *b == b'\n')
+        .rfind(|line| !line.is_empty())
+        .unwrap();
+    serde_json::from_slice(line).unwrap()
+}
+
+#[test]
+fn gate_checks_commits_in_isolation_and_keeps_its_own_cache() {
+    let setup = project("gate-commit");
+    let boat = boat(&setup, world());
+    setup.cmd(&boat).arg("start").assert().success();
+    let repo = setup.repo();
+    let config = repo.join("boatparty.toml");
+    let mut text = fs::read_to_string(&config).unwrap();
+    text.push_str("\n[gate]\ncommand = \"test $(cat deps.lock) = v1 && test ! -e dirty && mkdir -p ignored && echo cache > ignored/cache && echo formatted > deps.lock && touch new && exit 9\"\n");
+    fs::write(&config, &text).unwrap();
+    git(&repo, &["add", "boatparty.toml"]);
+    git(&repo, &["commit", "-qm", "configure gate"]);
+    let selected = git(&repo, &["rev-parse", "HEAD"]);
+    git(
+        &repo,
+        &["update-ref", "refs/remotes/origin/main", &selected],
+    );
+    fs::write(repo.join("deps.lock"), "v2\n").unwrap();
+    git(&repo, &["commit", "-qam", "advance"]);
+    fs::write(&config, "broken work in progress").unwrap();
+    fs::write(repo.join("dirty"), "local only").unwrap();
+    let output = setup
+        .cmd(&boat)
+        .args(["--json", "gate", "--default-branch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(9),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let gate = result_frame(&output.stdout);
+    assert_shape("gate", &gate);
+    assert_eq!(gate["commit"], selected);
+    assert_eq!(gate["member"]["name"], "bp-app-gate");
+    assert_ne!(
+        gate["member"]["id"],
+        state(&setup)["projects"]["app"]["members"][0]["id"]
+    );
+    let patch = fs::read_to_string(gate["patch"].as_str().unwrap()).unwrap();
+    assert!(patch.contains("+formatted") && patch.contains("b/new"));
+    assert_eq!(fs::read_to_string(repo.join("deps.lock")).unwrap(), "v2\n");
+    let remote = setup.remote().join("app");
+    assert_eq!(
+        fs::read_to_string(remote.join("deps.lock")).unwrap(),
+        "v1\n"
+    );
+    assert!(!remote.join("new").exists());
+    let second = setup
+        .cmd(&boat)
+        .env("FAKE_SSH_CHECK", "0")
+        .args([
+            "--json",
+            "gate",
+            "--commit",
+            "HEAD",
+            "--",
+            "sh",
+            "-c",
+            "test -f ignored/cache && test $(cat deps.lock) = v2",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second = result_frame(&second.stdout);
+    assert_eq!(second["member"], gate["member"]);
+    assert_eq!(second["warm"], true);
+    assert!(second["patch"].is_null());
+
+    // A live SSH master also answers during restore. The dedicated path
+    // must let recovery finish before another gate can use the checkout.
+    let paths = boatparty::paths::Paths::resolve(|key| {
+        (key == "BOATPARTY_HOME").then(|| setup.home().into_os_string())
+    })
+    .unwrap();
+    boatparty::state::Store::new(&paths)
+        .update(|state| {
+            let slot = state
+                .project_mut("app")
+                .members
+                .iter_mut()
+                .find(|member| member.role == boatparty::state::Role::Gate)
+                .unwrap();
+            slot.recovery.restoring = true;
+            Ok(())
+        })
+        .unwrap();
+    let after_restore = setup
+        .cmd(&boat)
+        .env("FAKE_SSH_CHECK", "0")
+        .args(["--json", "gate", "--", "true"])
+        .output()
+        .unwrap();
+    assert!(
+        after_restore.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after_restore.stderr)
+    );
+    let after_restore = result_frame(&after_restore.stdout);
+    assert_eq!(after_restore["warm"], false);
+    assert_eq!(after_restore["member"], gate["member"]);
+}
+
+fn wait_for(predicate: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while !predicate() {
+        assert!(std::time::Instant::now() < deadline, "timed out");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn gate_refuses_concurrent_checks_and_obeys_the_project_cap() {
+    let setup = project("gate-busy");
+    let boat = boat(&setup, world());
+    let waiting = setup.root.path().join("waiting");
+    let done = setup.root.path().join("done");
+    let line = format!(
+        "touch '{}' && for i in $(seq 1 200); do test -e '{}' && exit 0; sleep 0.1; done; exit 1",
+        waiting.display(),
+        done.display()
+    );
+    let mut child = setup
+        .spawn_cmd(&boat)
+        .args(["gate", "--", "bash", "-c", &line])
+        .spawn()
+        .unwrap();
+    wait_for(|| waiting.exists());
+    let output = setup
+        .cmd(&boat)
+        .args(["--json", "gate", "--", "true"])
+        .output()
+        .unwrap();
+    fs::write(done, "").unwrap();
+    assert!(child.wait().unwrap().success());
+    assert_eq!(output.status.code(), Some(125));
+    assert_eq!(result_frame(&output.stdout)["error"]["code"], "gate_busy");
+    // A gate takes a slot away from ordinary acquisition too.
+    let account = setup.home().join("config/account.toml");
+    let cfg = fs::read_to_string(&account).unwrap();
+    fs::write(
+        &account,
+        cfg.replace("max_sandboxes = 8", "max_sandboxes = 1")
+            .replace("acquire_wait_seconds = 900", "acquire_wait_seconds = 0"),
+    )
+    .unwrap();
+    let output = setup.cmd(&boat).args(["--json", "start"]).output().unwrap();
+    assert_eq!(json_of(&output.stdout)["error"]["code"], "pool_exhausted");
+}
+
+#[test]
+fn stale_base_refresh_runs_detached_once_and_reports_failures() {
+    let setup = project("base-auto");
+    let world = world();
+    let boat = boat(&setup, Arc::clone(&world));
+    setup.cmd(&boat).args(["base", "build"]).assert().success();
+    let built = state(&setup)["projects"]["app"]["base"]["built_at"].to_string();
+    let ready = setup.root.path().join("refresh-began");
+    let done = setup.root.path().join("refresh-finish");
+    let cfg = setup.repo().join("boatparty.toml");
+    let text = fs::read_to_string(&cfg).unwrap().replace("[base]","[base]\nauto_refresh = true\nmax_commits_behind = 1").replace("echo warmed > ignored/warm.out",&format!("touch '{}' && for i in $(seq 1 200); do test -e '{}' && exit 6; sleep 0.1; done; exit 7",ready.display(),done.display()));
+    fs::write(&cfg, text).unwrap();
+    git(&setup.repo(), &["commit", "-qam", "advance base ref"]);
+    git(
+        &setup.repo(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD"],
+    );
+    setup.cmd(&boat).arg("start").assert().success();
+    wait_for(|| ready.exists());
+    for args in [vec!["--json", "base", "status"], vec!["--json", "status"]] {
+        let output = setup.cmd(&boat).args(&args).output().unwrap();
+        let doc = json_of(&output.stdout);
+        let view = if args.len() == 3 { &doc } else { &doc["base"] };
+        assert_eq!(view["refreshing"], true);
+    }
+    setup
+        .cmd(&boat)
+        .args(["refresh-base", "app", &built])
+        .assert()
+        .success();
+    fs::write(done, "").unwrap();
+    wait_for(|| state(&setup)["projects"]["app"]["last_refresh_error"] == "base_build_failed");
+    assert!(state(&setup)["projects"]["app"]["refresh_pid"].is_null());
+    assert_eq!(world.lock().unwrap().generations["bp-app"], 1);
+    let log = fs::read_to_string(setup.home().join("state/base-refresh-app.log")).unwrap();
+    assert_eq!(log.lines().count(), 2, "{log}");
+}
+
+#[test]
+fn stale_base_refresh_obeys_the_project_start_ledger() {
+    let setup = project("base-auto-limits");
+    let world = world();
+    let boat = boat(&setup, Arc::clone(&world));
+    setup.cmd(&boat).args(["base", "build"]).assert().success();
+    setup
+        .cmd(&boat)
+        .args(["limits", "set", "project", "app", "starts_per_day=2"])
+        .assert()
+        .success();
+    let cfg = setup.repo().join("boatparty.toml");
+    let text = fs::read_to_string(&cfg)
+        .unwrap()
+        .replace("[base]", "[base]\nauto_refresh = true\nmax_age_hours = 0");
+    fs::write(cfg, text).unwrap();
+    setup.cmd(&boat).arg("start").assert().success();
+    wait_for(|| state(&setup)["projects"]["app"]["last_refresh_error"] == "daily_start_limit");
+    assert_eq!(world.lock().unwrap().sandboxes["bx_b"].state, "archived");
+    assert_eq!(world.lock().unwrap().generations["bp-app"], 1);
+    assert_eq!(state(&setup)["starts"].as_array().unwrap().len(), 2);
+}

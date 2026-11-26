@@ -5,6 +5,7 @@ pub mod doctor;
 pub mod expose;
 pub mod fetch;
 pub mod forward;
+pub mod gate;
 pub mod init;
 pub mod ledger;
 pub mod limits;
@@ -100,6 +101,14 @@ impl WorkspaceContext {
     pub fn open(ctx: &Context) -> Result<Self, AppError> {
         let workspace = Workspace::current()?;
         let project = workspace.load_project(&ctx.paths)?;
+        Self::for_project(ctx, workspace, project)
+    }
+
+    pub(crate) fn for_project(
+        ctx: &Context,
+        workspace: Workspace,
+        project: ProjectConfig,
+    ) -> Result<Self, AppError> {
         let mut account = load_account(ctx)?;
         if !account.config.projects.contains_key(project.name()) {
             account::config::register_project(&ctx.paths, project.name())?;
@@ -136,6 +145,7 @@ impl WorkspaceContext {
             self.workspace.clone(),
             crate::pool::PoolLimits::from_settings(&self.settings),
         );
+        pool.auto_refresh = self.project.config().base.auto_refresh;
         pool.environment = self.project.environment().map(str::to_string);
         pool
     }

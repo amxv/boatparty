@@ -51,9 +51,12 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         rows.push((member, sandbox));
     }
     let untracked: Vec<Sandbox> = by_id.into_values().collect();
-    let (base, base_note) = super::base::summary(ctx, &wctx.project, &wctx.workspace.root);
+    let (refreshing, last_refresh_error) = super::base::refresh::status(ctx, &project)?;
+    let (mut base, base_note) = super::base::summary(ctx, &wctx.project, &wctx.workspace.root);
 
     if ctx.out.is_json() {
+        base["refreshing"] = json!(refreshing);
+        base["last_refresh_error"] = json!(last_refresh_error);
         ctx.out.document(&json!({
             "ok": true,
             "project": project,
@@ -118,6 +121,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             sandbox.state
         ));
     }
+    super::base::refresh::print(ctx, refreshing, last_refresh_error.as_deref());
     if let Some(note) = base_note {
         ctx.out.text(note);
     }

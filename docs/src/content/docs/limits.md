@@ -24,6 +24,8 @@ A project owns at most `max_sandboxes` sandboxes (default 8). A workspace (one c
 4. an idle sandbox of another workspace: first one whose directory no longer exists, then the least recently used one idle longer than `steal_after_minutes`, preferring a running one;
 5. otherwise it waits up to `acquire_wait_seconds`, then fails with a message naming the limit.
 
+The gate member occupies one slot in `max_sandboxes` and only serves gates. The base builder is separate from this pool cap. Both use the start ledger and count toward running limits.
+
 Several commands from the same workspace may use its sandbox at once (a server and checks). Nothing is ever deleted because a directory is missing; `boatparty pool prune` deletes stopped sandboxes no workspace needs, after asking. `boatparty pool` shows every project's sandboxes, and `release` and `assign` steer them by hand.
 
 ## Starts

@@ -67,6 +67,9 @@ pub fn check(config: &Config, origins: &BTreeMap<String, Origin>) -> Result<(), 
     for name in &config.build.cache_dirs {
         cache_name(name).map_err(|message| format!("{}: {message}", at("build.cache_dirs")))?;
     }
+    if let Some(command) = &config.gate.command {
+        non_empty(command).map_err(|message| format!("{}: {message}", at("gate.command")))?;
+    }
     for file in &config.base.stale_inputs {
         relative_path(file, false)
             .map_err(|message| format!("{}: {message}", at("base.stale_inputs")))?;

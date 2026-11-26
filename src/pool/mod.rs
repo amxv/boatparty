@@ -9,6 +9,7 @@
 
 pub mod acquire;
 mod bringup;
+mod dedicated;
 pub mod health;
 pub mod lease;
 pub mod policy;
@@ -22,7 +23,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use acquire::LeaseRequest;
-pub use bringup::{BringUp, Up, bring_up_builder, ensure_connected, release_builder};
+pub use bringup::{BringUp, Up, ensure_connected};
+
+pub use dedicated::{bring_up_builder, bring_up_gate, release_builder, warm_gate};
 
 use crate::account::ProjectSettings;
 use crate::account::config::AccountConfig;
@@ -155,6 +158,7 @@ pub struct Pool<'a> {
     /// The boat environment new members attach to (`[sandbox] environment`).
     /// `None`: they get none of the account's secrets.
     pub environment: Option<String>,
+    pub auto_refresh: bool,
 }
 
 impl<'a> Pool<'a> {
@@ -178,6 +182,7 @@ impl<'a> Pool<'a> {
             workspace,
             limits,
             environment: None,
+            auto_refresh: false,
         }
     }
 
@@ -250,6 +255,12 @@ impl<'a> Pool<'a> {
                     why,
                     running,
                 } => {
+                    if why == WaitFor::Member && members == 0 {
+                        return Err(AppError::new(
+                            "pool_exhausted",
+                            "the gate occupies the only sandbox slot; raise max_sandboxes to use a working member",
+                        ));
+                    }
                     if Instant::now() >= deadline {
                         return Err(match why {
                             WaitFor::Member => self.exhausted(members),

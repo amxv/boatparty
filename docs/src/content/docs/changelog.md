@@ -18,6 +18,8 @@ Keep the newest release first. Describe user-visible behavior and important inst
 - Cold commands wait for file restore. Bring-up reports the current step, holder PID and failure to waiting clients.
 - Direct SSH continues on degraded members. Hosting and desktop access can repair the provider tunnel with a reboot.
 - Stuck members try a snapshot restart before replacement. The Rust preset invalidates affected outputs after a restart or machine move.
+- `gate` checks a commit on a dedicated warm member and returns file edits as a patch.
+- `[base] auto_refresh` allows a new member created from a stale snapshot to start one background base rebuild.
 
 ## 0.2.2 - 2026-11-20
 

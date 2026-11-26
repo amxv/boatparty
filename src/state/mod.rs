@@ -52,6 +52,10 @@ pub struct ProjectState {
     pub bring_up_failures: BTreeMap<String, BringUpFailure>,
     #[serde(default)]
     pub base: Option<Value>,
+    #[serde(default)]
+    pub refresh_pid: Option<u32>,
+    #[serde(default)]
+    pub last_refresh_error: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -61,6 +65,7 @@ pub struct ProjectState {
 pub enum Role {
     Pool,
     Builder,
+    Gate,
 }
 
 impl Role {
@@ -68,6 +73,7 @@ impl Role {
         match self {
             Self::Pool => "pool",
             Self::Builder => "builder",
+            Self::Gate => "gate",
         }
     }
 }

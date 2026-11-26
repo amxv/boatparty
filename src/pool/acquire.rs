@@ -119,7 +119,7 @@ impl<'a> Facts<'a> {
 
 /// Machines counted for `max_running`: those listed with a machine, plus
 /// members another live process is creating or starting right now.
-fn count_running(pool: &ProjectState, facts: &Facts<'_>) -> RunningCount {
+pub(super) fn count_running(pool: &ProjectState, facts: &Facts<'_>) -> RunningCount {
     let starting = pool
         .members
         .iter()
@@ -138,7 +138,7 @@ fn count_running(pool: &ProjectState, facts: &Facts<'_>) -> RunningCount {
 }
 
 /// Whether one more machine may run. Unknown counts never block.
-fn has_room(caps: RunningCaps, count: RunningCount) -> bool {
+pub(super) fn has_room(caps: RunningCaps, count: RunningCount) -> bool {
     let fits = |cap: Option<u32>, count: Option<u64>| match (cap, count) {
         (Some(cap), Some(count)) => count < u64::from(cap),
         _ => true,
@@ -179,7 +179,12 @@ pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> O
         policy::decide(
             &candidates,
             request.workspace,
-            request.limits,
+            Limits {
+                max_sandboxes: request.limits.max_sandboxes.saturating_sub(u32::from(
+                    pool.members.iter().any(|member| member.role == Role::Gate),
+                )),
+                ..request.limits
+            },
             room,
             request.now,
         )
@@ -386,7 +391,7 @@ pub fn check_invariants(pool: &ProjectState, max_sandboxes: Option<usize>) -> Re
     let members: Vec<&Member> = pool
         .members
         .iter()
-        .filter(|member| member.role == Role::Pool)
+        .filter(|member| member.role != Role::Builder)
         .collect();
     if let Some(max) = max_sandboxes
         && members.len() > max

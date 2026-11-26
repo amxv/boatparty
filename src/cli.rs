@@ -37,6 +37,10 @@ pub enum Command {
     /// Sync, run one command in the sandbox's checkout, stream its output, and
     /// apply its file changes back; exits with the command's status.
     Run(RunArgs),
+    /// Run checks on a committed revision using the project's exclusive gate member.
+    Gate(GateArgs),
+    #[command(hide = true)]
+    RefreshBase { project: String, built_at: u64 },
     /// Run a long-lived process, such as a dev server, in the sandbox's
     /// checkout until cancelled, with optional port forwards.
     Serve(ServeArgs),
@@ -138,6 +142,25 @@ pub struct RunArgs {
     pub words: Vec<String>,
 
     /// The command to run, after `--`. Every word is quoted.
+    #[arg(last = true, value_name = "COMMAND")]
+    pub command: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    after_help = "Examples:\n  boatparty gate\n  boatparty gate --commit HEAD~1 test\n  boatparty gate --default-branch -- make check\n\nDefaults to HEAD and the [gate] command shell line. A concurrent gate is refused. Edits from checks are saved as a patch under the local Git directory."
+)]
+pub struct GateArgs {
+    /// Git revision to check (default HEAD).
+    #[arg(long, conflicts_with = "default_branch")]
+    pub commit: Option<String>,
+    /// Check the locally known default branch.
+    #[arg(long)]
+    pub default_branch: bool,
+    /// A named project command and its arguments.
+    #[arg(value_name = "NAME [ARGS]", conflicts_with = "command")]
+    pub words: Vec<String>,
+    /// Command and arguments, after `--`.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,
 }
@@ -547,8 +570,9 @@ pub struct RmArgs {
     after_help = "The base is optional. Without one, every new sandbox installs and builds \
                   dependencies on its first command; with one, it starts from the saved snapshot \
                   bp-<project> and its first sync sends only what changed since the base \
-                  commit. Sandboxes that already exist are not affected by a new base. Nothing \
-                  rebuilds the base by itself: `base status` says how fresh it is."
+                  commit. Sandboxes that already exist are not affected by a new base. Set \
+                  [base] auto_refresh = true to refresh stale bases in the background after create. \
+                  `base status` reports freshness and refresh activity."
 )]
 pub struct BaseArgs {
     #[command(subcommand)]

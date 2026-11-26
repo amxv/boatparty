@@ -6,7 +6,7 @@ This file is the contract for `--json`. Scripts, tools built on boatparty and th
 
 - `--json` is a global option: put it before the command's own arguments (`boatparty --json run -- make`).
 - Non-streaming commands print exactly one JSON document on stdout (pretty-printed, so read the whole of stdout). Success has `"ok": true`.
-- Streaming commands (`run`, `serve`, `pipe`, `shell -- COMMAND`) print newline-delimited frames, one JSON object per line, in order:
+- Streaming commands (`run`, `gate`, `serve`, `pipe`, `shell -- COMMAND`) print newline-delimited frames, one JSON object per line, in order:
   - `{"type": "stdout", "data": "..."}` and `{"type": "stderr", "data": "..."}` as output arrives. Output that is not valid UTF-8 travels as `"base64"` instead of `"data"`; a frame never splits a UTF-8 sequence.
   - `{"type": "event", "event": "started"}` and the other runner events: `preparing` (setup or ensure steps start), `failed-step <section>.<name>`, `ready` (a `serve --ready-port` listens).
   - Exactly one `{"type": "result", ...}`, always last.
@@ -324,6 +324,8 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
   "untracked": [ { "id": "bx_34567890", "name": "bp-app-2", "state": "stopped" } ],
   "base": {
     "present": true,
+    "refreshing": false,
+    "last_refresh_error": null,
     "snapshot": "bp-app",
     "commit": "20f65ed9efbe2f0d39788951ecc73c53c3544a8a",
     "built_at": "2026-11-15T08:00:00Z",
@@ -725,7 +727,28 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
 }
 ```
 
+### gate
+
+A gate streams stdout, stderr and events like `run`. Its result names the exact checked commit. `patch` is an absolute local filename when the command changed files and `null` otherwise. `warm` means an existing SSH connection served the command.
+
+<!-- shape: gate -->
+```json
+{
+  "type": "result",
+  "ok": true,
+  "kind": "gate",
+  "project": "app",
+  "commit": "20f65ed9efbe2f0d39788951ecc73c53c3544a8a",
+  "member": { "name": "bp-app-gate", "id": "bx_23456789" },
+  "exit_code": 0,
+  "patch": "/repo/.git/boatparty-gate-7d400da2.patch",
+  "warm": true
+}
+```
+
 ### base status
+
+`refreshing` indicates a live automatic refresh helper. `last_refresh_error` is its last failure code or `null`. These fields also appear in the `base` object of `status`.
 
 `base` is the record as in `base build` (`null` without one). `saved` is the saved snapshot at the provider; `staleness` compares the base with its ref now (`behind` in commits, `inputs_changed` lists changed `stale_inputs`); `allowance` is the account's saved-snapshot allowance.
 
@@ -749,6 +772,8 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
   },
   "built_at": "2026-11-15T08:00:00Z",
   "saved": { "name": "bp-app", "status": "ready", "error": null, "size_bytes": 16777216, "created_at": "2026-11-15T08:00:00Z", "source_id": "bx_b" },
+  "refreshing": false,
+  "last_refresh_error": null,
   "staleness": {
     "age_ms": 3600000,
     "ref": "refs/remotes/origin/main",
@@ -921,6 +946,7 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `desktop_failed` | The streaming services failed to start or the local browser failed to open |
 | `hide_failed` | `expose --hide` failed on the sandbox |
 | `prune_failed` | `pool prune` could not delete every candidate |
+| `gate_busy` | Another process holds the gate member |
 | `base_busy`, `base_build_failed`, `base_save_failed` | Another base build runs; the build or the save failed |
 | `interrupted` | SIGINT or SIGTERM arrived before the work started (the exit status is then 130 or 143) |
 | `not_found` | The provider has no such sandbox or snapshot |

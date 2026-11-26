@@ -102,7 +102,7 @@ With `[sync] seed` on and a GitHub remote, a sandbox fetches pushed commits from
 
 ## The base snapshot
 
-`boatparty base build` brings up the project's builder sandbox, syncs the base ref (`[base] ref`, by default the default remote branch, else HEAD), runs the setup and ensure steps and `[base] warm`, and saves the result as the saved snapshot `bp-<project>`. New sandboxes start from it with dependencies built, and their first sync sends only what changed since. `boatparty base status` reports its age, commits behind, changed `stale_inputs` and size. Nothing rebuilds it automatically. `boatparty base rm` deletes it and the builder.
+`boatparty base build` brings up the project's builder sandbox, syncs the base ref (`[base] ref`, by default the default remote branch, else HEAD), runs the setup and ensure steps and `[base] warm`, and saves the result as the saved snapshot `bp-<project>`. New sandboxes start from it with dependencies built, and their first sync sends only what changed since. `boatparty base status` reports its age, commits behind, changed `stale_inputs` and size. Background rebuilds are opt-in. `boatparty base rm` deletes it and the builder.
 
 ## Getting build outputs back
 
@@ -111,3 +111,25 @@ Ignored files never travel in either direction. Copy an output back explicitly:
 ```bash
 boatparty fetch target/release/app ./app-linux
 ```
+
+### Automatic base refresh
+
+After the first manual base build, these settings allow a new member created from that base to schedule one detached refresh. The creating command continues immediately. The helper compares against the locally known base ref, so fetch to update a remote-tracking ref. A changed stale input, missing base commit, or either threshold reaching its limit makes the base stale.
+
+```toml
+[base]
+auto_refresh = true       # default false
+max_commits_behind = 50
+max_age_hours = 168
+```
+
+The helper uses the builder, normal start ledger, reserves and running limits. New members continue using the saved base during the rebuild. `base status` and `status` report activity and the last refresh failure. The state directory holds a per-project `base-refresh-<project>.log` with timestamps and outcomes.
+
+### Gate command
+
+```toml
+[gate]
+command = "make check"
+```
+
+The command runs against the selected commit on the gate member. `gate NAME` selects a named command and `gate -- CMD...` supplies an argument list.

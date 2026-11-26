@@ -7,7 +7,7 @@
 # carries the script text.
 #
 # Invocation: bash runner-<hash>.sh <mode> <project> <args...>
-# Modes: sync, run, serve (a long-running `run`; see "Servers"), pipe (a
+# Modes: sync, run, gate (attached run on a commit, reset after diff), serve (a long-running `run`; see "Servers"), pipe (a
 # command fed the caller's input; see "Piped input"), seed, fetch-patch,
 # desktop (starts streaming and pins it this boot), kill, maintain, settle (a builder's last step before its base is saved),
 # credential (Git's credential helper inside a command; see "Build
@@ -24,6 +24,7 @@
 # names no spec: nothing is applied. The spec only holds data (shell arrays);
 # every workaround below is either driven by it or stack-neutral.
 #
+# A gate that still has a remote owner exits 95 before receiving its pack.
 # Results travel on stderr as frames keyed by a per-invocation nonce:
 #   event:                "\n<nonce>!<event>\n" (run and pipe emit "started";
 #                         serve also "ready")
