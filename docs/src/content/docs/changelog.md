@@ -8,7 +8,7 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
-## Unreleased
+## 0.3.0 - 2026-11-26
 
 - `run` reattaches to the original command after an SSH drop, preserving output and exit status. A disconnected client has ten minutes to return before the supervisor stops the command group.
 - On Unix, `run` replaces a stale SSH control master that refuses a new session.
