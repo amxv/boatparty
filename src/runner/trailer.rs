@@ -13,6 +13,7 @@ pub enum Trailer {
         exit_code: i32,
         tree: String,
         patch_bytes: u64,
+        cpu_steal_percent: Option<u8>,
     },
     /// The pack assumed objects the sandbox lacks (exit 97).
     NeedFull,
@@ -153,6 +154,10 @@ impl TrailerFilter {
         Some(Trailer::Done {
             exit_code: code.parse().ok()?,
             tree: (*tree).to_string(),
+            cpu_steal_percent: fields
+                .get(3)
+                .and_then(|n| n.parse::<u8>().ok())
+                .filter(|n| *n <= 100),
             patch_bytes: fields.get(2).and_then(|n| n.parse().ok()).unwrap_or(0),
         })
     }
@@ -193,6 +198,7 @@ mod tests {
             assert_eq!(
                 filter.result(),
                 Some(Trailer::Done {
+                    cpu_steal_percent: None,
                     exit_code: 3,
                     tree: "deadbeef".into(),
                     patch_bytes: 42
@@ -211,6 +217,7 @@ mod tests {
             assert_eq!(
                 filter.result(),
                 Some(Trailer::Done {
+                    cpu_steal_percent: None,
                     exit_code: 0,
                     tree: "deadbeef".into(),
                     patch_bytes: 0

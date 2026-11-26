@@ -67,7 +67,9 @@ boatparty run -- cargo test       # the first run creates the sandbox, later run
 | Command | Does |
 | --- | --- |
 | `run` | Sync, run one command, stream its output, return its exit code, bring its changes back |
+| `desktop [--open]` | Start the streamed desktop and print or open its private link |
 | `serve` | Run a long-lived process, such as a dev server, with port forwards |
+| `serve --desktop` | Run a GUI application in the sandbox desktop session |
 | `shell` | Open a shell in the sandbox's checkout, or run one command there without syncing |
 | `sync` | Sync the working tree only |
 | `start` | Start this checkout's sandbox: create or resume it |

@@ -548,3 +548,9 @@ EXTRA_HDR="X-Ascii-Confirm-Delete: $ID" ./api.sh DELETE /sandboxes/$ID | tee out
 ./api.sh GET /deletion-operations/$(jq -r .operation.id out/delete.json)
 ./api.sh GET '/sandboxes?label=boatparty.phase1%3Dtrue'
 ```
+
+## Desktop streaming and host CPU
+
+A 2026-11-26 scope probe against `POST /sandboxes/bx_00000000/desktop` with the older scoped key returned 403 and named the missing action `desktop`. New keys include it. The endpoint returns a private `desktopUrl` and can report `desktop_not_ready` during startup. The boat image can run lightdm, sunshine, moonlight-web, ascii-streaming-audio and gnome-remote-desktop as system services. Stopping the active streaming stack frees CPU for builds.
+
+Linux reports steal in the eighth CPU counter on the aggregate `cpu` line of `/proc/stat`. boatparty samples immediately around the command. Guest counters are already included in user and nice time.

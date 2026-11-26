@@ -70,6 +70,8 @@ mode_pipe() {
     exit 2
   fi
   load_spec "${2:--}"
+  desktop_idle
+  cache_in_use
   trap stop_token EXIT
   read_credentials
   mkdir -p "$repo"
@@ -84,7 +86,7 @@ mode_pipe() {
   exec 8<&0
   printf '\n%s!started\n' "$nonce" >&2
   # A session of its own, so a cancel can signal the whole process group.
-  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" <"$fifo" 8<&- &
+  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" <"$fifo" 8<&- 5>&- &
   pid=$!
   printf '%s\n' "$pid" >"$state/out/$nonce.pid"
   (

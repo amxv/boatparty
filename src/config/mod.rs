@@ -47,7 +47,7 @@ pub const HELP: &str = "boatparty.toml (version = 1). Every key is optional exce
 [project] name; an unknown key is an error.
 
   [project]   name, presets = [\"rust\", ...] (applied in order; this file wins)
-  [sandbox]   machine (small|default|large|xlarge), remote_path (the checkout; default \
+  [sandbox]   machine (small|default|large|xlarge), desktop (auto|keep), remote_path (the checkout; default \
 /home/user/<name>, any directory under /home/user except ~/.boatparty and ~/.cache), environment (a boat environment for new sandboxes; unset = no account secrets)
   [sync]      history (\"head\"|\"full\"), copy_back, seed, github_token (true|false)
   [run]       ram_tmp (true|false), script (the script runner for `run <name>`, e.g. \"bun run\"), \
@@ -65,7 +65,7 @@ extends the value from earlier layers instead of replacing it
 succeeded, or when check fails
   [build]     output_dirs (relative, globs allowed), floor_mtimes (true|false), cache_dirs \
 (directory names under output_dirs holding a compiler's own caches: not floored, dropped when a \
-restore left a file in them unreadable)
+restore left a file in them unreadable), cache_max_age_days (3), min_free_gb (25)
   [base]      warm, stale_inputs, ref (used by `base build`)
   [commands]  NAME = \"shell line\": `boatparty run NAME [args...]`
 
@@ -136,6 +136,7 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sandbox {
+    pub desktop: String,
     /// small, default, large or xlarge; unset means account.toml's default.
     pub machine: Option<String>,
     /// The checkout on the sandbox.
@@ -194,6 +195,8 @@ pub struct EnsureStep {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Build {
+    pub cache_max_age_days: u32,
+    pub min_free_gb: u32,
     pub output_dirs: Vec<String>,
     pub floor_mtimes: bool,
     /// Names of directories under the output directories that hold a
@@ -394,10 +397,10 @@ fn parse(text: &str, kind: FileKind) -> Result<Table, String> {
 /// boatparty's defaults, the bottom layer.
 fn defaults(project: &str) -> Table {
     let text = format!(
-        "[sandbox]\nremote_path = {remote}\n\
+        "[sandbox]\ndesktop = \"auto\"\nremote_path = {remote}\n\
          [sync]\nhistory = \"head\"\ncopy_back = true\nseed = true\ngithub_token = true\n\
          [run]\nram_tmp = true\ngit_identity = true\ngithub_token = false\n\
-         [build]\noutput_dirs = []\nfloor_mtimes = true\ncache_dirs = []\n",
+         [build]\noutput_dirs = []\nfloor_mtimes = true\ncache_dirs = []\ncache_max_age_days = 3\nmin_free_gb = 25\n",
         remote = Value::String(default_remote_path(project))
     );
     toml::from_str(&text).expect("the defaults parse")

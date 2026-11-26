@@ -9,6 +9,29 @@ use super::http::{Http, Method};
 use super::sandboxes::checked_id;
 use crate::provider::{ErrorKind, HostPort, HostedPort, ProviderError};
 
+pub fn desktop_link(http: &Http, id: &str) -> Result<String, ProviderError> {
+    let id = checked_id(id)?;
+    let answer = http.send(
+        Method::Post,
+        &format!("/sandboxes/{id}/desktop"),
+        Some(&json!({})),
+        None,
+    )?;
+    if !answer.is_success() {
+        return Err(answer
+            .error()
+            .with_message("could not issue a desktop link"));
+    }
+    let value: Value = serde_json::from_slice(&answer.body)
+        .map_err(|_| invalid(answer.status, "invalid desktop response"))?;
+    value
+        .get("desktopUrl")
+        .and_then(Value::as_str)
+        .filter(|s| s.starts_with("https://") && !s.chars().any(char::is_control))
+        .map(str::to_owned)
+        .ok_or_else(|| invalid(answer.status, "the desktop response has no HTTPS link"))
+}
+
 pub fn host_port(http: &Http, id: &str, request: &HostPort) -> Result<HostedPort, ProviderError> {
     let id = checked_id(id)?;
     let mut body = json!({

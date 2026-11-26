@@ -71,6 +71,7 @@ impl From<StartFailure> for AppError {
 
 /// Admits one project's starts.
 pub struct StartGate<'a> {
+    pub queued: &'a std::cell::Cell<Duration>,
     pub paths: &'a Paths,
     pub store: &'a Store,
     pub provider: &'a dyn Provider,
@@ -89,6 +90,12 @@ fn nothing_started(kind: &ErrorKind) -> bool {
 }
 
 impl StartGate<'_> {
+    fn wait_in_queue(&self, delay: Duration) {
+        let start = Instant::now();
+        std::thread::sleep(delay);
+        self.queued.set(self.queued.get() + start.elapsed());
+    }
+
     /// Run `call` (one create or resume) under a ledger reservation, waiting
     /// for room first. `counted` says whether a successful answer spent a
     /// start; when it did not, the reservation is given back.
@@ -131,7 +138,7 @@ impl StartGate<'_> {
                                 .unwrap_or_default(),
                             duration_words(delay)
                         ));
-                        std::thread::sleep(delay);
+                        self.wait_in_queue(delay);
                         force_refresh = true;
                     }
                     kind if nothing_started(kind) => {
@@ -262,7 +269,7 @@ impl StartGate<'_> {
                 ));
                 announced = Some(reason);
             }
-            std::thread::sleep(
+            self.wait_in_queue(
                 Duration::from_millis(wait_ms).clamp(Duration::from_millis(10), WAIT_STEP),
             );
         }

@@ -26,9 +26,11 @@ pub use trailer::{Piece, Trailer, TrailerFilter};
 pub const SCRIPT: &str = concat!(
     include_str!("script/core.sh"),
     include_str!("script/restore.sh"),
+    include_str!("script/cache.sh"),
     include_str!("script/steps.sh"),
     include_str!("script/credentials.sh"),
     include_str!("script/sync.sh"),
+    include_str!("script/desktop.sh"),
     include_str!("script/serve.sh"),
     include_str!("script/pipe.sh"),
     include_str!("script/detached.sh"),
@@ -328,9 +330,11 @@ mod tests {
         let parts = [
             include_str!("script/core.sh"),
             include_str!("script/restore.sh"),
+            include_str!("script/cache.sh"),
             include_str!("script/steps.sh"),
             include_str!("script/credentials.sh"),
             include_str!("script/sync.sh"),
+            include_str!("script/desktop.sh"),
             include_str!("script/serve.sh"),
             include_str!("script/pipe.sh"),
             include_str!("script/detached.sh"),

@@ -9,7 +9,7 @@
 # Invocation: bash runner-<hash>.sh <mode> <project> <args...>
 # Modes: sync, run, serve (a long-running `run`; see "Servers"), pipe (a
 # command fed the caller's input; see "Piped input"), seed, fetch-patch,
-# kill, maintain, settle (a builder's last step before its base is saved),
+# desktop (starts streaming and pins it this boot), kill, maintain, settle (a builder's last step before its base is saved),
 # credential (Git's credential helper inside a command; see "Build
 # credentials"), hold and shell (`boatparty shell`'s shell or command with
 # the credentials and [run.env]; see "Credentials for `boatparty shell`").
@@ -27,7 +27,7 @@
 # Results travel on stderr as frames keyed by a per-invocation nonce:
 #   event:                "\n<nonce>!<event>\n" (run and pipe emit "started";
 #                         serve also "ready")
-#   trailer, always last: "\n<nonce> <exit-code> <resulting-tree> <patch-bytes>\n"
+#   trailer, always last: "\n<nonce> <exit-code> <resulting-tree> <patch-bytes> [<cpu-steal-percent>]\n"
 #   or, with exit 97:     "\n<nonce> needfull\n"
 # In attached modes everything else on stderr and all stdout pass through.
 # run syncs first, emits !armed, and reads "go" before starting supervise in
@@ -161,7 +161,7 @@ deepen() {
 }
 
 trailer() {
-  printf '\n%s %s %s %s\n' "$1" "$2" "$3" "$4" >&2
+  printf '\n%s %s %s %s%s\n' "$1" "$2" "$3" "$4" "${5:+ $5}" >&2
 }
 
 ensure_repo() {

@@ -415,15 +415,18 @@ fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_ba
     setup.start(&boat);
     let _ = fs::remove_file(setup.events());
 
+    let counters = setup.root.path().join("cpu-stat");
+    fs::write(&counters, "cpu 100 0 0 0 0 0 0 0 0 0\n").unwrap();
     let output = setup
         .cmd(&boat)
+        .env("BOATPARTY_RUNNER_PROC_STAT", &counters)
         .env("FAKE_SSH_CHECK", "0")
         .args([
             "run",
             "--",
             "sh",
             "-c",
-            "echo out; echo err >&2; printf 'appended\\n' >> a.txt; exit 7",
+            "echo cpu 175 0 0 0 0 0 0 25 1000 0 > \"$BOATPARTY_RUNNER_PROC_STAT\"; echo out; echo err >&2; printf 'appended\\n' >> a.txt; exit 7",
         ])
         .output()
         .unwrap();
@@ -472,6 +475,10 @@ fn a_warm_cheers_makes_no_provider_call_before_the_command_and_brings_changes_ba
     let run = &document["runs"][0];
     assert_eq!(run["exit_code"], 7);
     assert_eq!(run["warm"], true);
+    assert_eq!(run["queued_seconds"], 0.0);
+    assert_eq!(run["waited_seconds"], 0.0);
+    assert_eq!(run["cpu_steal_percent"], 25);
+    assert!(stderr.contains("25% CPU steal"), "{stderr}");
     assert_eq!(run["copy_back"], "applied");
     assert!(run["prep_seconds"].as_f64().is_some());
     let state: Value =

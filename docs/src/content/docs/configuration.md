@@ -16,6 +16,7 @@ name = "app"                 # lowercase letters, digits and hyphens
 presets = ["rust"]           # applied in order; this file wins
 
 [sandbox]
+desktop = "auto"             # "keep" skips idle desktop shutdown
 machine = "default"          # small, default, large, xlarge (at most the project's max_machine)
 # remote_path = "/home/user/code/app"  # the checkout; default /home/user/<name>, must be under /home/user
 # environment = "ci"         # a boat environment for new sandboxes; unset: no account secrets
@@ -45,6 +46,8 @@ run = "cargo fetch --locked"
 output_dirs = ["target"]
 floor_mtimes = true
 cache_dirs = ["incremental"]
+cache_max_age_days = 3
+min_free_gb = 25
 
 [base]
 warm = "cargo test --locked --no-run"
@@ -53,6 +56,8 @@ stale_inputs = ["Cargo.lock", "rust-toolchain.toml"]
 [commands]
 test = "cargo test --locked"
 ```
+
+After a run, boatparty checks matching cache directories up to four levels under each output directory. It removes stale entries first, then the least recently used entries until the disk has `min_free_gb` decimal GB available. Set either threshold to zero to disable that part. During a base build, settling also removes entries untouched since the warm-up began.
 
 ## Steps
 

@@ -119,6 +119,10 @@ impl Provider for BoatProvider {
         snapshots::delete(&self.http, name)
     }
 
+    fn desktop_link(&self, id: &str) -> Result<String, ProviderError> {
+        hosting::desktop_link(&self.http, id)
+    }
+
     fn host_port(&self, id: &str, request: &HostPort) -> Result<HostedPort, ProviderError> {
         hosting::host_port(&self.http, id, request)
     }

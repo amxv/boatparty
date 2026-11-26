@@ -266,7 +266,7 @@ fn project(label: &str) -> E2e {
     let setup = E2e::with_history(label, None);
     let mut text = fs::read_to_string(setup.repo().join("boatparty.toml")).unwrap();
     text.push_str(
-        "\n[base]\nwarm = \"mkdir -p ignored && echo warmed > ignored/warm.out\"\n\
+        "\n[build]\noutput_dirs=[\"ignored\"]\ncache_dirs=[\"objects\"]\nmin_free_gb=0\n[base]\nwarm = \"mkdir -p ignored && echo warmed > ignored/warm.out\"\n\
          stale_inputs = [\"deps.lock\"]\n",
     );
     fs::write(setup.repo().join("boatparty.toml"), text).unwrap();
@@ -381,6 +381,12 @@ fn a_build_runs_its_steps_in_order_and_records_the_base() {
     let out = setup.remote().join(".boatparty/out");
     assert_eq!(fs::read_dir(&out).map(|dir| dir.count()).unwrap_or(0), 0);
 
+    // This cache is young enough for the ordinary age policy but the
+    // new warm-up never uses it. Settling must keep it out of the base.
+    let unused = checkout.join("ignored/objects/stale");
+    fs::create_dir_all(unused.parent().unwrap()).unwrap();
+    fs::write(&unused, "old build cache").unwrap();
+
     // A rebuild resumes the same builder, which is never counted as a pool
     // member.
     let output = setup
@@ -396,6 +402,8 @@ fn a_build_runs_its_steps_in_order_and_records_the_base() {
     let report = json_of(&output.stdout);
     assert_eq!(report["builder"]["created"], false);
     assert_eq!(report["builder"]["resumed"], true);
+    #[cfg(target_os = "linux")]
+    assert!(!unused.exists());
     assert_eq!(world.lock().unwrap().created, 1);
 }
 

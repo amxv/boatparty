@@ -46,6 +46,11 @@ check = '''
 test -d node_modules && perl -e '
   my @packages = grep { !m{/\@[^/]*$} } glob("node_modules/*");
   push @packages, glob("node_modules/\@*/*");
+  for my $entry (glob("node_modules/.bun/*")) {
+    next unless $entry =~ m{/((?:\@[^/+]+\+)?[^/@]+)\@[^/]+$};
+    (my $name = $1) =~ s{\+}{/};
+    push @packages, "$entry/node_modules/$name";
+  }
   exit((grep { !-f "$_/package.json" } @packages) ? 1 : 0);
 '
 '''

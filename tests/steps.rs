@@ -391,7 +391,7 @@ fn the_command_gets_a_private_ram_tmpdir_that_is_removed_afterwards() {
 fn build_outputs_are_floored_but_sources_and_cache_directories_are_not() {
     let mut member = Member::new(
         "floor",
-        "[build]\noutput_dirs = [\"out\", \"pkg/*/out\"]\ncache_dirs = [\"incremental\"]\n",
+        "[build]\noutput_dirs = [\"out\", \"pkg/*/out\"]\ncache_dirs = [\"incremental\"]\nmin_free_gb = 0\n",
     );
     // A tracked file inside an output directory is a source.
     write(&member.local.join("out/tracked.txt"), "source\n");
@@ -547,7 +547,7 @@ fn an_unreadable_cache_entry_left_by_a_restore_is_dropped_whole() {
     }
     let mut member = Member::new(
         "heal",
-        "[build]\noutput_dirs = [\"out\"]\ncache_dirs = [\"incremental\"]\n",
+        "[build]\noutput_dirs = [\"out\"]\ncache_dirs = [\"incremental\"]\nmin_free_gb = 0\n",
     );
     write(&member.local.join(".gitignore"), "ignored/\nout/\n");
     member.run("true");
@@ -605,4 +605,86 @@ fn files_exposed_by_changed_ignore_rules_are_removed_not_sent_back() {
     }
     assert!(!member.remote().join("build").exists());
     assert!(!member.local.join("build").exists());
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn cache_pruning_happens_after_the_command_and_stays_under_configured_roots() {
+    let mut member = Member::new(
+        "prune",
+        "[build]\noutput_dirs=['ignored/out','ignored/link/out']\ncache_dirs=['objects']\nmin_free_gb=0\n",
+    );
+    let run = member.run("mkdir -p ignored/out/debug/objects ignored/elsewhere/out/objects; ln -s elsewhere ignored/link; touch ignored/out/debug/objects/{old,new} ignored/elsewhere/out/objects/keep; touch -d '5 days ago' ignored/elsewhere/out/objects/keep ignored/out/debug/objects/old; test -f ignored/out/debug/objects/old");
+    assert_eq!(run.exit(), 0);
+    assert!(run.stderr.contains("pruned cache entry"), "{}", run.stderr);
+    assert!(
+        !member
+            .remote()
+            .join("ignored/out/debug/objects/old")
+            .exists()
+    );
+    assert!(
+        member
+            .remote()
+            .join("ignored/out/debug/objects/new")
+            .exists()
+    );
+    assert!(
+        member
+            .remote()
+            .join("ignored/elsewhere/out/objects/keep")
+            .exists()
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn cache_pressure_trims_oldest_first_and_warns_when_still_low() {
+    let mut member = Member::new(
+        "pressure",
+        "[build]\noutput_dirs=['ignored/out']\ncache_dirs=['objects']\ncache_max_age_days=0\nmin_free_gb=999999\n",
+    );
+    let run = member.run("mkdir -p ignored/out/objects; touch ignored/out/objects/{a,b}; touch -d '2 hours ago' ignored/out/objects/b");
+    assert_eq!(run.exit(), 0);
+    let first = run.stderr.find("objects/b'").unwrap();
+    assert!(
+        first < run.stderr.find("objects/a'").unwrap(),
+        "{}",
+        run.stderr
+    );
+    assert!(run.stderr.contains("free space is still below"));
+}
+
+#[test]
+fn bun_checks_the_real_isolated_package_manifest_including_scopes() {
+    let project = ProjectConfig::parse(
+        "version=1\n[project]\nname='app'\npresets=['bun']",
+        Path::new("boatparty.toml"),
+    )
+    .unwrap();
+    let check = project
+        .config()
+        .ensure
+        .iter()
+        .find(|s| s.name == "bun-install")
+        .unwrap()
+        .check
+        .as_ref()
+        .unwrap();
+    let root = TempDir::new("bun-isolated");
+    let manifest = root
+        .path()
+        .join("node_modules/.bun/@scope+pkg@1.2.3+hash/node_modules/@scope/pkg/package.json");
+    write(&manifest, "{}");
+    let intact = || {
+        std::process::Command::new("bash")
+            .current_dir(root.path())
+            .args(["-c", check])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(intact());
+    fs::remove_file(manifest).unwrap();
+    assert!(!intact());
 }

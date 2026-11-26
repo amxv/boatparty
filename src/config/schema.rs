@@ -32,6 +32,7 @@ pub const PROJECT: &[Field] = &[field("name", Kind::Str), field("presets", Kind:
 
 pub const SANDBOX: &[Field] = &[
     field("machine", Kind::Str),
+    field("desktop", Kind::Str),
     field("remote_path", Kind::Str),
     field("environment", Kind::Str),
 ];
@@ -72,6 +73,8 @@ pub const BUILD: &[Field] = &[
     field("output_dirs", Kind::StrList),
     field("floor_mtimes", Kind::Bool),
     field("cache_dirs", Kind::StrList),
+    field("cache_max_age_days", Kind::Int),
+    field("min_free_gb", Kind::Int),
 ];
 
 pub const BASE: &[Field] = &[

@@ -139,6 +139,7 @@ fn sandbox(state: &str) -> Value {
 /// for doctor's create probe.
 fn world() -> FakeBoat {
     let state = Arc::new(Mutex::new("idle".to_string()));
+    let desktop_calls = std::sync::atomic::AtomicUsize::new(0);
     let limits = fixture("limits.json");
     let invalid = fixture("errors/400-invalid-type.json");
     FakeBoat::start(move |request| {
@@ -185,6 +186,16 @@ fn world() -> FakeBoat {
                         "sshEndpoint": "203.0.113.10:22001",
                         "hostKey": "ssh-ed25519 AAAAhostkey"})
                 .to_string(),
+            ),
+            ("POST", p)
+                if p == format!("/sandboxes/{ID}/desktop")
+                    && desktop_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 =>
+            {
+                Reply::json(409, r#"{"code":"desktop_not_ready"}"#)
+            }
+            ("POST", p) if p == format!("/sandboxes/{ID}/desktop") => Reply::json(
+                200,
+                r#"{"desktopUrl":"https://example.invalid/?token=test-private"}"#,
             ),
             ("POST", p) if p == format!("/sandboxes/{ID}/host") => Reply::json(
                 200,
@@ -240,11 +251,23 @@ fn run(
     let streaming = ["run", "serve", "shell", "pipe"].contains(&args[0]);
     let output = setup
         .cmd(boat)
+        .env("BOATPARTY_RUNNER_SYSTEMCTL", "true")
         .arg("--json")
         .args(args)
         .write_stdin(stdin.to_vec())
         .output()
         .unwrap();
+    if shape == "desktop" {
+        assert!(output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("test-private"));
+        for file in ["state.json", "runs.jsonl"] {
+            assert!(
+                !fs::read_to_string(setup.home().join("state").join(file))
+                    .unwrap_or_default()
+                    .contains("test-private")
+            );
+        }
+    }
     seen.add(shape, &output, streaming);
     seen.docs.last().unwrap().1.clone()
 }
@@ -325,6 +348,7 @@ fn every_subcommand_prints_its_documented_json() {
             setup.root.path().join("fetched.txt").to_str().unwrap(),
         ],
     );
+    go("desktop", &["desktop"]);
     go("expose", &["expose", "8000"]);
     go("expose --hide", &["expose", "8000", "--hide"]);
     go("release", &["release"]);
@@ -388,6 +412,7 @@ fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
         &["pipe", "--", "cat"],
         &["fetch", "a.txt"],
         &["forward", "8000"],
+        &["desktop"],
         &["expose", "8000"],
         &["expose", "8000", "--hide"],
         &["init"],

@@ -12,6 +12,9 @@ Keep the newest release first. Describe user-visible behavior and important inst
 
 - `run` reattaches to the original command after an SSH drop, preserving output and exit status. A disconnected client has ten minutes to return before the supervisor stops the command group.
 - On Unix, `run` replaces a stale SSH control master that refuses a new session.
+- Run summaries include CPU steal, start queue time, bring-up wait time and recovery. The Bun preset checks transitive packages in isolated installs.
+- Cache entries expire after three days by default. Under disk pressure, boatparty evicts the least recently used entries after a run.
+- Idle desktop streaming shuts down in the background. Use `desktop --open` to view the sandbox or `serve --desktop` to run a GUI application.
 
 ## 0.2.2 - 2026-11-20
 

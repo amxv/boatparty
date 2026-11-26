@@ -74,7 +74,9 @@ pub fn pipe_command(
                 exit_code,
                 tree,
                 patch_bytes,
+                cpu_steal_percent,
             }) => RunEnd::Done {
+                cpu_steal_percent,
                 exit_code,
                 tree,
                 patch_bytes,

@@ -37,6 +37,8 @@ If SSH drops during `run`, boatparty reconnects for up to ten minutes and contin
 `serve` holds a `serve` lease until cancelled, waits until a resumed sandbox has all its files, and carries port forwards on its own SSH connection:
 
 ```bash
+boatparty serve --desktop -- ./gui-app
+boatparty desktop --open
 boatparty serve --forward 3000:3000 --ready-port 3000 -- npm run dev
 boatparty serve --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'
 ```
@@ -98,3 +100,11 @@ The command gets the project's credentials and `[run.env]`, and its stdout is pa
 | 2 | Usage error |
 | 125 | boatparty itself failed: configuration, credentials, provider, connection, limits. Not the command |
 | 130, 143 | Cancelled by SIGINT or SIGTERM (the remote command is stopped too) |
+
+## Streamed desktop
+
+`boatparty desktop` starts the sandbox desktop for this boot and prints its private, signed link. Open it within ten minutes. Use `--open` to launch the default browser. The sandbox still observes its usual idle deadline. A scoped key needs the `desktop` action, which `login --create-key` includes.
+
+`serve --desktop` imports the X11 and D-Bus environment. It reports ready on the first visible window in the server session when xdotool is installed, or on the listening port when you specify `--ready-port`. Idle streaming services stop in the background by default. Use `[sandbox] desktop = "keep"` to leave them running.
+
+Run summaries report CPU steal over the command, time queued for a start and time waiting for another process to bring up the member. A steal reading of 15% or higher can explain timing-sensitive failures.

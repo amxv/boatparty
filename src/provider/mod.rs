@@ -109,6 +109,8 @@ pub trait Provider {
     /// Expose a port of a running sandbox on a public HTTPS URL. The same
     /// sandbox and port always get the same URL. A gated URL carries its
     /// access token, so the answer is a secret: no error ever contains it.
+    fn desktop_link(&self, id: &str) -> Result<String, ProviderError>;
+
     fn host_port(&self, id: &str, request: &HostPort) -> Result<HostedPort, ProviderError>;
 }
 

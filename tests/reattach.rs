@@ -71,11 +71,13 @@ fn a_mid_frame_drop_replays_exact_bytes_and_the_original_exit() {
     setup.start(&boat);
     proxy(&setup);
     let dir = setup.root.path();
+    let counters = dir.join("cpu-stat");
+    fs::write(&counters, "cpu 100 0 0 0 0 0 0 0\n").unwrap();
     let command = format!(
         "echo once >> '{0}/count'; printf prefix; sleep 0.3; \
          perl -e 'print STDERR chr(127) x 180000; print map chr($_ % 256), 0..270000'; \
          mv '{1}/.boatparty/out' '{1}/.boatparty/retired-out'; mkdir '{1}/.boatparty/out'; \
-         echo changed > from-run; exit 37",
+         echo cpu 175 0 0 0 0 0 0 25 > \"$BOATPARTY_RUNNER_PROC_STAT\"; echo changed > from-run; exit 37",
         dir.display(),
         setup.remote().display()
     );
@@ -83,6 +85,7 @@ fn a_mid_frame_drop_replays_exact_bytes_and_the_original_exit() {
         .cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
         .env("DROP", "middle")
+        .env("BOATPARTY_RUNNER_PROC_STAT", &counters)
         .args(["run", "--sh", &command])
         .output()
         .unwrap();
@@ -112,10 +115,10 @@ fn a_mid_frame_drop_replays_exact_bytes_and_the_original_exit() {
         "changed\n"
     );
     let record = fs::read_to_string(setup.home().join("state/runs.jsonl")).unwrap();
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(record.trim()).unwrap()["reattached"],
-        true
-    );
+    let record: serde_json::Value = serde_json::from_str(record.trim()).unwrap();
+    assert_eq!(record["reattached"], true);
+    assert_eq!(record["cpu_steal_percent"], 25);
+    assert!(stderr.contains("25% CPU steal"));
 }
 
 #[test]

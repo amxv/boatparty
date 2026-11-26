@@ -205,6 +205,8 @@ mode_board() {
   fi
   local sock="$2"
   load_spec "$1"
+  desktop_idle
+  cache_in_use
   cred_name="$3"
   cred_email="$4"
   shift 4

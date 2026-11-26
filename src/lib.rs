@@ -81,6 +81,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Pipe(args) => commands::pipe::run(&ctx, &args),
         Command::Fetch(args) => commands::fetch::run(&ctx, &args),
         Command::Forward(args) => commands::forward::run(&ctx, &args),
+        Command::Desktop { open } => commands::desktop::run(&ctx, open),
         Command::Expose(args) => commands::expose::run(&ctx, &args),
         Command::Status => commands::status::run(&ctx),
         Command::Pool(args) => commands::pool::run(&ctx, &args),

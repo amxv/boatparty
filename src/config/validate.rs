@@ -18,6 +18,9 @@ pub fn check(config: &Config, origins: &BTreeMap<String, Origin>) -> Result<(), 
             .parse::<MachineSize>()
             .map_err(|message| format!("{}: {message}", at("sandbox.machine")))?;
     }
+    if !matches!(config.sandbox.desktop.as_str(), "auto" | "keep") {
+        return Err(format!("{} must be auto or keep", at("sandbox.desktop")));
+    }
     remote_path(&config.sandbox.remote_path)
         .map_err(|message| format!("{}: {message}", at("sandbox.remote_path")))?;
     if let Some(environment) = &config.sandbox.environment {

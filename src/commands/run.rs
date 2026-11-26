@@ -118,6 +118,9 @@ struct Run<'a> {
 
 /// The member serving this invocation and how it was reached.
 struct Conn {
+    queued: std::time::Duration,
+    waited: std::time::Duration,
+    recovery: Option<&'static str>,
     member: Member,
     target: SshTarget,
     /// Reached through a live master with no provider call.
@@ -232,6 +235,9 @@ impl Run<'_> {
         drop(seed);
         self.record["member"] = json!(conn.member.name);
         self.record["sandbox"] = json!(conn.id());
+        self.record["queued_seconds"] = json!(round(conn.queued.as_secs_f64()));
+        self.record["waited_seconds"] = json!(round(conn.waited.as_secs_f64()));
+        self.record["recovery"] = json!(conn.recovery);
         self.record["warm"] = json!(conn.warm);
         self.record["started_member"] = json!(conn.started_member);
 
@@ -288,6 +294,16 @@ impl Run<'_> {
             self.record["reattached"] = json!(ran.reattached);
         }
         self.record["retried"] = json!(ran.retried);
+        let steal = match ran.outcome.end {
+            RunEnd::Done {
+                cpu_steal_percent, ..
+            } => cpu_steal_percent,
+            RunEnd::Lost { .. } => None,
+        };
+        self.record["cpu_steal_percent"] = json!(steal);
+        if let Some(percent @ 15..) = steal {
+            stream.note(format!("boat host was overloaded ({percent}% CPU steal). Timing-sensitive failures may be caused by host contention."));
+        }
         self.record["prep_seconds"] = json!(ran.prep_seconds);
         self.record["pack_bytes"] = json!(ran.outcome.pack_bytes);
         self.record["pack_route"] = json!(ran.outcome.pack_route.as_str());
@@ -402,12 +418,15 @@ impl Run<'_> {
                 mux_refused: false,
             };
             let outcome = match &self.serve {
-                Some(serve) => sync::serve_command_with(
+                Some(serve) => sync::serve_command_on(
                     &host,
                     &request,
                     &self.line,
                     credentials,
-                    serve.ready_port,
+                    sync::ServeOptions {
+                        ready_port: serve.ready_port,
+                        desktop: serve.desktop,
+                    },
                     &mut sink,
                     &probe,
                 )?,
@@ -489,7 +508,11 @@ impl Run<'_> {
                     }
                     conn.target.close_master();
                     let warm = conn.warm;
-                    *conn = bring_up(self.ctx, &self.line, self.kind())?;
+                    let mut next = bring_up(self.ctx, &self.line, self.kind())?;
+                    next.queued += conn.queued;
+                    next.waited += conn.waited;
+                    next.recovery = next.recovery.or(conn.recovery);
+                    *conn = next;
                     conn.warm = warm;
                     retried = true;
                 }
@@ -608,7 +631,11 @@ impl Run<'_> {
                 "member": { "name": conn.member.name, "id": conn.id() },
                 "command": self.line,
                 "seconds": seconds,
+                "cpu_steal_percent": self.record["cpu_steal_percent"],
                 "prep_seconds": ran.prep_seconds,
+                "queued_seconds": self.record["queued_seconds"],
+                "waited_seconds": self.record["waited_seconds"],
+                "recovery": conn.recovery,
                 "warm": conn.warm,
                 "started_member": conn.started_member,
                 "retried": ran.retried,
@@ -640,8 +667,27 @@ impl Run<'_> {
             return;
         }
         let mut notes = Vec::new();
+        if !conn.queued.is_zero() {
+            notes.push(format!(
+                "queued {:.1}s for a start",
+                conn.queued.as_secs_f64()
+            ));
+        }
+        if !conn.waited.is_zero() {
+            notes.push(format!(
+                "waited {:.1}s for another process to start the member",
+                conn.waited.as_secs_f64()
+            ));
+        }
+        if let Some(action) = conn.recovery {
+            notes.push(format!("{action} the sandbox"));
+        }
+
         if let Some(prep) = ran.prep_seconds {
             notes.push(format!("prep {prep:.1}s"));
+        }
+        if let Some(percent) = self.record["cpu_steal_percent"].as_u64() {
+            notes.push(format!("{percent}% CPU steal"));
         }
         if conn.started_member {
             notes.push("started the sandbox".to_string());
@@ -763,6 +809,9 @@ fn connect(
         return Ok(Conn {
             member,
             target,
+            queued: Default::default(),
+            waited: Default::default(),
+            recovery: None,
             warm: true,
             started_member: false,
             hydration: None,
@@ -773,11 +822,15 @@ fn connect(
 
 fn bring_up(ctx: &Context, line: &str, kind: LeaseKind) -> Result<Conn, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
-    let up = wctx.pool(ctx).bring_up(
+    let pool = wctx.pool(ctx);
+    let up = pool.bring_up(
         wctx.bring_up_options(false),
         Some(&LeaseRequest::new(kind, line)),
     )?;
     Ok(Conn {
+        queued: pool.queued.get(),
+        waited: pool.waited.get(),
+        recovery: pool.recovery.get(),
         member: up.member,
         target: up.target,
         warm: false,

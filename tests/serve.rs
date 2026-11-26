@@ -673,3 +673,28 @@ fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
     assert_eq!(status.code(), Some(143), "{printed}");
     assert_eq!(fs::read_to_string(&count).unwrap().trim(), "2", "{printed}");
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_new_server_reaps_an_orphan_and_preserves_a_connected_server() {
+    let mut member = Member::new("reap");
+    assert_eq!(member.run("true", None).0, 0);
+    let mut connected = member.spawn_server("connected", "exec sleep 45");
+    let mut orphan = member.spawn_server("orphan", "exec sleep 45");
+    let marker = member.host.state.join("out/orphan.serve");
+    let live = member.host.state.join("out/connected.serve");
+    assert!(eventually(Duration::from_secs(10), || marker.exists() && live.exists()));
+    let orphan_pid = pid_in(&marker).unwrap();
+    let live_pid = pid_in(&live).unwrap();
+    let _connection = orphan.stdin.take().unwrap();
+    orphan.kill().unwrap();
+    orphan.wait().unwrap();
+    let (code, collected) = member.run("true", Some(None));
+    assert_eq!(code, 0, "{}", text(&collected.stderr));
+    assert!(
+        text(&collected.stderr).contains(&format!("stopped orphaned server session {orphan_pid}"))
+    );
+    assert!(boatparty::system::pid_alive(live_pid));
+    drop(connected.stdin.take());
+    connected.wait().unwrap();
+}

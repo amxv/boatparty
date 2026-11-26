@@ -105,6 +105,7 @@ pub enum RunEnd {
         exit_code: i32,
         tree: String,
         patch_bytes: u64,
+        cpu_steal_percent: Option<u8>,
     },
     /// The runner ended without a result; `status` is the exit of the
     /// connection (`Some(255)` when SSH itself failed).
@@ -208,10 +209,39 @@ pub fn serve_command_with(
     sink: &mut dyn Sink,
     cancel: &dyn CancelProbe,
 ) -> Result<RunOutcome, AppError> {
+    serve_command_on(
+        host,
+        request,
+        command,
+        credentials,
+        ServeOptions {
+            ready_port,
+            desktop: false,
+        },
+        sink,
+        cancel,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ServeOptions {
+    pub ready_port: Option<u16>,
+    pub desktop: bool,
+}
+
+pub fn serve_command_on(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    credentials: &RunCredentials,
+    options: ServeOptions,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+) -> Result<RunOutcome, AppError> {
     let run = RunInput {
         command,
         credentials,
-        kind: RunKind::Serve { ready_port },
+        kind: RunKind::Serve(options),
         reconnect: None,
     };
     run_input(host, request, &run, sink, cancel)
@@ -231,7 +261,9 @@ fn run_input(
             exit_code,
             tree,
             patch_bytes,
+            cpu_steal_percent,
         }) => RunEnd::Done {
+            cpu_steal_percent: *cpu_steal_percent,
             exit_code: *exit_code,
             tree: tree.clone(),
             patch_bytes: *patch_bytes,
@@ -379,7 +411,7 @@ struct RunInput<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunKind {
     Run,
-    Serve { ready_port: Option<u16> },
+    Serve(ServeOptions),
 }
 
 /// Invoke the runner until it answers: install it (and the project's spec)
@@ -671,7 +703,7 @@ fn attempt(
         None => "sync",
         Some(RunKind::Run) if command.is_some_and(|run| run.reconnect.is_some()) => "run",
         Some(RunKind::Run) => "attached-run",
-        Some(RunKind::Serve { .. }) => "serve",
+        Some(RunKind::Serve(_)) => "serve",
     };
     let mut args: Vec<String> = [
         mode,
@@ -691,8 +723,12 @@ fn attempt(
     let mut header = Vec::new();
     if let Some(run) = command {
         args.push(run.command.to_string());
-        if let RunKind::Serve { ready_port } = run.kind {
+        if let RunKind::Serve(options) = run.kind {
+            let ready_port = options.ready_port;
             args.push(ready_port.map_or_else(|| "-".to_string(), |port| port.to_string()));
+            if options.desktop {
+                args.push("desktop".into());
+            }
         }
         header = run.credentials.header();
     }

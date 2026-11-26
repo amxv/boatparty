@@ -140,6 +140,9 @@ struct Listed {
 
 /// What a command needs to work on one workspace's pool.
 pub struct Pool<'a> {
+    pub queued: std::cell::Cell<Duration>,
+    pub waited: std::cell::Cell<Duration>,
+    pub recovery: std::cell::Cell<Option<&'static str>>,
     pub paths: &'a Paths,
     pub store: Store,
     pub provider: &'a dyn Provider,
@@ -163,6 +166,9 @@ impl<'a> Pool<'a> {
     ) -> Self {
         Self {
             paths,
+            queued: Default::default(),
+            waited: Default::default(),
+            recovery: Default::default(),
             store: Store::new(paths),
             provider,
             out,
@@ -343,6 +349,7 @@ impl<'a> Pool<'a> {
     /// The start ledger's gate for this project's creates and resumes.
     pub fn start_gate(&self) -> StartGate<'_> {
         StartGate {
+            queued: &self.queued,
             paths: self.paths,
             store: &self.store,
             provider: self.provider,

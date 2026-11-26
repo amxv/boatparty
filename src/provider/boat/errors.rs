@@ -99,7 +99,9 @@ fn kind_for_code(
         "sandbox_restoring" => busy(BusyReason::Restoring),
         "sandbox_securing" => busy(BusyReason::Securing),
         "ssh_host_key_unavailable" => busy(BusyReason::HostKeyUnavailable),
-        "sandbox_starting" | "browser_not_ready" => busy(BusyReason::Starting),
+        "sandbox_starting" | "browser_not_ready" | "desktop_not_ready" => {
+            busy(BusyReason::Starting)
+        }
         "sandbox_resuming" => busy(BusyReason::Resuming),
         "sandbox_stopping" => busy(BusyReason::Stopping),
         "idempotency_in_progress" => busy(BusyReason::IdempotencyInProgress),

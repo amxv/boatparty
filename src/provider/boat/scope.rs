@@ -17,7 +17,7 @@ use super::http::{Answer, Http, Method};
 use crate::provider::{CredentialCheck, CredentialHelp, ErrorKind, ProviderError, ScopeDenial};
 
 /// Every action boatparty uses (measured against boat; see docs/boat-facts.md).
-pub const REQUIRED_ACTIONS: [&str; 13] = [
+pub const REQUIRED_ACTIONS: [&str; 14] = [
     "sandbox.create",
     "sandbox.read",
     "sandbox.update",
@@ -26,6 +26,7 @@ pub const REQUIRED_ACTIONS: [&str; 13] = [
     "sandbox.delete",
     "ssh",
     "host",
+    "desktop",
     "snapshot.read",
     "snapshot.write",
     "account.read",
@@ -102,6 +103,7 @@ fn probes() -> Vec<Probe> {
             "/sshkey",
             Some(json!({ "key": "ssh-ed25519 AAAA boatparty-scope-probe" })),
         ),
+        sandbox("desktop", Method::Post, "/desktop", Some(json!({}))),
         sandbox("host", Method::Post, "/host", Some(json!({ "port": 8000 }))),
         Probe {
             action: "snapshot.read",

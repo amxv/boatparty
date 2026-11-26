@@ -395,7 +395,7 @@ fn doctor_passes_with_tools_and_a_complete_key() {
     );
     // One validity call plus one probe per other action; none touch a real sandbox.
     let requests = boat.requests();
-    assert_eq!(requests.len(), 13);
+    assert_eq!(requests.len(), 14);
     for request in &requests {
         assert!(
             !request.path.starts_with("/sandboxes/")

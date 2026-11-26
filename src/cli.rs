@@ -55,6 +55,12 @@ pub enum Command {
     /// Expose a sandbox port on a public HTTPS URL (token-gated unless
     /// --public); prints the URL.
     Expose(ExposeArgs),
+    /// Start this sandbox's streaming desktop and print a private, signed HTTPS link.
+    Desktop {
+        /// Open the link in the default browser.
+        #[arg(long)]
+        open: bool,
+    },
     /// Write boatparty.toml for this Git repository and register the project.
     Init(InitArgs),
     /// Show this project's sandboxes.
@@ -165,6 +171,9 @@ pub struct RunArgs {
                   `run`."
 )]
 pub struct ServeArgs {
+    /// Run in the sandbox desktop session. Without --ready-port, signal ready on its first visible window.
+    #[arg(long)]
+    pub desktop: bool,
     /// Forward LOCAL on this machine to REMOTE on the sandbox (repeatable).
     #[arg(
         long = "forward",

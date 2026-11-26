@@ -44,6 +44,7 @@ pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
     let serve = Serve {
         forwards: args.forward.iter().chain(&args.reverse).cloned().collect(),
         ready_port: args.ready_port,
+        desktop: args.desktop,
         max_minutes: args.max_minutes,
     };
     super::run::run_as(ctx, &args.command_args(), Some(serve))
@@ -53,6 +54,7 @@ pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
 pub(crate) struct Serve {
     pub forwards: Vec<Forward>,
     pub ready_port: Option<u16>,
+    pub desktop: bool,
     /// 0 disables the cap.
     pub max_minutes: f64,
 }
@@ -85,7 +87,12 @@ impl Serve {
 
     /// The line logged once the ready port listens.
     pub fn ready_message(&self, after: Duration) -> String {
-        let port = self.ready_port.unwrap_or_default();
+        let Some(port) = self.ready_port else {
+            return format!(
+                "first desktop window appeared ({:.1}s after the server started)",
+                after.as_secs_f64()
+            );
+        };
         let mut message = format!(
             "port {port} is listening on the sandbox ({:.1}s after the server started)",
             after.as_secs_f64()
@@ -120,6 +127,7 @@ impl Serve {
         json!({
             "forwards": list(Direction::Local),
             "reverses": list(Direction::Reverse),
+            "desktop": self.desktop,
             "ready_port": self.ready_port,
             "max_minutes": self.max_minutes,
         })
@@ -267,6 +275,7 @@ mod tests {
                 })
                 .collect(),
             ready_port,
+            desktop: false,
             max_minutes: 120.0,
         }
     }

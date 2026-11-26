@@ -91,6 +91,8 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 
 - Do not run `rm`, `pool prune`, `base rm` or `limits set` unless the user
   asks. They delete sandboxes or change account limits.
+- `boatparty desktop --open` opens the streamed desktop. Treat its signed URL as a password. Use `serve --desktop` to start a GUI app.
+- Run summaries report CPU steal. At 15% or more, host contention can cause timing-sensitive failures.
 - `serve --forward LOCAL:REMOTE` reaches a server on this computer's
   127.0.0.1. `boatparty expose PORT` gives a token-gated public URL instead
   (the server must listen on 0.0.0.0, or add `--localhost`); it is printed

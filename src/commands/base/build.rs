@@ -278,7 +278,7 @@ fn sequence(
     phases.lap("warm");
 
     // 4. Settle.
-    settle(&host, name, spec.hash())?;
+    settle(&host, name, spec.hash(), &outcome.nonce)?;
     let settled = Instant::now();
     phases.lap("settle");
 
@@ -368,8 +368,8 @@ impl Sink for BuildLog {
 }
 
 /// The runner's `settle`, installing the runner first when it is missing.
-fn settle(host: &SshRunner, project: &str, spec: &str) -> Result<(), AppError> {
-    let args: Vec<String> = ["settle", project, spec].map(String::from).to_vec();
+fn settle(host: &SshRunner, project: &str, spec: &str, nonce: &str) -> Result<(), AppError> {
+    let args: Vec<String> = ["settle", project, spec, nonce].map(String::from).to_vec();
     let mut installed = false;
     loop {
         let output = host

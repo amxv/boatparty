@@ -1,3 +1,13 @@
+# Aggregate ticks across all CPUs. Linux already includes guest time in user/nice.
+cpu_ticks() {
+  local tag user nice system idle iowait irq softirq steal rest
+  local file="${BOATPARTY_RUNNER_PROC_STAT:-/proc/stat}"
+  [[ -r "$file" ]] && read -r tag user nice system idle iowait irq softirq steal rest <"$file" &&
+    [[ "$tag" == cpu && "$steal" =~ ^[0-9]+$ ]] || return 1
+  cpu_total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+  cpu_steal="$steal"
+}
+
 # Signal the command's whole process group: TERM, then KILL for whatever is
 # still there a few seconds later.
 kill_group() {
@@ -52,7 +62,7 @@ finish() {
   save_dir_mtimes || echo "boatparty: recording directory mtimes failed" >&2
   unlock_checkout
   rm -f "$state/out/$nonce.cancelled"
-  trailer "$nonce" "$rc" "$after" "$bytes"
+  trailer "$nonce" "$rc" "$after" "$bytes" "${cpu_percent:-}"
 }
 
 # attached-run / supervise <nonce> <pack: 0|1|@name> <wip> <head> <branch or ""> <refs: send|keep> <history: head|full> <spec> <command>
@@ -89,12 +99,23 @@ mode_run() {
   trap stop_token EXIT
   read_credentials
   # A server may outlive a day; its marker stays while it runs.
-  find "$state/out" -maxdepth 1 -type f ! -name '*.serve' -mmin +1440 -delete 2>/dev/null || true
+  find "$state/out" -maxdepth 1 -type f ! -name '*.serve' ! -name '*.desktop' ! -name '*.owner' -mmin +1440 -delete 2>/dev/null || true
+  if [[ "$serve_mode" == 1 ]]; then reap_servers "$ready_port"; fi
   prune_serve_markers
+  cache_in_use
+  if (("${#bp_cache_dirs[@]}")); then touch "$state/out/$nonce.warm"; fi
   if [[ "$mode" != supervise ]]; then receive "$1" "$2" "$3" "$4" "$5" "$6" "$7"; fi
   cd "$repo"
   apply_identity
   apply_env
+  if [[ "$serve_mode" == 1 && "${11:-}" == desktop ]]; then
+    desktop_start "$nonce"
+    trap 'stop_token; rm -f "$state/out/$nonce.desktop"; desktop_idle' EXIT
+    desktop_env
+    if [[ "$ready_port" == - ]]; then ready_port=window; fi
+  else
+    desktop_idle
+  fi
   serve_token
   prepare_command || rc=$?
   if [[ "$rc" != 0 ]]; then
@@ -117,13 +138,20 @@ mode_run() {
   # SSH sessions default to a soft limit of 1024 open files, which makes
   # file-heavy test suites fail with EMFILE.
   ulimit -n "$(ulimit -Hn)" 2>/dev/null || true
+  if [[ "$serve_mode" == 1 ]]; then
+    printf '%s\n' "$$" >"$state/out/$nonce.owner"
+    export BOATPARTY_SERVER_SESSION="$nonce"
+  fi
+  local cpu_total=0 cpu_steal=0 cpu_percent=""
+  cpu_ticks || true
+  local start_total="$cpu_total" start_steal="$cpu_steal"
   exec 8<&0
   printf '\n%s!started\n' "$nonce" >&2
   # A session of its own, so a cancel can signal the whole process group.
   if [[ "$mode" == supervise ]]; then
-    bash -c "$command" </dev/null 8<&- &
+    bash -c "$command" </dev/null 8<&- 5>&- &
   else
-    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- &
+    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- 5>&- &
   fi
   pid=$!
   printf '%s\n' "$pid" >"$state/out/$nonce.pid"
@@ -146,6 +174,9 @@ mode_run() {
   exec 8<&-
   # Quietly: bash would report a job killed by a signal on stderr.
   { wait "$pid"; } 2>/dev/null || rc=$?
+  if cpu_ticks && ((start_total > 0 && cpu_total > start_total && cpu_steal >= start_steal)); then
+    cpu_percent=$((100 * (cpu_steal - start_steal) / (cpu_total - start_total)))
+  fi
   if [[ "$mode" != supervise ]]; then
     if [[ ! -e "$state/out/$nonce.cancelled" ]]; then kill "$watcher" 2>/dev/null || true; fi
     # During cancellation the watcher finishes TERM/KILL escalation.
@@ -156,12 +187,14 @@ mode_run() {
     wait "$ready" 2>/dev/null || true
   fi
   stop_token
-  rm -f "$state/out/$nonce.pid" "$state/out/$nonce.serve"
+  rm -f "$state/out/$nonce.pid" "$state/out/$nonce.serve" "$state/out/$nonce.owner"
   if [[ -n "$run_tmp" ]]; then
     chmod -R u+rwx "$run_tmp" 2>/dev/null || true
     rm -rf "$run_tmp"
     if [[ -n "$old_tmp" ]]; then export TMPDIR="$old_tmp"; else unset TMPDIR; fi
   fi
+  exec 5>&-
+  trim_caches || echo "boatparty: cache pruning failed" >&2
   finish "$nonce" "$rc" "$wip" 1
   maybe_maintain
   exit "$rc"
@@ -191,6 +224,9 @@ mode_kill() {
 mode_settle() {
   load_spec "${1:--}"
   lock_checkout
+  if [[ "${2:-}" =~ ^[a-f0-9]+$ ]]; then
+    trim_caches "$state/out/$2.warm" || echo "boatparty: builder cache pruning failed" >&2
+  fi
   rm -f "$state/floor/$project.stamp"
   floor_mtimes || echo "boatparty: flooring build output mtimes failed" >&2
   save_dir_mtimes || echo "boatparty: recording directory mtimes failed" >&2
@@ -227,6 +263,7 @@ case "$mode" in
   maintain) mode_maintain ;;
   fetch-patch) mode_fetch_patch "$@" ;;
   kill) mode_kill "$@" ;;
+  desktop) desktop_start request ;;
   settle) mode_settle "$@" ;;
   *)
     echo "boatparty runner: unknown mode $mode" >&2

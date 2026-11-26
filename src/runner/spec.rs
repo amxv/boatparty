@@ -51,6 +51,15 @@ impl RunnerSpec {
         scalar(&mut out, "bp_floor", config.build.floor_mtimes);
         array(&mut out, "bp_output_dirs", &config.build.output_dirs);
         array(&mut out, "bp_cache_dirs", &config.build.cache_dirs);
+        scalar(
+            &mut out,
+            "bp_desktop_keep",
+            config.sandbox.desktop == "keep",
+        );
+        out.push_str(&format!(
+            "bp_cache_days={}\nbp_min_free_gb={}\n",
+            config.build.cache_max_age_days, config.build.min_free_gb
+        ));
         let env: Vec<String> = config
             .run
             .env

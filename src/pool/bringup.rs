@@ -193,6 +193,7 @@ fn bring_up_inner(
             Claim::Mine(member) => return claimed(pool, member, fresh, options),
             Claim::Lost => continue,
             Claim::Theirs(member) => {
+                let since = std::time::Instant::now();
                 if !announced {
                     announced = true;
                     pool.out.note(format_args!(
@@ -213,6 +214,7 @@ fn bring_up_inner(
                         })
                         .is_some_and(Member::bring_up_claimed_by_other);
                     if !still {
+                        pool.waited.set(pool.waited.get() + since.elapsed());
                         break;
                     }
                     if !deadline.tick() {
@@ -289,6 +291,7 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                 member.name, broken.reason
             ));
             discard(pool, &member.name, &id)?;
+            pool.recovery.set(Some("replaced"));
             let key = system::uuid_v4()?;
             member = pool.modify(&member, |member| {
                 member.id = None;
@@ -342,6 +345,7 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                         member.created_at = system::now_ms();
                     })?;
                     fresh = true;
+                    pool.recovery.set(Some("replaced"));
                     recreated = true;
                     continue 'outer;
                 }

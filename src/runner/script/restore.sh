@@ -7,6 +7,9 @@
 # Defaults: what a spec of "-" applies.
 bp_ram_tmp=0
 bp_floor=0
+bp_cache_days=3
+bp_min_free_gb=25
+bp_desktop_keep=0
 bp_output_dirs=()
 bp_cache_dirs=()
 bp_env=()
@@ -87,7 +90,7 @@ apply_env() {
 output_roots() {
   ((${#bp_output_dirs[@]})) || return 0
   (
-    cd "$repo" || exit 0
+    cd -P "$repo" || exit 0
     shopt -s nullglob
     IFS=''
     local pattern path
@@ -96,7 +99,8 @@ output_roots() {
       for path in $pattern; do
         path="${path#./}"
         path="${path%/}"
-        if [[ -d "$path" && ! -L "$path" ]]; then printf '%s\n' "$path"; fi
+        if [[ -d "$path" && ! -L "$path" && "$path" != *$'\n'*  ]] &&
+           (cd -L -- "$path" && [[ "$PWD" == "$(pwd -P)" ]]); then printf '%s\n' "$path"; fi
       done
     done
   )

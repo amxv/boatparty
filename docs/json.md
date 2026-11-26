@@ -13,7 +13,7 @@ This file is the contract for `--json`. Scripts, tools built on boatparty and th
 - A failure of boatparty itself is `{"ok": false, "error": {"code": "...", "message": "..."}}`, with `"type": "result"` for a streaming command, and exit status 125. `code` is stable (see [Error codes](#error-codes)); `message` is for people.
 - The exit status of a streaming command is the remote command's (the result's `exit_code`), 125 for a failure of boatparty, 130 or 143 after SIGINT or SIGTERM.
 - Times called `*_at` in state-derived objects are milliseconds since the epoch; `at` and `built_at` strings are RFC 3339. Durations are seconds as numbers.
-- No document carries a secret (the API key, GitHub tokens, signed URLs, `pipe` input). The one deliberate exception is `expose`, whose `url` may carry an access token.
+- No document carries a secret (the API key, GitHub tokens, signed URLs, `pipe` input). `expose` and `desktop` return private URLs in their `url` field.
 - boatparty's own messages always go to stderr, prefixed `boatparty: `.
 
 On Windows, local paths are Windows paths. Remote paths use Linux syntax. Console Ctrl-C returns 130. The `control_sockets` doctor check reports `skipped` because Windows OpenSSH uses direct connections.
@@ -396,7 +396,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 
 ### run
 
-Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` means the client repeated the sync after SSH failed before launch. `reattached` means the client recovered the original command's output and result after a disconnect. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
+Frames, then this result. `queued_seconds` measures time waiting for a start budget and `waited_seconds` measures time waiting for another process to bring up this member. `recovery` names the recovery action or is null. `cpu_steal_percent` is the percentage of total CPU ticks spent in steal across the command, or null when no interval was measurable. At 15% or more boatparty reports host contention on stderr. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` means the client repeated the sync after SSH failed before launch. `reattached` means the client recovered the original command's output and result after a disconnect. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
 
 <!-- shape: run -->
 ```json
@@ -412,6 +412,10 @@ Frames, then this result. `exit_code` is the process's exit status; `command_exi
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
   "command": "cargo test --locked",
   "seconds": 5.7,
+  "cpu_steal_percent": 2,
+  "queued_seconds": 0.0,
+  "waited_seconds": 0.0,
+  "recovery": null,
   "prep_seconds": 0.8,
   "warm": true,
   "started_member": false,
@@ -451,6 +455,10 @@ Frames, then the `run` result with `kind` `serve` and the server's settings. The
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
   "command": "npm run dev",
   "seconds": 600.2,
+  "cpu_steal_percent": 2,
+  "queued_seconds": 0.0,
+  "waited_seconds": 0.0,
+  "recovery": null,
   "prep_seconds": 1.4,
   "warm": false,
   "started_member": false,
@@ -471,6 +479,7 @@ Frames, then the `run` result with `kind` `serve` and the server's settings. The
   "forwards": [ { "bind": "127.0.0.1", "listen": 3000, "target": 3000 } ],
   "reverses": [ { "bind": "127.0.0.1", "listen": 20000, "target": 7777 } ],
   "ready_port": 3000,
+  "desktop": false,
   "max_minutes": 120.0,
   "capped": false,
   "ready_seconds": 4.1
@@ -556,6 +565,15 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
   "forward": { "bind": "127.0.0.1", "listen": 15432, "target": 5432 },
   "ready_seconds": 0.6
 }
+```
+
+### desktop
+
+The signed URL grants access to the streamed desktop. `opened` records whether `--open` launched the browser.
+
+<!-- shape: desktop -->
+```json
+{"ok": true, "project": "app", "member": {"name": "bp-app-1", "id": "bx_example"}, "url": "https://example.invalid/desktop", "opened": false}
 ```
 
 ### expose
@@ -854,7 +872,7 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
 
 ## runs.jsonl
 
-`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `run`, `serve` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `run` records add `reattached`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
+`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `run`, `serve` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `queued_seconds`, `waited_seconds`, `recovery`, `cpu_steal_percent`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `run` records add `reattached`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
 
 ## Error codes
 
@@ -887,6 +905,7 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `run_failed` | The runner ended without reporting the command's result |
 | `fetch_failed` | `fetch` could not copy the path back |
 | `port_in_use` | A local port a forward needs is taken |
+| `desktop_failed` | The streaming services failed to start or the local browser failed to open |
 | `hide_failed` | `expose --hide` failed on the sandbox |
 | `prune_failed` | `pool prune` could not delete every candidate |
 | `base_busy`, `base_build_failed`, `base_save_failed` | Another base build runs; the build or the save failed |
