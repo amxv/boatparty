@@ -8,6 +8,11 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## Unreleased
+
+- `run` reattaches to the original command after an SSH drop, preserving output and exit status. A disconnected client has ten minutes to return before the supervisor stops the command group.
+- On Unix, `run` replaces a stale SSH control master that refuses a new session.
+
 ## 0.2.2 - 2026-11-20
 
 - The Windows installer now offers to install missing Git and OpenSSH tools. It also offers the boat CLI for interactive sign-in. Unattended installs can opt in to required tools with `BOATPARTY_PREREQUISITES=Install`.

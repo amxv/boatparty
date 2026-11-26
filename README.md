@@ -74,6 +74,8 @@ boatparty run -- cargo test       # the first run creates the sandbox, later run
 | `stop` | Stop the sandbox now (rarely needed: it stops by itself) |
 | `status`, `limits` | This project's sandboxes; starts left, running sandboxes and usage |
 
+`run` can reconnect to the same command for up to ten minutes after SSH drops. Output resumes where it stopped. Ctrl-C still cancels the command.
+
 Every command has `--help`. The [command reference](https://boatparty.ashray.xyz/docs/commands) covers the rest (`pipe`, `fetch`, `forward`, `expose`, `base`, `pool` and more), and [limits and pools](https://boatparty.ashray.xyz/docs/limits) explains how sandboxes are shared and stopped.
 
 ## Development

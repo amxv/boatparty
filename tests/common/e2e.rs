@@ -90,7 +90,7 @@ impl E2e {
              done\n\
              for a in \"$@\"; do last=\"$a\"; done\n\
              cmd=$(printf '%s' \"$last\" | sed -e 's#/home/user/#{remote}/#g')\n\
-             case \"$cmd\" in *' run app '*) echo ssh-run >> '{events}';; *' settle app '*) echo ssh-settle >> '{events}';; \
+             case \"$cmd\" in *' run app '*|*' attached-run app '*) echo ssh-run >> '{events}';; *' settle app '*) echo ssh-settle >> '{events}';; \
                *' serve app '*) for a in \"$@\"; do [ \"$a\" = \"$last\" ] || printf '%s ' \"$a\"; done | sed 's/^/ssh-serve /' >> '{events}'; echo >> '{events}';; esac\n\
              exec sh -c \"$cmd\"\n",
             remote = self.remote().display(),
@@ -118,6 +118,7 @@ impl E2e {
             .env("BOATPARTY_POLL_MS", "10")
             .env("BOATPARTY_RUNNER_REPO", self.remote().join("app"))
             .env("BOATPARTY_RUNNER_STATE", self.remote().join(".boatparty"))
+            .env("BOATPARTY_RUNNER_JOBS", self.root.path().join("jobs"))
             .env("PATH", path)
             .env_remove("FAKE_SSH_CHECK")
             .env_remove("BOATPARTY_SIGNED_URL_MIN_BYTES");
@@ -142,6 +143,7 @@ impl E2e {
             .env("BOATPARTY_POLL_MS", "10")
             .env("BOATPARTY_RUNNER_REPO", self.remote().join("app"))
             .env("BOATPARTY_RUNNER_STATE", self.remote().join(".boatparty"))
+            .env("BOATPARTY_RUNNER_JOBS", self.root.path().join("jobs"))
             .env("PATH", path)
             .env_remove("FAKE_SSH_CHECK")
             .env_remove("BOATPARTY_SIGNED_URL_MIN_BYTES");

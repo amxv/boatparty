@@ -32,6 +32,8 @@ boatparty run check:rust                      # or the script runner: `bun run c
 
 A name runs its `[commands]` entry; without one it runs `[run] script NAME ARGS` when the project sets a script runner, and otherwise fails with the list of known names. The `ensure` steps (dependency installs) run before the command when their inputs changed, and the `setup` steps after each start.
 
+If SSH drops during `run`, boatparty reconnects for up to ten minutes and continues streaming the same command from its last confirmed stdout and stderr positions. Ctrl-C cancels it. If the client disappears, the sandbox stops the command group after ten minutes. If the command's record is gone, boatparty reports the loss and exits 125. Before launch, a refused SSH session can retry once, including after replacing a stale Unix control master.
+
 `serve` holds a `serve` lease until cancelled, waits until a resumed sandbox has all its files, and carries port forwards on its own SSH connection:
 
 ```bash

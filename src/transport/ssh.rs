@@ -107,6 +107,61 @@ impl SshTarget {
             .status();
     }
 
+    /// Recover a master whose mux channel has refused a session. Only
+    /// unlink the original Unix socket if the inode still matches.
+    #[cfg(unix)]
+    pub fn repair_master(&self) {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+        let query = |args: &[&str]| {
+            self.ssh_connect()
+                .args(args)
+                .arg(&self.alias)
+                .stdin(Stdio::null())
+                .output()
+                .ok()
+        };
+        let socket =
+            query(&["-G"])
+                .and_then(|out| {
+                    String::from_utf8_lossy(&out.stdout)
+                        .lines()
+                        .find_map(|line| line.strip_prefix("controlpath ").map(PathBuf::from))
+                })
+                .and_then(|path| {
+                    let meta = fs::symlink_metadata(&path).ok()?;
+                    (meta.file_type().is_socket() && meta.uid() == crate::system::uid())
+                        .then_some((path, meta.dev(), meta.ino()))
+                });
+        self.close_master();
+        if let Some((path, dev, ino)) = socket {
+            let same =
+                || fs::symlink_metadata(&path).is_ok_and(|m| m.dev() == dev && m.ino() == ino);
+            if same()
+                && let Some(check) = query(&["-O", "check"])
+                && check.status.success()
+            {
+                let msg = String::from_utf8_lossy(&check.stderr);
+                if let Some(pid) = msg
+                    .trim()
+                    .strip_prefix("Master running (pid=")
+                    .and_then(|s| s.strip_suffix(')'))
+                    .and_then(|s| s.parse::<i32>().ok())
+                    .filter(|p| *p > 1)
+                    .and_then(rustix::process::Pid::from_raw)
+                    && same()
+                {
+                    let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+                }
+            }
+            if same() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn repair_master(&self) {}
+
     /// Run a short remote command, opening the master if needed. Returns the
     /// exit status and stderr.
     pub fn run_quiet(&self, remote: &str) -> Result<(i32, String), AppError> {
@@ -129,6 +184,21 @@ impl SshTarget {
         let _ = fs::remove_file(&self.config);
         let _ = fs::remove_file(&self.known_hosts);
     }
+}
+
+/// Local OpenSSH diagnostics emitted when a mux session cannot be opened.
+pub fn mux_failure(stderr: &[u8]) -> bool {
+    cfg!(unix)
+        && [
+            "mm_send_fd",
+            "mux_client_",
+            "Control socket connect",
+            "master hello exchange failed",
+            "read from master failed",
+            "Bad packet length",
+        ]
+        .iter()
+        .any(|marker| String::from_utf8_lossy(stderr).contains(marker))
 }
 
 /// Options for commands that must use the existing control master. A mux

@@ -7,10 +7,8 @@
 //! background when the runner reports the command started; the idle deadline
 //! is set afterwards by a detached helper.
 //!
-//! Retry rule: only an SSH exit of 255 without a trailer, and only when this
-//! invocation did not itself start the member, is run again once from the
-//! top (the usual cause is a member that auto-stopped under a lingering
-//! master). Nothing else is ever re-run.
+//! Before launch permission, an SSH 255 may retry sync once. After permission,
+//! a run reconnects to its nonce and resumes both streams by byte offset.
 
 use std::time::Instant;
 
@@ -141,6 +139,7 @@ struct Ran {
     outcome: RunOutcome,
     digest: String,
     retried: bool,
+    reattached: bool,
     prep_seconds: Option<f64>,
     /// A setup or ensure step that failed, so the command did not run
     /// (`ensure.<name>`).
@@ -285,6 +284,9 @@ impl Run<'_> {
         let exit = cancelled.unwrap_or_else(|| exit_byte(status.unwrap_or(125)));
         self.record["exit_code"] = json!(status);
         self.record["cancelled"] = json!(cancelled.is_some());
+        if self.serve.is_none() {
+            self.record["reattached"] = json!(ran.reattached);
+        }
         self.record["retried"] = json!(ran.retried);
         self.record["prep_seconds"] = json!(ran.prep_seconds);
         self.record["pack_bytes"] = json!(ran.outcome.pack_bytes);
@@ -396,6 +398,8 @@ impl Run<'_> {
                 failed_step: None,
                 serve: self.serve.as_ref(),
                 ready_seconds: None,
+                reattached: false,
+                mux_refused: false,
             };
             let outcome = match &self.serve {
                 Some(serve) => sync::serve_command_with(
@@ -407,24 +411,51 @@ impl Run<'_> {
                     &mut sink,
                     &probe,
                 )?,
-                None => sync::run_command_with(
+                None => sync::mirror::detached_command(
                     &host,
                     &request,
                     &self.line,
                     credentials,
                     &mut sink,
                     &probe,
+                    &|| {
+                        if matches!(conn.target.run_quiet("true"), Ok((0, _))) {
+                            return Ok(true);
+                        }
+                        conn.target.repair_master();
+                        if matches!(conn.target.run_quiet("true"), Ok((0, _))) {
+                            return Ok(true);
+                        }
+                        // The existing lease remains with this process through retries.
+                        let restored = WorkspaceContext::open(self.ctx).and_then(|wctx| {
+                            wctx.pool(self.ctx)
+                                .bring_up(wctx.bring_up_options(true), None)
+                        });
+                        let Ok(restored) = restored else {
+                            return Ok(false);
+                        };
+                        if restored.member.id != conn.member.id {
+                            return Err(AppError::new(
+                                "run_failed",
+                                "command lost: the sandbox was replaced",
+                            ));
+                        }
+                        Ok(true)
+                    },
                 )?,
             };
             let started = sink.started;
             let prep_seconds = started.map(|at| round(at.duration_since(self.began).as_secs_f64()));
             let failed_step = sink.failed_step.take();
             let ready_seconds = sink.ready_seconds;
+            let reattached = sink.reattached;
+            let mux_refused = sink.mux_refused;
             let ran = |outcome| Ran {
                 outcome,
                 digest: digest.clone(),
                 retried,
                 prep_seconds,
+                reattached,
                 failed_step: failed_step.clone(),
                 capped: probe.fired(),
                 ready_seconds,
@@ -435,10 +466,20 @@ impl Run<'_> {
                 // A server is started again only if it never started.
                 RunEnd::Lost { status: Some(255) }
                     if !retried
-                        && !conn.started_member
+                        && (!conn.started_member || mux_refused)
                         && interrupts.exit_status().is_none()
                         && (self.serve.is_none() || started.is_none()) =>
                 {
+                    if mux_refused {
+                        conn.target.repair_master();
+                        if matches!(conn.target.run_quiet("true"), Ok((0, _))) {
+                            stream.note(
+                                "replaced a stale SSH control master before the command started",
+                            );
+                            retried = true;
+                            continue;
+                        }
+                    }
                     stream.note(format_args!(
                         "the connection to {} ended without a result (ssh exit 255); reconnecting and running the command again",
                         conn.member.name
@@ -592,6 +633,9 @@ impl Run<'_> {
                 result["capped"] = json!(ran.capped);
                 result["ready_seconds"] = json!(ran.ready_seconds);
             }
+            if self.serve.is_none() {
+                result["reattached"] = json!(ran.reattached);
+            }
             stream.result(result);
             return;
         }
@@ -644,6 +688,8 @@ impl Run<'_> {
 /// Starts the heartbeat when the runner says the command started, and
 /// remembers when that was.
 struct StartWatch<'a> {
+    reattached: bool,
+    mux_refused: bool,
     stream: &'a mut Stream,
     paths: &'a crate::paths::Paths,
     id: String,
@@ -670,6 +716,13 @@ impl Sink for StartWatch<'_> {
     }
 
     fn event(&mut self, name: &str) {
+        if name == "mux-refused" {
+            self.mux_refused = true;
+            return;
+        }
+        if name == "reattached" {
+            self.reattached = true;
+        }
         // Steps (dependency installs) can take longer than the auto-stop
         // deadline, so the heartbeat starts with them.
         if (name == "started" || name == "preparing") && self.heartbeat.is_none() {

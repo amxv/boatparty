@@ -195,7 +195,7 @@ t+15s wrapper[12037]: 1 Ss 16 parent=systemd | child[12041]: 12037 S | eof: EOF 
 
 (The two clocks are not synchronized. The remote EOF came about 0.15 s after the local kill, roughly one network leg.)
 
-**Conclusion:** in both modes the remote `read` saw end of file within about 0.15 s of the SIGKILL, and the remote process kept running for the whole 15 s, because nothing remote reacts by itself. On the shared master the wrapper stays a child of the connection's `sshd`. On a dedicated connection `sshd` exits and the wrapper is reparented to PID 1 immediately. So stdin EOF is a reliable death signal on the shared master, but only if the runner watches stdin and kills the command's process group. That rules out sending the user's stdin to the command on the same channel, as `pipe` does.
+**Conclusion:** in both modes the remote `read` saw end of file within about 0.15 s of the SIGKILL, and the remote process kept running for the whole 15 s, because nothing remote reacts by itself. On the shared master the wrapper stays a child of the connection's `sshd`. On a dedicated connection `sshd` exits and the wrapper is reparented to PID 1 immediately. The runner uses stdin EOF to stop attached services and piped commands. For `run`, EOF ends the attachment. The client renews a ten-minute lease over stdin and can send an explicit cancel. The detached supervisor kills the command group when the lease expires. Output files live under a private directory in `/tmp`, outside the home mount that boat replaces during restore. The client resumes each stream at its last confirmed byte. A replacement machine loses those records along with its processes (see section 4).
 
 ## 4. What survives a new machine
 

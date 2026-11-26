@@ -165,8 +165,33 @@ pub fn run_command_with(
         command,
         credentials,
         kind: RunKind::Run,
+        reconnect: None,
     };
     run_input(host, request, &run, sink, cancel)
+}
+
+/// A CLI run has a bounded disconnected lifetime and can resume its stream.
+pub fn detached_command(
+    host: &dyn RunnerHost,
+    request: &MirrorRequest<'_>,
+    command: &str,
+    credentials: &RunCredentials,
+    sink: &mut dyn Sink,
+    cancel: &dyn CancelProbe,
+    reconnect: &dyn Fn() -> Result<bool, AppError>,
+) -> Result<RunOutcome, AppError> {
+    run_input(
+        host,
+        request,
+        &RunInput {
+            command,
+            credentials,
+            kind: RunKind::Run,
+            reconnect: Some(reconnect),
+        },
+        sink,
+        cancel,
+    )
 }
 
 /// [`run_command_with`] for a server: the runner's `serve` mode marks it as
@@ -187,6 +212,7 @@ pub fn serve_command_with(
         command,
         credentials,
         kind: RunKind::Serve { ready_port },
+        reconnect: None,
     };
     run_input(host, request, &run, sink, cancel)
 }
@@ -346,6 +372,7 @@ struct RunInput<'a> {
     command: &'a str,
     credentials: &'a RunCredentials,
     kind: RunKind,
+    reconnect: Option<&'a dyn Fn() -> Result<bool, AppError>>,
 }
 
 /// Which runner mode carries the command.
@@ -642,7 +669,8 @@ fn attempt(
     let spec = host.spec_hash().unwrap_or_else(|| NO_SPEC.to_string());
     let mode = match command.map(|run| run.kind) {
         None => "sync",
-        Some(RunKind::Run) => "run",
+        Some(RunKind::Run) if command.is_some_and(|run| run.reconnect.is_some()) => "run",
+        Some(RunKind::Run) => "attached-run",
         Some(RunKind::Serve { .. }) => "serve",
     };
     let mut args: Vec<String> = [
@@ -672,20 +700,20 @@ fn attempt(
         header.extend_from_slice(refs_text(request.refs).as_bytes());
     }
     header.push(b'\n');
-    let exchange = exchange::run(
-        host,
-        Spec {
-            args,
-            nonce,
-            header,
-            pack: route.input,
-            root: &request.info.root,
-            hold_stdin: command.is_some(),
-            input: None,
-        },
-        sink,
-        cancel,
-    )?;
+    let invocation = Spec {
+        args,
+        nonce,
+        header,
+        pack: route.input,
+        root: &request.info.root,
+        hold_stdin: command.is_some(),
+        input: None,
+    };
+    let exchange = if let Some(reconnect) = command.and_then(|run| run.reconnect) {
+        super::detached::run(host, invocation, sink, cancel, reconnect)?
+    } else {
+        exchange::run(host, invocation, sink, cancel)?
+    };
     Ok(Attempt {
         exchange,
         uploaded: route.uploaded,

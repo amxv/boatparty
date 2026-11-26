@@ -11,6 +11,7 @@
 //! branch, tag and the default remote branch with their history.
 
 pub mod credentials;
+mod detached;
 pub mod exchange;
 pub mod hold;
 pub mod mirror;

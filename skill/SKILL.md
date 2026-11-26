@@ -41,6 +41,9 @@ boatparty limits                      # starts, running sandboxes, caps
 - `run` exits with the command's own status. **Exit 125 means boatparty or
   the sandbox failed, not the command**: retry once, then report it as an
   infrastructure problem, never as a failing test.
+- A dropped SSH session during `run` reconnects for up to ten minutes.
+  Output resumes at the last received byte. If the command is reported lost,
+  check for side effects before repeating it.
 - stdout is the command's, byte for byte. boatparty's own messages go to
   stderr as `boatparty: ...`. `--json` (before the command) gives JSON instead.
 - Edit locally; the next `run` syncs. Ignored files never leave this

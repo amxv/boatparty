@@ -29,7 +29,18 @@
 #                         serve also "ready")
 #   trailer, always last: "\n<nonce> <exit-code> <resulting-tree> <patch-bytes>\n"
 #   or, with exit 97:     "\n<nonce> needfull\n"
-# Everything else on stderr, and all of stdout, passes through untouched.
+# In attached modes everything else on stderr and all stdout pass through.
+# run syncs first, emits !armed, and reads "go" before starting supervise in
+# a new session. The worker runs preparation, the command and finish. run
+# and reattach <nonce> <out-offset> <err-offset> stream two captured files
+# on stdout as frames (u8 kind, u32 big-endian length, payload). Kinds 0
+# and 1 carry stdout and raw stderr including the above events/trailer. Kind
+# 3 confirms attachment. Kind 2 ends both streams after the final byte.
+# A client commits offsets after whole frames, preserves the stderr frame
+# parser between connections, renews the lease with H, and cancels with C
+# (or cancel-run <nonce>). EOF detaches. After 10 minutes without renewal
+# the supervisor stops the group. Exit 98 means this job cannot be recovered.
+# attached-run (builder), serve and pipe retain their stdin EOF watchers.
 #
 # Tests run this script locally: BOATPARTY_RUNNER_REPO and
 # BOATPARTY_RUNNER_STATE replace the checkout and state directories;

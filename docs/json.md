@@ -396,7 +396,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 
 ### run
 
-Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` that it ran again under the ssh-255 rule. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
+Frames, then this result. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` means the client repeated the sync after SSH failed before launch. `reattached` means the client recovered the original command's output and result after a disconnect. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
 
 <!-- shape: run -->
 ```json
@@ -416,6 +416,7 @@ Frames, then this result. `exit_code` is the process's exit status; `command_exi
   "warm": true,
   "started_member": false,
   "retried": false,
+  "reattached": false,
   "pack_bytes": 1210,
   "pack_route": "ssh",
   "upload_fallback": null,
@@ -434,7 +435,7 @@ Frames, then this result. `exit_code` is the process's exit status; `command_exi
 
 ### serve
 
-Frames, then the `run` result with `kind` `serve` and the server's settings. `forwards` and `reverses` list the port forwards; `capped` is true when `--max-minutes` stopped the server; `ready_seconds` is when `--ready-port` started listening.
+Frames, then the `run` result with `kind` `serve` and the server's settings. The `reattached` field applies only to `run`. `forwards` and `reverses` list the port forwards; `capped` is true when `--max-minutes` stopped the server; `ready_seconds` is when `--ready-port` started listening.
 
 <!-- shape: serve -->
 ```json
@@ -853,7 +854,7 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
 
 ## runs.jsonl
 
-`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `run`, `serve` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
+`~/.local/state/boatparty/runs.jsonl` holds one JSON object per finished `run`, `serve` and `pipe`, appended; `log` returns them. It never holds credentials or `pipe` input. Common fields: `at` (RFC 3339), `kind` (`run`, `serve` or `pipe`), `command`, `project`, `workspace`, `member`, `sandbox`, `exit_code` (`null` when the command reported none), `error` (an error code, when boatparty failed), `cancelled`, `seconds`, `git_identity`, `github_token`. `run` and `serve` records add `name` (the `[commands]` name, if one was used), `warm`, `started_member`, `retried`, `prep_seconds`, `pack_bytes`, `pack_route`, `seed_route`, `seed_fallback`, `copy_back` (the status word) and `failed_step`; `run` records add `reattached`; `serve` records add `capped` and `ready_seconds`; `pipe` records add `input_bytes`.
 
 ## Error codes
 

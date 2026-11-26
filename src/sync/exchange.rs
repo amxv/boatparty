@@ -92,6 +92,7 @@ pub struct Spec<'a> {
 
 /// What the writer thread is told after the header and the pack.
 enum Feed {
+    Control(&'static [u8]),
     /// A chunk of the caller's input, and the count of input bytes queued
     /// for the writer, which it lowers once the chunk is written.
     Data(Vec<u8>, Arc<AtomicUsize>),
@@ -211,6 +212,7 @@ pub fn run(
         cancel,
         &close_tx,
         go,
+        spec.args[0].as_str(),
     );
     let mut tail = sniffer.pass(&filter.end());
     tail.extend(sniffer.finish());
@@ -261,7 +263,10 @@ fn watch(
     cancel: &dyn CancelProbe,
     close: &Sender<Feed>,
     mut go: Option<Sender<()>>,
+    mode: &str,
 ) -> Watch {
+    let detached = matches!(mode, "run" | "reattach");
+    let mut renewal = (mode == "reattach").then(Instant::now);
     let mut open = 2;
     let mut exited_at: Option<Instant> = None;
     let mut trailer_at: Option<Instant> = None;
@@ -283,6 +288,10 @@ fn watch(
                             }
                         }
                         Piece::Event(name) => {
+                            if detached && name == "armed" && !result.cancelled {
+                                renewal = Some(Instant::now());
+                                let _ = close.send(Feed::Control(b"go\n"));
+                            }
                             if name == "started"
                                 && let Some(go) = go.take()
                             {
@@ -300,12 +309,23 @@ fn watch(
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
+        if let Some(at) = renewal.as_mut()
+            && at.elapsed() >= Duration::from_millis(500)
+            && !result.cancelled
+        {
+            let _ = close.send(Feed::Control(b"H"));
+            *at = Instant::now();
+        }
         match cancel.state() {
             CancelState::None => {}
             CancelState::Soft if cancel_at.is_none() => {
                 result.cancelled = true;
                 cancel_at = Some(Instant::now());
-                let _ = close.send(Feed::Close);
+                if detached {
+                    let _ = close.send(Feed::Control(b"C\n"));
+                } else {
+                    let _ = close.send(Feed::Close);
+                }
             }
             CancelState::Soft => {}
             CancelState::Hard => {
@@ -463,6 +483,12 @@ fn spawn_writer(
             let mut queued: Option<Arc<AtomicUsize>> = None;
             while let Ok(feed) = hold.recv() {
                 let frame = match feed {
+                    Feed::Control(bytes) => {
+                        if stdin.write_all(bytes).and_then(|()| stdin.flush()).is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     Feed::Data(bytes, count) => {
                         queued = Some(count);
                         frame(&bytes)

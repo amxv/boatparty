@@ -55,7 +55,7 @@ finish() {
   trailer "$nonce" "$rc" "$after" "$bytes"
 }
 
-# run <nonce> <pack: 0|1|@name> <wip> <head> <branch or ""> <refs: send|keep> <history: head|full> <spec> <command>
+# attached-run / supervise <nonce> <pack: 0|1|@name> <wip> <head> <branch or ""> <refs: send|keep> <history: head|full> <spec> <command>
 #
 # stdin starts with the build credentials block ("git-name <name>",
 # "git-email <email>", "github-token <token>", each optional, then an empty
@@ -70,7 +70,7 @@ finish() {
 # code and the event "failed-step <section>.<name>"; the command does not
 # run.
 #
-# stdin stays open for as long as the client wants the command: end of file
+# In attached-run and serve, stdin stays open for as long as the client wants the command: end of file
 # (the client closed it, or the client died and its SSH channel closed)
 # terminates the command's process group. On a shared SSH master that is the
 # only sign of a dead client; the session itself survives it.
@@ -91,7 +91,7 @@ mode_run() {
   # A server may outlive a day; its marker stays while it runs.
   find "$state/out" -maxdepth 1 -type f ! -name '*.serve' -mmin +1440 -delete 2>/dev/null || true
   prune_serve_markers
-  receive "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+  if [[ "$mode" != supervise ]]; then receive "$1" "$2" "$3" "$4" "$5" "$6" "$7"; fi
   cd "$repo"
   apply_identity
   apply_env
@@ -120,7 +120,11 @@ mode_run() {
   exec 8<&0
   printf '\n%s!started\n' "$nonce" >&2
   # A session of its own, so a cancel can signal the whole process group.
-  perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- &
+  if [[ "$mode" == supervise ]]; then
+    bash -c "$command" </dev/null 8<&- &
+  else
+    perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' bash -c "$command" </dev/null 8<&- &
+  fi
   pid=$!
   printf '%s\n' "$pid" >"$state/out/$nonce.pid"
   if [[ "$serve_mode" == 1 ]]; then
@@ -130,22 +134,21 @@ mode_run() {
       ready=$!
     fi
   fi
-  (
-    # Read until end of file; nothing is sent after the pack.
-    while IFS= read -r -d '' ignored <&8; do :; done
-    : >"$state/out/$nonce.cancelled"
-    kill_group "$pid"
-  ) </dev/null >/dev/null 2>&1 &
-  watcher=$!
+  if [[ "$mode" != supervise ]]; then
+    (
+      # Read until end of file; nothing is sent after the pack.
+      while IFS= read -r -d '' ignored <&8; do :; done
+      : >"$state/out/$nonce.cancelled"
+      kill_group "$pid"
+    ) </dev/null >/dev/null 2>&1 &
+    watcher=$!
+  fi
   exec 8<&-
   # Quietly: bash would report a job killed by a signal on stderr.
   { wait "$pid"; } 2>/dev/null || rc=$?
-  if [[ -e "$state/out/$nonce.cancelled" ]]; then
-    # It is stopping the group: let it finish, so whatever ignored TERM in
-    # the group still gets KILL.
-    wait "$watcher" 2>/dev/null || true
-  else
-    kill "$watcher" 2>/dev/null || true
+  if [[ "$mode" != supervise ]]; then
+    if [[ ! -e "$state/out/$nonce.cancelled" ]]; then kill "$watcher" 2>/dev/null || true; fi
+    # During cancellation the watcher finishes TERM/KILL escalation.
     wait "$watcher" 2>/dev/null || true
   fi
   if [[ -n "$ready" ]]; then
@@ -207,7 +210,11 @@ mode_settle() {
 
 case "$mode" in
   sync) mode_sync "$@" ;;
-  run) mode_run "$@" ;;
+  run) mode_detach "$@" ;;
+  attached-run) mode_run "$@" ;;
+  supervise) CHECKOUT_CHANGED="$BOATPARTY_CHECKOUT_CHANGED"; unset BOATPARTY_CHECKOUT_CHANGED; mode_run "$@" ;;
+  reattach) stream_job "$@" ;;
+  cancel-run) run_directory "$1"; [[ ! -d "$job" ]] || touch "$job/cancel" ;;
   serve)
     serve_mode=1
     mode_run "$@"

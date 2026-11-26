@@ -31,6 +31,7 @@ pub const SCRIPT: &str = concat!(
     include_str!("script/sync.sh"),
     include_str!("script/serve.sh"),
     include_str!("script/pipe.sh"),
+    include_str!("script/detached.sh"),
     include_str!("script/run.sh"),
 );
 
@@ -332,6 +333,7 @@ mod tests {
             include_str!("script/sync.sh"),
             include_str!("script/serve.sh"),
             include_str!("script/pipe.sh"),
+            include_str!("script/detached.sh"),
             include_str!("script/run.sh"),
         ];
         // Each part ends a line, so no line runs into the next part.

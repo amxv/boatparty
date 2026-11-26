@@ -339,7 +339,7 @@ fn end_of_stdin_terminates_the_commands_whole_process_group() {
     );
     let mut runner = host
         .command(&[
-            "run".into(),
+            "attached-run".into(),
             "app".into(),
             "ndeath".into(),
             "0".into(),
