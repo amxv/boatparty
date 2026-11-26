@@ -10,7 +10,7 @@ summary: User-facing release history.
 
 Every boatparty release, newest first, with what changed for users and anything to do when upgrading. To upgrade, run the installer again (see [Installation](/docs/installation#upgrading)).
 
-## Unreleased
+## 0.5.2 - 2026-11-27
 
 - Projects without a configured sandbox environment no longer warn about drift when a member is on boat's default environment (`base` v1).
 
