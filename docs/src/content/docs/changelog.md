@@ -8,7 +8,7 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
-## Unreleased
+## 0.5.0 - 2026-11-26
 
 - Discover running serve forwards from another process with `boatparty url [REMOTEPORT]` or `status`. Duplicate serves report the existing port holder.
 - Runs sharing a workspace serialize through copy-back. Sync and serve startup wait for an active run. Manual sync can still update a running dev server.
