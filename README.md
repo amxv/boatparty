@@ -1,88 +1,138 @@
 # boatparty
 
-**Work here. Run afloat.** boatparty lets coding agents, and you, run a Git project's builds, tests and dev servers on warm [boat.dev](https://boat.dev) Linux sandboxes instead of the laptop. Several agents can compile, test and serve in parallel, each in its own sandbox, without melting the machine they run on.
+**Work here. Run afloat.** boatparty runs your Git project's builds, tests and dev servers on warm [boat.dev](https://boat.dev) Linux sandboxes instead of your laptop. You keep editing locally; boatparty mirrors your working tree, runs the command remotely with live output and its real exit code, and brings any changed files back.
 
 ```bash
 boatparty run -- cargo test --locked
 ```
 
-That one command mirrors your working tree to the sandbox, runs the command there with live output, exits with the command's real exit code, and brings any files it changed back to your checkout. The sandbox stays warm for the next command and stops by itself when you go quiet.
+It was built for people working with several coding agents at once: every Git worktree gets its own warm sandbox from a small per-project pool, so agents can compile, test and serve in parallel while your computer stays cool.
 
-**Docs: [boatparty.ashray.xyz](https://boatparty.ashray.xyz)**
+**Documentation: [boatparty.ashray.xyz/docs](https://boatparty.ashray.xyz/docs)**
 
 boatparty is for [boat.dev](https://boat.dev) users: it needs a boat account and drives boat's API. Other sandbox providers are not supported.
 
-## Built for coding agents
+## Why boatparty
 
-- **Parallel without the heat.** Every checkout (an agent's worktree) gets its own sandbox from the project's pool, so agents run compiles, test suites and servers side by side on Linux x86_64 (Ubuntu 24.04) while the laptop stays cool.
-- **Exit codes you can trust.** `125` means boatparty or the sandbox failed, never your tests; any other status is the command's own.
-- **Output untouched.** stdout is the command's, byte for byte; boatparty's own messages go to stderr.
-- **`--json` everywhere,** with a documented contract ([`docs/json.md`](docs/json.md)).
-- **Secrets on stdin.** `boatparty pipe` feeds a command input that never reaches an argument list, a log or a file.
-- **A ready-made skill.** `boatparty skill` writes a skill that teaches an agent how to use boatparty.
+- **Warm by default.** Each checkout keeps its own sandbox, with dependencies installed and build outputs kept between commands. Only changed files are synced, and on a warm sandbox nothing talks to boat's API before your command starts, so a warm command often takes about a second.
+- **Feels local.** Output streams live, stdout is passed through byte for byte, and files the command changes (formatter edits, lockfiles, generated code) come back to your working tree.
+- **Exit codes you can trust.** You get the command's own exit status. `125` always means boatparty or the sandbox failed, never your tests.
+- **Made for agents.** `--json` on every command with a tested contract, secrets on stdin with `pipe`, safe sharing of one checkout between agents, and a ready-made agent skill.
+- **Careful with your account.** Sandboxes stop by themselves 5 minutes after the last command and keep their disk. Pools are capped, and every sandbox start goes through one ledger that respects boat's start limits. One file, `~/.config/boatparty/account.toml`, holds every limit for every project.
+- **Recovers on its own.** Runs reconnect after an SSH drop and resume their output; stuck sandboxes are restarted from a snapshot or replaced.
 
-## Why else
+## How a run works
 
-- **Warm by default.** Each checkout keeps its own sandbox, with dependencies installed and build outputs kept. Only files whose content changed are synced, and when the sandbox is up, nothing talks to boat before your command starts.
-- After a create or resume, `run` waits for file restore and reports progress. A stuck member gets a snapshot restart when possible before replacement. A degraded provider tunnel still permits direct SSH.
-- **Cheap when idle.** A sandbox stops 5 minutes after its last command and keeps its disk. Every project gets a capped pool, and one file, `~/.config/boatparty/account.toml`, holds every limit for every project, including the account's scarce sandbox starts.
+```mermaid
+flowchart LR
+    A["boatparty run -- npm test"] --> B["Lease this checkout's<br/>sandbox from the pool"]
+    B --> C["Sync changed files<br/>(thin Git pack)"]
+    C --> D["Install deps if the<br/>lockfile changed"]
+    D --> E["Run with live output"]
+    E --> F["Copy changed files back,<br/>exit with the command's status"]
+    F --> G["Sandbox stops after<br/>5 idle minutes"]
+```
 
 ## Install
 
-macOS or Linux, with `ssh`, `ssh-keygen` and `git` on `PATH`:
+**macOS or Linux** (arm64 or x86_64), with `git`, `ssh` and `ssh-keygen` on `PATH`:
 
 ```bash
 curl -fsSL https://boatparty.ashray.xyz/install.sh | sh
 ```
 
-This installs `boatparty` into `~/.local/bin`, checked against the release's `SHA256SUMS`. Run it again to upgrade; `| sh -s -- --version v0.2.0` installs a given release.
+This installs `boatparty` into `~/.local/bin`, verified against the release's `SHA256SUMS`. Run it again to upgrade.
 
-On Windows x64 or Arm64, run this in PowerShell:
+**Windows** (x64 or Arm64), in PowerShell:
 
 ```powershell
 irm https://boatparty.ashray.xyz/install.ps1 | iex
 ```
 
-The installer offers to install missing Git and OpenSSH tools and, optionally, the boat CLI for sign-in. It verifies the ZIP against the release checksums, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, and adds that directory to your user PATH.
+The Windows installer verifies the download, installs `boatparty.exe` in `%LOCALAPPDATA%\boatparty\bin`, adds it to your `PATH`, and offers to install Git for Windows, the OpenSSH Client and the boat CLI if they are missing.
 
-## First run
+More options (versions, directories, unattended installs): [Installation](https://boatparty.ashray.xyz/docs/installation).
 
-With the [boat CLI](https://docs.boat.dev) installed and signed in, create and store a boat API key with exactly the permissions boatparty needs. The key passes from boat to boatparty through a pipe, so it never lands in an argument list or your shell history:
+## Quick start
+
+With the [boat CLI](https://docs.boat.dev) installed and signed in:
 
 ```bash
-boatparty login --create-key
+boatparty login --create-key   # create a scoped boat API key and store it (it never touches argv or history)
+boatparty doctor               # check tools, key and permissions; prints a fix for every failure
 ```
-
-(A key you already have: `... | boatparty login --key-stdin`.)
 
 Then, in a Git repository with at least one commit:
 
 ```bash
-boatparty doctor                  # checks tools, key and scope; prints a fix for each failure
-boatparty init                    # writes boatparty.toml for the detected stack
-boatparty run -- cargo test       # the first run creates the sandbox, later runs reuse it warm
+boatparty init                 # write boatparty.toml for the detected stack (commit it)
+boatparty run test             # the first run creates the sandbox; later runs reuse it warm
 ```
 
-## The commands that matter
+```text
+boatparty: creating bp-hello-api-1 (default machine)
+boatparty: ensure npm-install (first run)
+...
+✔ greets by name (0.445502ms)
+✔ greets the crew (0.107676ms)
+boatparty: applied the command's changes locally: package-lock.json
+boatparty: bp-hello-api-1 (bx_d5zd8s2j) exit 0 in 8.7s (prep 8.1s, 0% CPU steal, started the sandbox)
+```
+
+The full walkthrough: [Your first run](https://boatparty.ashray.xyz/docs/getting-started).
+
+## A short tour
+
+```bash
+# Run commands: an argument list, a shell line, or a name from boatparty.toml
+boatparty run -- cargo test --locked
+boatparty run --sh 'cargo test 2>&1 | tail -n 20'
+boatparty run lint
+
+# Run a dev server and open it on localhost
+boatparty serve --forward auto:3000 -- npm run dev
+boatparty url 3000                       # from another terminal or agent: http://localhost:51824
+boatparty sync                           # push local edits to the running server
+
+# Check exactly what you committed, on a dedicated sandbox
+boatparty gate
+
+# Secrets go on stdin, never in a command line
+printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
+boatparty secret set --create DATABASE_URL < database-url.txt
+
+# Look around
+boatparty status                         # this project's sandboxes and servers
+boatparty limits                         # starts left, running sandboxes, costs
+boatparty log                            # recent runs
+boatparty shell                          # a shell on the sandbox
+
+# Teach a coding agent
+boatparty skill                          # writes a SKILL.md and prints its path
+```
 
 | Command | Does |
 | --- | --- |
 | `run` | Sync, run one command, stream its output, return its exit code, bring its changes back |
-| `desktop [--open]` | Start the streamed desktop and print or open its private link |
-| `gate [--commit REV]` | Check a commit on a dedicated warm sandbox and save edits as a patch |
-| `serve` | Run a long-lived process, such as a dev server, with port forwards |
-| `serve --desktop` | Run a GUI application in the sandbox desktop session |
-| `shell` | Open a shell in the sandbox's checkout, or run one command there without syncing |
-| `sync` | Sync the working tree only |
-| `start` | Start this checkout's sandbox: create or resume it |
-| `stop` | Stop the sandbox now (rarely needed: it stops by itself) |
-| `status`, `limits` | This project's sandboxes; starts left, running sandboxes and usage |
+| `serve` | Run a dev server with port forwards until cancelled |
+| `url` | Print the local URL of a server running in this checkout |
+| `gate` | Check a committed revision on a dedicated warm sandbox |
+| `shell`, `pipe`, `fetch` | A shell or one command without syncing; a command fed from stdin; copy a file back |
+| `sync`, `start`, `stop` | Sync only; start the sandbox now; stop it now (rarely needed) |
+| `expose`, `forward`, `desktop` | A public HTTPS URL; a standalone port forward; the streamed Linux desktop |
+| `secret`, `env` | Project secrets in a boat environment, and keeping sandboxes on the latest version |
+| `base` | A saved snapshot new sandboxes start from, dependencies already built |
+| `status`, `pool`, `limits`, `log`, `doctor` | What is running, what is left, what ran, what is wrong |
 
-`run` can reconnect to the same command for up to ten minutes after SSH drops. Output resumes where it stopped. Ctrl-C still cancels the command.
+Every command has `--help`, and the [command reference](https://boatparty.ashray.xyz/docs/commands) covers every flag.
 
-Every command has `--help`. The [command reference](https://boatparty.ashray.xyz/docs/commands) covers the rest (`pipe`, `fetch`, `forward`, `expose`, `base`, `pool` and more), and [limits and pools](https://boatparty.ashray.xyz/docs/limits) explains how sandboxes are shared and stopped.
+## Documentation
 
-Set `[gate] command` in the committed `boatparty.toml` to choose the default check, or run `boatparty gate -- make check`. For projects with a saved base, `[base] auto_refresh = true` lets new sandboxes trigger a background rebuild when the base is stale.
+- **Start:** [What is boatparty?](https://boatparty.ashray.xyz/docs/overview) · [Installation](https://boatparty.ashray.xyz/docs/installation) · [Your first run](https://boatparty.ashray.xyz/docs/getting-started) · [Using boatparty with coding agents](https://boatparty.ashray.xyz/docs/coding-agents)
+- **Concepts:** [How it works](https://boatparty.ashray.xyz/docs/how-it-works) · [Sync and copy-back](https://boatparty.ashray.xyz/docs/sync-and-copy-back) · [Pools and leases](https://boatparty.ashray.xyz/docs/pools-and-leases) · [Starts, limits and costs](https://boatparty.ashray.xyz/docs/limits) · [Reliability and recovery](https://boatparty.ashray.xyz/docs/reliability)
+- **Guides:** [Running commands](https://boatparty.ashray.xyz/docs/running-commands) · [Dev servers, ports and URLs](https://boatparty.ashray.xyz/docs/dev-servers-and-urls) · [Sharing a workspace](https://boatparty.ashray.xyz/docs/sharing-a-workspace) · [Gate](https://boatparty.ashray.xyz/docs/gate) · [Base snapshots](https://boatparty.ashray.xyz/docs/bases) · [Secrets and environments](https://boatparty.ashray.xyz/docs/secrets-and-environments) · [GitHub access](https://boatparty.ashray.xyz/docs/github-access) · [Desktop](https://boatparty.ashray.xyz/docs/desktop) · [Windows](https://boatparty.ashray.xyz/docs/windows) · [Troubleshooting](https://boatparty.ashray.xyz/docs/troubleshooting)
+- **Reference:** [Commands](https://boatparty.ashray.xyz/docs/commands) · [boatparty.toml](https://boatparty.ashray.xyz/docs/configuration) · [Presets and steps](https://boatparty.ashray.xyz/docs/presets) · [account.toml](https://boatparty.ashray.xyz/docs/account-file) · [JSON output](https://boatparty.ashray.xyz/docs/json) · [Exit codes](https://boatparty.ashray.xyz/docs/exit-codes) · [Files and variables](https://boatparty.ashray.xyz/docs/files-and-variables)
+- **Project:** [Releases and builds](https://boatparty.ashray.xyz/docs/releases) · [Changelog](https://boatparty.ashray.xyz/docs/changelog)
 
 ## Development
 
@@ -94,18 +144,3 @@ just remote-test pipe    # cargo test with a filter
 ```
 
 [`AGENTS.md`](AGENTS.md) has the module map and conventions, [`docs/json.md`](docs/json.md) the `--json` contract, and [`docs/boat-facts.md`](docs/boat-facts.md) the measured boat behavior the design relies on. The docs site lives in [`docs/`](docs/).
-
-## Sharing a workspace between agents
-
-Start a dev server with `boatparty serve --forward auto:3000 -- npm run dev`. From the same worktree, `boatparty url 3000` prints its local URL, such as `http://localhost:51824`. By default the forward listens on both `127.0.0.1` and `::1` when IPv6 is available. If no running serve matches, `url` exits 1. Use `boatparty url` to list all serve forwards or `boatparty status` to see them by member.
-
-Runs in one workspace wait their turn through copy-back. Manual `sync` and new serves wait during a run. Once a server starts, use `boatparty sync` to send edits to it. A second serve claiming the same sandbox port reports the existing holder. Gate uses its own member. Stop and release refuse a member with a live lease.
-
-## Working with project environments and local servers
-
-- Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.
-- Inspect member pins with `env status` and upgrade selected members with `env apply [MEMBER|--all]`. Status, pool, run and serve flag stale environments.
-- Built-in presets skip empty checkouts. Ensure supports `requires` and honors a passing first check.
-- `serve --forward auto:PORT` and `forward PORT --local auto` choose a free local port. Serve exports `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` before expanding `[run.env]`.
-- Seed gate files with `pipe --gate` and inspect them with `shell --gate`.
-- Creating or resuming a member prints one notice per project per UTC day when included VM time is exhausted.
