@@ -8,7 +8,7 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
-## Unreleased
+## 0.4.0 - 2026-11-26
 
 - Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.
 - Inspect member pins with `env status` and upgrade selected members with `env apply [MEMBER|--all]`. Status, pool, run and serve flag stale environments.
