@@ -43,6 +43,10 @@ pub struct RunnerSpec {
 impl RunnerSpec {
     /// The spec for a project's effective configuration.
     pub fn new(config: &Config) -> Self {
+        Self::with_env(config, Vec::new())
+    }
+
+    pub fn with_env(config: &Config, mut extra: Vec<String>) -> Self {
         let mut out = String::from(
             "# boatparty RunnerSpec, generated from the resolved boatparty.toml.\n\
              # Data only; the runner sources it. Do not edit.\n",
@@ -66,7 +70,8 @@ impl RunnerSpec {
             .iter()
             .flat_map(|(name, value)| [name.clone(), value.clone()])
             .collect();
-        array(&mut out, "bp_env", &env);
+        extra.extend(env);
+        array(&mut out, "bp_env", extra);
 
         let setup = &config.setup;
         array(&mut out, "bp_setup_names", setup.iter().map(|s| &s.name));
@@ -78,6 +83,11 @@ impl RunnerSpec {
         array(&mut out, "bp_setup_runs", setup.iter().map(|s| &s.run));
 
         let ensure = &config.ensure;
+        array(
+            &mut out,
+            "bp_ensure_requires",
+            ensure.iter().map(|s| s.requires.join("\n")),
+        );
         array(&mut out, "bp_ensure_names", ensure.iter().map(|s| &s.name));
         array(
             &mut out,

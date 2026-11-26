@@ -48,6 +48,14 @@ impl Stream {
         self.stderr_at_line_start = true;
     }
 
+    pub fn ready(&mut self, urls: Vec<String>) {
+        self.events
+            .push(("ready".into(), std::time::Instant::now()));
+        if self.json {
+            frame(&json!({"type":"event","event":"ready","urls":urls}));
+        }
+    }
+
     /// Events seen so far, with when they arrived.
     pub fn take_events(&mut self) -> Vec<(String, std::time::Instant)> {
         std::mem::take(&mut self.events)

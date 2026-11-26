@@ -119,3 +119,26 @@ The command gets the project's credentials and `[run.env]`, and its stdout is pa
 `serve --desktop` imports the X11 and D-Bus environment. It reports ready on the first visible window in the server session when xdotool is installed, or on the listening port when you specify `--ready-port`. Idle streaming services stop in the background by default. Use `[sandbox] desktop = "keep"` to leave them running.
 
 Run summaries report CPU steal over the command, time queued for a start and time waiting for another process to bring up the member. A steal reading of 15% or higher can explain timing-sensitive failures.
+
+### Project secrets and environment versions
+
+Set a UTF-8 variable from standard input. The value includes any trailing newline.
+
+```sh
+boatparty secret set --create DATABASE_URL < database-url.txt
+boatparty secret list
+boatparty env status
+boatparty env apply --all
+```
+
+With no configured environment, `--create` creates one named after the project, enables only secret injection and sets `[sandbox] environment` in boatparty.toml. To use an existing environment, set its name in that file. `secret rm KEY` removes a variable. Both listing commands display names only.
+
+`status` and `pool` flag mismatched pins. `run` uses the last observed version on a warm connection. Use `env status` to refresh it after external changes. `env apply [MEMBER|--all]` upgrades selected members on the configured environment. Members on another environment require recreation. When Boat leaves a selected old pin in place, boatparty reports the recreation path and the command for upgrading the entire environment. Inspect any files you need before running the suggested removal command. Environment operations need the `environment.read` and `environment.write` key actions. Use `boatparty login --create-key` to obtain the updated scopes.
+
+### Local URLs and gate files
+
+`serve --forward auto:3000` picks a local port and waits for sandbox port 3000 to listen. The ready message and JSON event include the URL. An explicit `--ready-port` takes precedence. For a standalone tunnel use `forward 3000 --local auto`.
+
+Before expanding `[run.env]`, serve exports the first local forward as `BOATPARTY_FORWARD_URL`, the space-separated list as `BOATPARTY_FORWARD_URLS`, and each URL as `BOATPARTY_FORWARD_<REMOTEPORT>_URL`. For example, set `BETTER_AUTH_URL = "$BOATPARTY_FORWARD_URL"` in `[run.env]`.
+
+Use `boatparty pipe --gate --sh 'cat > ~/fixture' < fixture` to seed a file on the exclusive gate member. Inspect it with `boatparty shell --gate`. Files under the checkout follow normal gate sync rules.

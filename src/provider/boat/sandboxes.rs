@@ -48,6 +48,8 @@ pub fn map_hydration(hydrated: Option<bool>, progress: Option<&HydrationBody>) -
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxBody {
+    environment: Option<String>,
+    environment_version: Option<u64>,
     id: String,
     #[serde(default)]
     name: Option<String>,
@@ -108,6 +110,10 @@ pub struct HydrationBody {
 impl SandboxBody {
     fn into_sandbox(self) -> Result<Sandbox, ProviderError> {
         Ok(Sandbox {
+            environment: crate::provider::EnvironmentPin {
+                name: self.environment,
+                version: self.environment_version,
+            },
             state: map_state(&self.state)?,
             hydration: map_hydration(self.hydrated, self.hydration.as_ref()),
             id: self.id,

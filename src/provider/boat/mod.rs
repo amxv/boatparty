@@ -1,5 +1,6 @@
 //! boat (https://boat.dev), the only provider.
 
+mod environments;
 mod errors;
 mod files;
 mod hosting;
@@ -34,6 +35,26 @@ impl BoatProvider {
 }
 
 impl Provider for BoatProvider {
+    fn environments(&self) -> Result<Vec<crate::provider::Environment>, ProviderError> {
+        environments::list(&self.http)
+    }
+    fn create_environment(
+        &self,
+        name: &str,
+    ) -> Result<crate::provider::Environment, ProviderError> {
+        environments::create(&self.http, name)
+    }
+    fn change_secret(
+        &self,
+        id: &str,
+        key: &str,
+        value: Option<&str>,
+    ) -> Result<u64, ProviderError> {
+        environments::change(&self.http, id, key, value)
+    }
+    fn upgrade_environment(&self, id: &str, sandbox: &str) -> Result<(), ProviderError> {
+        environments::upgrade(&self.http, id, sandbox)
+    }
     fn limits(&self) -> Result<AccountLimits, ProviderError> {
         let body: LimitsBody = self.http.send(Method::Get, "/limits", None, None)?.json()?;
         Ok(body.into())

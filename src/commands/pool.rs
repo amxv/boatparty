@@ -62,6 +62,7 @@ struct ProjectView {
     listed: Option<Vec<Sandbox>>,
     provider_error: Option<String>,
     changes: Option<Changes>,
+    warnings: BTreeMap<String, String>,
 }
 
 fn show(ctx: &Context, args: &PoolArgs) -> Result<u8, AppError> {
@@ -74,6 +75,10 @@ fn show(ctx: &Context, args: &PoolArgs) -> Result<u8, AppError> {
     };
     let store = Store::new(&ctx.paths);
     let mut views = Vec::new();
+    let current = crate::project::Workspace::current()
+        .ok()
+        .and_then(|w| w.load_project(&ctx.paths).ok());
+    let mut versions = None;
     for name in names {
         let mut view = ProjectView {
             limits: PoolLimits::for_project(&account.config, &name),
@@ -82,6 +87,7 @@ fn show(ctx: &Context, args: &PoolArgs) -> Result<u8, AppError> {
             listed: None,
             provider_error: None,
             changes: None,
+            warnings: BTreeMap::new(),
         };
         match provider.as_deref() {
             Some(provider) if args.refresh => {
@@ -101,6 +107,47 @@ fn show(ctx: &Context, args: &PoolArgs) -> Result<u8, AppError> {
             .project(&view.name)
             .map(|pool| pool.members.clone())
             .unwrap_or_default();
+        for member in &view.members {
+            let Some(id) = &member.id else {
+                continue;
+            };
+            let pin = view
+                .listed
+                .iter()
+                .flatten()
+                .find(|s| s.id == *id)
+                .map(|s| &s.environment)
+                .or(member.environment.as_ref());
+            let Some(pin) = pin else {
+                continue;
+            };
+            let workspace_config = member.affinity.as_ref().and_then(|path| {
+                crate::project::Workspace { root: path.into() }
+                    .load_project(&ctx.paths)
+                    .ok()
+            });
+            let expected = current
+                .as_ref()
+                .filter(|p| p.name() == view.name)
+                .or(workspace_config.as_ref().filter(|p| p.name() == view.name))
+                .map(|p| p.environment())
+                .unwrap_or(member.expected_environment.as_deref());
+            let latest = expected.and_then(|name| {
+                versions
+                    .get_or_insert_with(|| {
+                        provider
+                            .as_ref()
+                            .and_then(|p| p.environments().ok())
+                            .unwrap_or_default()
+                    })
+                    .iter()
+                    .find(|e| e.name == name)
+                    .map(|e| e.version)
+            });
+            if let Some(warning) = pin.warning(expected, latest) {
+                view.warnings.insert(member.name.clone(), warning);
+            }
+        }
         views.push(view);
     }
 
@@ -156,12 +203,13 @@ fn untracked(view: &ProjectView) -> Vec<&Sandbox> {
         .collect()
 }
 
-fn member_json(member: &Member, state: String) -> Value {
+fn member_json(member: &Member, state: String, warning: Option<&String>) -> Value {
     json!({
         "name": member.name,
         "id": member.id,
         "role": member.role.as_str(),
         "state": state,
+        "environment_warning":warning,
         "affinity": member.affinity,
         "workspace_exists": member.affinity.as_deref().map(workspace_exists),
         "leases": member.live_leases().map(|lease| json!({
@@ -188,7 +236,7 @@ fn project_json(view: &ProjectView) -> Value {
         "max_sandboxes": view.limits.max_sandboxes,
         "steal_after_minutes": view.limits.steal_after_minutes,
         "members": view.members.iter()
-            .map(|member| member_json(member, state_word(member, &states, view.listed.is_some())))
+            .map(|member| member_json(member, state_word(member, &states, view.listed.is_some()),view.warnings.get(&member.name)))
             .collect::<Vec<_>>(),
         "untracked": untracked(view).iter().map(|sandbox| json!({
             "id": sandbox.id,
@@ -246,6 +294,9 @@ fn render(ctx: &Context, view: &ProjectView, now: u64) {
             member.id.as_deref().unwrap_or("-"),
             state_word(member, &states, view.listed.is_some()),
         );
+        if let Some(warning) = view.warnings.get(&member.name) {
+            line.push_str(&format!("  {warning}"));
+        }
         if !leases.is_empty() {
             line.push_str(&format!("  in use: {}", leases.join(", ")));
         }

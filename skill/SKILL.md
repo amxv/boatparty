@@ -109,3 +109,14 @@ member can discard remote writes made since that snapshot.
   (the server must listen on 0.0.0.0, or add `--localhost`); it is printed
   only on stdout, so treat it like a password. `expose PORT --hide` takes it
   down.
+
+## Project environments, servers and gate files
+
+- Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.
+- Inspect member pins with `env status` and upgrade selected members with `env apply [MEMBER|--all]`. Status, pool, run and serve flag stale environments.
+- Built-in presets skip empty checkouts. Ensure supports `requires` and honors a passing first check.
+- `serve --forward auto:PORT` and `forward PORT --local auto` choose a free local port. Serve exports `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` before expanding `[run.env]`.
+- Seed gate files with `pipe --gate` and inspect them with `shell --gate`.
+- Creating or resuming a member prints one notice per project per UTC day when included VM time is exhausted.
+
+On a warm connection the environment check uses local observations. Run `env status` after external changes. `env apply` reports which members need recreation. `requires` paths are relative to the ensure directory and any matching file enables the step.

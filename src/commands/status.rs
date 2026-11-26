@@ -34,6 +34,13 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         .into_iter()
         .map(|sandbox| (sandbox.id.clone(), sandbox))
         .collect();
+    let expected = wctx.project.environment();
+    let latest = super::env::expected_version(&wctx, ctx).unwrap_or_else(|e| {
+        ctx.out.note(format_args!(
+            "cannot verify latest environment version: {e}"
+        ));
+        None
+    });
     let mut rows = Vec::new();
     for member in &members {
         let sandbox = match &member.id {
@@ -48,7 +55,13 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             },
             None => None,
         };
-        rows.push((member, sandbox));
+        if let Some(s) = &sandbox {
+            super::env::remember(&pool.store, &project, s, expected)?;
+        }
+        let warning = sandbox
+            .as_ref()
+            .and_then(|s| s.environment.warning(expected, latest));
+        rows.push((member, sandbox, warning));
     }
     let untracked: Vec<Sandbox> = by_id.into_values().collect();
     let (refreshing, last_refresh_error) = super::base::refresh::status(ctx, &project)?;
@@ -63,7 +76,11 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             "workspace": workspace,
             "members": rows
                 .iter()
-                .map(|(member, sandbox)| member_json(&ctx.paths, member, sandbox.as_ref(), &workspace))
+                .map(|(member, sandbox, warning)| {
+                    let mut row = member_json(&ctx.paths, member, sandbox.as_ref(), &workspace);
+                    row["environment_warning"] = json!(warning);
+                    row
+                })
                 .collect::<Vec<_>>(),
             "untracked": untracked.iter().map(|sandbox| json!({
                 "id": sandbox.id,
@@ -80,7 +97,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         ctx.out
             .text("no sandboxes; start one with `boatparty start`");
     }
-    for (member, sandbox) in &rows {
+    for (member, sandbox, warning) in &rows {
         let mine = member.affinity.as_deref() == Some(workspace.as_str());
         let state = state_word(member, sandbox.as_ref());
         let mut line = format!(
@@ -104,6 +121,9 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         }
         if let Some(affinity) = &member.affinity {
             line.push_str(&format!(" for {affinity}"));
+        }
+        if let Some(warning) = warning {
+            line.push_str(&format!("  {warning}"));
         }
         ctx.out.text(line.trim_end());
         if let Some(broken) = &member.broken {

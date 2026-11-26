@@ -62,6 +62,7 @@ pub const SETUP: &[Field] = &[
 pub const ENSURE: &[Field] = &[
     field("name", Kind::Str),
     field("dir", Kind::Str),
+    field("requires", Kind::StrList),
     field("key_files", Kind::StrList),
     field("key_command", Kind::Str),
     field("check", Kind::Str),

@@ -415,6 +415,8 @@ pub(super) fn run(
     };
     let member = pool.modify(&member, |member| {
         member.last_used_at = system::now_ms();
+        member.environment = Some(sandbox.environment.clone());
+        member.expected_environment = pool.environment.clone();
         member.recovery.restoring = !sandbox.hydration.is_complete();
     })?;
     Ok(Up {

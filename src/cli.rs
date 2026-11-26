@@ -1,5 +1,28 @@
 use clap::{ArgGroup, Args, Parser, Subcommand};
 
+#[derive(Debug, Subcommand)]
+pub enum SecretAction {
+    /// Set KEY to the UTF-8 value on standard input, preserving newlines.
+    Set { key: String },
+    /// Remove KEY from the configured environment.
+    Rm { key: String },
+    /// List variable names only.
+    List,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EnvAction {
+    /// Show each member's environment, pinned version and injected variable names.
+    Status,
+    /// Upgrade an old pin. Members on another environment need recreation.
+    Apply {
+        #[arg(conflicts_with = "all")]
+        member: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "boatparty",
@@ -20,6 +43,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Start this workspace's sandbox: create or resume it, then connect.
+    /// When included VM hours are exhausted, a start reports billing once per project per UTC day.
     Start,
     /// Sync the working tree to the sandbox's checkout (no command runs).
     #[command(
@@ -67,9 +91,22 @@ pub enum Command {
     },
     /// Write boatparty.toml for this Git repository and register the project.
     Init(InitArgs),
-    /// Show this project's sandboxes.
+    /// Manage this project's environment variables. Values come only from stdin.
+    Secret {
+        /// Create a secrets-only environment named after the project when unset.
+        #[arg(long, global = true)]
+        create: bool,
+        #[command(subcommand)]
+        action: SecretAction,
+    },
+    /// Inspect or update project members' environment pins.
+    Env {
+        #[command(subcommand)]
+        action: EnvAction,
+    },
+    /// Show this project's sandboxes and flag environment or version mismatches.
     Status,
-    /// Show every project's sandboxes: state, workspace, leases, last use.
+    /// Show every project's sandboxes: state, workspace, leases, last use and environment drift.
     Pool(PoolArgs),
     /// Show or check this project's configuration (boatparty.toml and its presets).
     Config(ConfigArgs),
@@ -182,6 +219,7 @@ pub struct GateArgs {
                   here. Both listen on 127.0.0.1 unless BIND names another address (for example \
                   0.0.0.0, which other machines can reach). Forwards travel on the server's own \
                   SSH connection and end with it; other commands keep using the shared one.\n\n\
+                  With an automatic local port, readiness defaults to its remote port.\n\n\
                   --ready-port PORT logs once, and sends the event `ready`, when something starts \
                   listening on PORT on the sandbox. --max-minutes stops a forgotten server (default \
                   120; 0 disables the cap).\n\n\
@@ -197,7 +235,7 @@ pub struct ServeArgs {
     /// Run in the sandbox desktop session. Without --ready-port, signal ready on its first visible window.
     #[arg(long)]
     pub desktop: bool,
-    /// Forward LOCAL on this machine to REMOTE on the sandbox (repeatable).
+    /// Forward LOCAL on this machine to REMOTE on the sandbox (repeatable). Use auto:REMOTE for a free port. Exports BOATPARTY_FORWARD_URL (first), BOATPARTY_FORWARD_URLS (space-separated) and BOATPARTY_FORWARD_<REMOTEPORT>_URL before [run.env].
     #[arg(
         long = "forward",
         value_name = "[BIND:]LOCAL:REMOTE",
@@ -276,6 +314,9 @@ fn parse_minutes(value: &str) -> Result<f64, String> {
                   --json, stdout carries the frames `run` uses, then one result frame."
 )]
 pub struct PipeArgs {
+    /// Use the project's exclusive gate member.
+    #[arg(long)]
+    pub gate: bool,
     /// Run this shell line as given instead of a quoted argument list.
     #[arg(long, value_name = "LINE", conflicts_with = "command")]
     pub sh: Option<String>,
@@ -311,6 +352,9 @@ pub struct SkillArgs {
                   the sandbox up again if needed) for up to 10 minutes. Exit status: 130 or 143 \
                   after SIGINT or SIGTERM; 125 when the connection failed or could not be reopened.")]
 pub struct ForwardArgs {
+    /// Local listening port, or auto to choose a free port.
+    #[arg(long, value_parser = crate::transport::forward::parse_local_port)]
+    pub local: Option<u16>,
     /// The sandbox port, then optionally the local port (the same by default).
     #[arg(value_name = "REMOTE[:LOCAL]", value_parser = crate::transport::forward::parse_pair)]
     pub ports: crate::transport::forward::PortPair,
@@ -462,6 +506,9 @@ pub struct InitArgs {
                   Each word after -- is quoted, so `boatparty shell -- sh -c 'a | b'` runs exactly that."
 )]
 pub struct ShellArgs {
+    /// Use the project's exclusive gate member.
+    #[arg(long)]
+    pub gate: bool,
     /// The command to run, after `--`. Without one, an interactive shell opens.
     #[arg(last = true, value_name = "COMMAND")]
     pub command: Vec<String>,

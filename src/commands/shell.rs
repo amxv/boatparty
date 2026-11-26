@@ -20,7 +20,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
 use std::sync::mpsc;
 
-use super::session::{Held, with_session};
+use super::session::{Held, target_session};
 use crate::Context;
 use crate::cli::ShellArgs;
 use crate::error::AppError;
@@ -93,7 +93,7 @@ pub fn run(ctx: &Context, args: &ShellArgs) -> Result<u8, AppError> {
         args.command.join(" ")
     };
     let out = &ctx.out;
-    let ended = with_session(ctx, &label, |held| {
+    let ended = target_session(ctx, &label, args.gate, |held| {
         let note = |message: &str| out.note(format_args!("{message}"));
         let prepared = prepare(held, &args.command, &note);
         exec(held.target, &prepared.line, args.command.is_empty())
@@ -115,7 +115,7 @@ fn run_json(ctx: &Context, args: &ShellArgs) -> Result<u8, AppError> {
     }
     let began = std::time::Instant::now();
     let label = args.command.join(" ");
-    let ended = with_session(ctx, &label, |held| {
+    let ended = target_session(ctx, &label, args.gate, |held| {
         let notes = std::cell::RefCell::new(Vec::new());
         let note = |message: &str| notes.borrow_mut().push(message.to_string());
         let prepared = prepare(held, &args.command, &note);

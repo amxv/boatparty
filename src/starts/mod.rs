@@ -233,9 +233,34 @@ impl StartGate<'_> {
                         done_at: None,
                     });
                 }
-                Ok((admission, paid))
+                let notice = cache
+                    .filter(|cache| {
+                        admission == Admission::Admit
+                            && cache.included_vm_exhausted
+                            && now.saturating_sub(cache.fetched_at) < CACHE_TTL.as_millis() as u64
+                    })
+                    .and_then(|cache| {
+                        let day = now / 86_400_000;
+                        let last = &mut state.project_mut(self.project).vm_notice_day;
+                        if *last == Some(day) {
+                            return None;
+                        }
+                        *last = Some(day);
+                        Some(
+                            cache
+                                .period_end
+                                .and_then(|end| end.get(..10).map(|date| format!(" until {date}")))
+                                .unwrap_or_default(),
+                        )
+                    });
+                Ok((admission, paid, notice))
             })?;
-            let (outcome, paid) = outcome;
+            let (outcome, paid, notice) = outcome;
+            if let Some(until) = notice {
+                self.out.note(format_args!(
+                    "included VM hours used up{until}; runtime is billed"
+                ));
+            }
             let (limit, wait_ms) = match outcome {
                 Admission::Admit => {
                     if let Some(mills) = paid {

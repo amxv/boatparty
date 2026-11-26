@@ -8,6 +8,15 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## Unreleased
+
+- Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.
+- Inspect member pins with `env status` and upgrade selected members with `env apply [MEMBER|--all]`. Status, pool, run and serve flag stale environments.
+- Built-in presets skip empty checkouts. Ensure supports `requires` and honors a passing first check.
+- `serve --forward auto:PORT` and `forward PORT --local auto` choose a free local port. Serve exports `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` before expanding `[run.env]`.
+- Seed gate files with `pipe --gate` and inspect them with `shell --gate`.
+- Creating or resuming a member prints one notice per project per UTC day when included VM time is exhausted.
+
 ## 0.3.0 - 2026-11-26
 
 - `run` reattaches to the original command after an SSH drop, preserving output and exit status. A disconnected client has ten minutes to return before the supervisor stops the command group.

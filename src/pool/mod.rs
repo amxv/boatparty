@@ -511,6 +511,8 @@ impl<'a> Pool<'a> {
 
 pub fn new_member(name: String, create_key: String, affinity: Option<String>, now: u64) -> Member {
     Member {
+        environment: None,
+        expected_environment: None,
         id: None,
         create_key,
         name,

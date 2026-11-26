@@ -15,7 +15,7 @@ use std::time::Instant;
 
 use serde_json::{Value, json};
 
-use super::session::with_session;
+use super::session::target_session;
 use crate::Context;
 use crate::cli::PipeArgs;
 use crate::error::AppError;
@@ -32,7 +32,7 @@ pub fn run(ctx: &Context, args: &PipeArgs) -> Result<u8, AppError> {
     let began = Instant::now();
     let at = system::now_ms();
     let mut record = json!({});
-    let status = match execute(ctx, &line, &mut stream, &mut record) {
+    let status = match execute(ctx, args.gate, &line, &mut stream, &mut record) {
         Ok(status) => status,
         Err(error) => {
             stream.error(&error);
@@ -66,12 +66,13 @@ pub fn command_line(args: &PipeArgs) -> String {
 
 fn execute(
     ctx: &Context,
+    gate: bool,
     line: &str,
     stream: &mut Stream,
     record: &mut Value,
 ) -> Result<u8, AppError> {
     let began = Instant::now();
-    let ended = with_session(ctx, line, |held| {
+    let ended = target_session(ctx, line, gate, |held| {
         let config = held.config;
         let token_source = config.run_token_source();
         // Read only now that the command is about to run; held in memory.
@@ -183,11 +184,13 @@ mod tests {
     #[test]
     fn argv_words_are_quoted_and_a_shell_line_is_passed_as_is() {
         let argv = PipeArgs {
+            gate: false,
             sh: None,
             command: vec!["sh".into(), "-c".into(), "cat > f; wc -c f".into()],
         };
         assert_eq!(command_line(&argv), "sh -c 'cat > f; wc -c f'");
         let line = PipeArgs {
+            gate: false,
             sh: Some("tee a | wc -l".into()),
             command: Vec::new(),
         };

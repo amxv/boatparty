@@ -181,7 +181,8 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
         {
           "name": "bp-app-1",
           "id": "bx_23456789",
-          "role": "pool",
+          "environment_warning": "env: ci v2 (expected ci v3)",
+      "role": "pool",
           "state": "running",
           "affinity": "/Users/me/code/app",
           "workspace_exists": true,
@@ -284,6 +285,45 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
 }
 ```
 
+### Secrets and environment pins
+
+Names only. For older pins, boatparty uses locally observed names for the last 32 versions of that environment. A null names field means names are unavailable for that pin. Apply reports current, upgraded or recreate per member. Status and pool members have a nullable environment_warning.
+
+#### secret set
+
+<!-- shape: secret set -->
+```json
+{"ok":true,"environment":"ci","version":3,"key":"TOKEN"}
+```
+
+#### secret rm
+
+<!-- shape: secret rm -->
+```json
+{"ok":true,"environment":"ci","version":4,"key":"TOKEN"}
+```
+
+#### secret list
+
+<!-- shape: secret list -->
+```json
+{"ok":true,"environment":"ci","version":3,"names":["TOKEN"]}
+```
+
+#### env status
+
+<!-- shape: env status -->
+```json
+{"ok": true, "environment": "ci", "version": 3, "members": [{"id":"bx_app","member":"bp-app-1","environment":"ci","version":3,"warning":null,"action":null,"names":["TOKEN"]}]}
+```
+
+#### env apply
+
+<!-- shape: env apply -->
+```json
+{"ok": true, "environment": "ci", "version": 3, "members": [{"id":"bx_app","member":"bp-app-1","environment":"ci","version":3,"warning":null,"action":"upgraded","names":["TOKEN"]}]}
+```
+
 ### status
 
 One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `broken` gives the reason for pending recovery. `health` and `health_reason` are the provider's last observations. A degraded tunnel permits direct SSH. After a forced restart, `restarted_from` is the Unix timestamp in seconds of the recovered snapshot. Writes made after that snapshot may have been lost. Otherwise this field is `null`. `base` summarizes the project's base snapshot.
@@ -298,6 +338,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
     {
       "name": "bp-app-1",
       "id": "bx_23456789",
+      "environment_warning": "env: ci v2 (expected ci v3)",
       "role": "pool",
       "state": "running",
       "hydration": "complete",
@@ -448,6 +489,8 @@ Frames, then this result. `queued_seconds` measures time waiting for a start bud
 }
 ```
 
+The serve ready event includes `urls`, an array of local forward URLs in argument order. Auto allocation is reflected in every URL and listen port.
+
 ### serve
 
 Frames, then the `run` result with `kind` `serve` and the server's settings. The `reattached` field applies only to `run`. `forwards` and `reverses` list the port forwards; `capped` is true when `--max-minutes` stopped the server; `ready_seconds` is when `--ready-port` started listening.
@@ -574,7 +617,7 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
   "ok": true,
   "project": "app",
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
-  "forward": { "bind": "127.0.0.1", "listen": 15432, "target": 5432 },
+  "forward": { "bind": "127.0.0.1", "listen": 15432, "target": 5432, "url": "http://127.0.0.1:15432" },
   "ready_seconds": 0.6
 }
 ```

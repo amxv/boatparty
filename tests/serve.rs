@@ -381,18 +381,19 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
     let boat = setup.boat();
     setup.start(&boat);
     let port = free_port();
-    let local = free_port();
+    let config = setup.repo().join("boatparty.toml");
+    let mut settings = fs::read_to_string(&config).unwrap();
+    settings.push_str("\n[run.env]\nAPP_URL = \"$BOATPARTY_FORWARD_URL\"\n");
+    fs::write(config, settings).unwrap();
     let output = setup
         .cmd(&boat)
         .args([
             "--json",
             "serve",
             "--forward",
-            &format!("{local}:{port}"),
-            "--ready-port",
-            &port.to_string(),
+            &format!("auto:{port}"),
             "--sh",
-            &listener(port, 3),
+            &format!("test -n \"$APP_URL\" && test \"$APP_URL\" = \"$BOATPARTY_FORWARD_{port}_URL\" && echo \"$BOATPARTY_FORWARD_URLS\" && {}",listener(port,3)),
         ])
         .output()
         .unwrap();
@@ -402,6 +403,21 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
         .lines()
         .map(|line| serde_json::from_str(line).expect("every stdout line is a frame"))
         .collect();
+    let local = frames.last().unwrap()["forwards"][0]["listen"]
+        .as_u64()
+        .unwrap();
+    assert!(local > 0);
+    let url = format!("http://127.0.0.1:{local}");
+    assert!(
+        frames
+            .iter()
+            .any(|f| f["event"] == "ready" && f["urls"] == serde_json::json!([url]))
+    );
+    assert!(
+        frames
+            .iter()
+            .any(|f| f["data"].as_str().is_some_and(|s| s.contains(&url)))
+    );
     let events: Vec<&str> = frames
         .iter()
         .filter(|frame| frame["type"] == "event")
@@ -643,12 +659,11 @@ fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
         std::os::unix::fs::PermissionsExt::from_mode(0o755),
     )
     .unwrap();
-    let port = free_port();
     let stderr_file = setup.root.path().join("forward.stderr");
     let mut child = setup
         .spawn_cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
-        .args(["forward", &format!("18765:{port}")])
+        .args(["forward", "18765", "--local", "auto"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(fs::File::create(&stderr_file).unwrap())
@@ -666,6 +681,10 @@ fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
         .unwrap();
     let status = child.wait().unwrap();
     assert!(reconnected, "{printed}");
+    assert!(
+        printed.contains("here at http://127.0.0.1:")
+            && !printed.contains("here at http://127.0.0.1:0;")
+    );
     assert!(
         printed.contains("ended (exit 255); reconnecting"),
         "{printed}"

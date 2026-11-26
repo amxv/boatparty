@@ -258,6 +258,8 @@ mod tests {
             window_full: None,
             extra_starts: false,
             next_start_mills: None,
+            included_vm_exhausted: false,
+            period_end: None,
         }
     }
 

@@ -35,8 +35,12 @@ const CLOSE_GRACE: Duration = Duration::from_secs(5);
 const TICK: Duration = Duration::from_millis(100);
 
 pub fn run(ctx: &Context, args: &ForwardArgs) -> Result<u8, AppError> {
-    let forward = Forward::local(args.bind.clone(), args.ports.local, args.ports.remote);
-    forward.check_local_port()?;
+    let mut forward = Forward::local(
+        args.bind.clone(),
+        args.local.unwrap_or(args.ports.local),
+        args.ports.remote,
+    );
+    let reserved = forward.reserve_local()?;
     if !forward.is_loopback() {
         ctx.out.note(format_args!(
             "listening on {}, which other machines may reach",
@@ -45,7 +49,10 @@ pub fn run(ctx: &Context, args: &ForwardArgs) -> Result<u8, AppError> {
     }
     let label = format!("forward {forward}");
     let began = Instant::now();
-    let ended = with_session(ctx, &label, |held| hold(ctx, held, &forward, began))?;
+    let ended = with_session(ctx, &label, |held| {
+        drop(reserved);
+        hold(ctx, held, &forward, began)
+    })?;
     let held = ended.value?;
     Ok(match (held, ended.interrupted) {
         // A cancel is how a forward normally ends.
@@ -315,6 +322,7 @@ fn announce(ctx: &Context, held: &Held<'_>, forward: &Forward, began: Instant) {
             },
             "forward": {
                 "bind": forward.bind,
+                "url": forward.url(),
                 "listen": forward.listen,
                 "target": forward.target,
             },
@@ -322,8 +330,9 @@ fn announce(ctx: &Context, held: &Held<'_>, forward: &Forward, began: Instant) {
         }));
     }
     ctx.out.note(format_args!(
-        "forwarding {forward} on {} ({}); Ctrl-C to stop",
+        "forwarding {forward} on {} ({}); here at {}; Ctrl-C to stop",
         held.member.name,
-        held.member.id.as_deref().unwrap_or_default()
+        held.member.id.as_deref().unwrap_or_default(),
+        forward.url()
     ));
 }

@@ -172,7 +172,13 @@ impl Run<'_> {
             self.line = project.named_command(command, args)?;
         }
         self.copy_back = project.copy_back();
-        let spec = RunnerSpec::new(project.config());
+        let spec = RunnerSpec::with_env(
+            project.config(),
+            self.serve
+                .as_ref()
+                .map(Serve::environment)
+                .unwrap_or_default(),
+        );
         let name = project.name().to_string();
         let history = project.history();
         let mut seed = project.seed_config();
@@ -187,7 +193,7 @@ impl Run<'_> {
         self.record["project"] = json!(name);
         self.record["workspace"] = json!(workspace.key());
         if let Some(serve) = &self.serve {
-            serve.check(stream)?;
+            serve.describe_bindings(stream);
         }
 
         // A server always asks the provider: it must know whether the
@@ -197,6 +203,23 @@ impl Run<'_> {
         } else {
             connect(ctx, &store, &name, &workspace, &self.line)?
         };
+        if let Some(pin) = &conn.member.environment {
+            let latest = project.environment().and_then(|expected| {
+                store
+                    .load()
+                    .ok()?
+                    .project(&name)?
+                    .environment_versions
+                    .get(expected)
+                    .copied()
+            });
+            if let Some(warning) = pin.warning(project.environment(), latest) {
+                stream.note(format_args!(
+                    "{}: {warning}; see boatparty env apply",
+                    conn.member.name
+                ));
+            }
+        }
         // Read only now that a command is about to run; held in memory.
         let credentials = RunCredentials::gather(&workspace.root, identity, &token_source);
         if token_source != TokenSource::None && credentials.github_token.is_none() {
@@ -379,7 +402,7 @@ impl Run<'_> {
     /// Run the command, retrying once under the 255 rule.
     #[allow(clippy::too_many_arguments)]
     fn drive(
-        &self,
+        &mut self,
         stream: &mut Stream,
         name: &str,
         info: &WorktreeInfo,
@@ -413,7 +436,8 @@ impl Run<'_> {
                 seed: Some(seed),
             };
             let mut host = super::runner_host(self.ctx, &conn.target, &conn.member, spec.clone());
-            if let Some(serve) = &self.serve {
+            if let Some(serve) = &mut self.serve {
+                serve.reserved.clear();
                 // The server's invocation, and its forwards, on a connection
                 // of its own.
                 host.dedicated = Some(serve.ssh_options());
@@ -803,6 +827,8 @@ impl Sink for StartWatch<'_> {
             let after = self.started.map(|at| at.elapsed()).unwrap_or_default();
             self.ready_seconds = Some(round(after.as_secs_f64()));
             self.stream.note(serve.ready_message(after));
+            self.stream.ready(serve.urls());
+            return;
         }
         self.stream.event(name);
     }
@@ -840,6 +866,11 @@ fn connect(
 fn bring_up(ctx: &Context, line: &str, kind: LeaseKind) -> Result<Conn, AppError> {
     let wctx = WorkspaceContext::open(ctx)?;
     let pool = wctx.pool(ctx);
+    if let Err(e) = super::env::expected_version(&wctx, ctx) {
+        ctx.out.note(format_args!(
+            "cannot verify latest environment version: {e}"
+        ));
+    }
     let up = pool.bring_up(
         wctx.bring_up_options(false),
         Some(&LeaseRequest::new(kind, line)),

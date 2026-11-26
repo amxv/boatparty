@@ -54,6 +54,10 @@ pub fn check(config: &Config, origins: &BTreeMap<String, Origin>) -> Result<(), 
         if let Some(dir) = &step.dir {
             relative_path(dir, false).map_err(|message| format!("{}: {message}", here("dir")))?;
         }
+        for file in &step.requires {
+            relative_path(file, false)
+                .map_err(|message| format!("{}: {message}", here("requires")))?;
+        }
         for file in &step.key_files {
             relative_path(file, false)
                 .map_err(|message| format!("{}: {message}", here("key_files")))?;

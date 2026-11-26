@@ -60,9 +60,9 @@ on the sandbox)
 in the checkout ($HOME, $PATH, $PWD); a value that names its own variable (\"/x/bin:$PATH\" for PATH) \
 extends the value from earlier layers instead of replacing it
   [[setup]]   name, check, run: runs after every create or resume unless check succeeds
-  [[ensure]]  name, dir, key_files, key_command, check, run: runs before a command when its key \
+  [[ensure]]  name, dir, requires (any matching file enables the step), key_files, key_command, check, run: runs before a command when its key \
 (the content of key_files, relative to dir, plus key_command's output) changed since it last \
-succeeded, or when check fails
+succeeded, or when check fails. A passing first check records the initial key
   [build]     output_dirs (relative, globs allowed), floor_mtimes (true|false), cache_dirs \
 (directory names under output_dirs holding a compiler's own caches: not floored, dropped when a \
 restore left a file in them unreadable), cache_max_age_days (3), min_free_gb (25)
@@ -188,6 +188,8 @@ pub struct EnsureStep {
     pub name: String,
     /// Relative to the checkout; key files are relative to it.
     pub dir: Option<String>,
+    #[serde(default)]
+    pub requires: Vec<String>,
     #[serde(default)]
     pub key_files: Vec<String>,
     pub key_command: Option<String>,

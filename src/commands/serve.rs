@@ -41,9 +41,22 @@ const HYDRATION_WAIT: Duration = Duration::from_secs(30 * 60);
 const HYDRATION_WAIT_ENV: &str = super::base::build::HYDRATION_TIMEOUT_ENV;
 
 pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
+    let mut forwards = args.forward.clone();
+    let ready_port = args
+        .ready_port
+        .or_else(|| forwards.iter().find(|f| f.listen == 0).map(|f| f.target));
+    let mut reserved = Vec::new();
+    // Reserve explicit ports first so the OS cannot give one to an auto forward.
+    for auto in [false, true] {
+        for forward in forwards.iter_mut().filter(|f| (f.listen == 0) == auto) {
+            reserved.push(forward.reserve_local()?);
+        }
+    }
+    forwards.extend(args.reverse.iter().cloned());
     let serve = Serve {
-        forwards: args.forward.iter().chain(&args.reverse).cloned().collect(),
-        ready_port: args.ready_port,
+        reserved,
+        forwards,
+        ready_port,
         desktop: args.desktop,
         max_minutes: args.max_minutes,
     };
@@ -52,6 +65,7 @@ pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
 
 /// What makes a `run` a server.
 pub(crate) struct Serve {
+    pub reserved: Vec<std::net::TcpListener>,
     pub forwards: Vec<Forward>,
     pub ready_port: Option<u16>,
     pub desktop: bool,
@@ -72,9 +86,8 @@ impl Serve {
 
     /// Before connecting: every local port is free here, and a forward that
     /// listens beyond the loopback address is said out loud.
-    pub fn check(&self, stream: &mut Stream) -> Result<(), AppError> {
+    pub fn describe_bindings(&self, stream: &mut Stream) {
         for forward in &self.forwards {
-            forward.check_local_port()?;
             if !forward.is_loopback() {
                 stream.note(format_args!(
                     "{forward}: listens on {}, which other machines may reach",
@@ -82,7 +95,6 @@ impl Serve {
                 ));
             }
         }
-        Ok(())
     }
 
     /// The line logged once the ready port listens.
@@ -101,12 +113,41 @@ impl Serve {
             .forwards
             .iter()
             .filter(|forward| forward.direction == Direction::Local && forward.target == port)
-            .map(|forward| format!("http://{}:{}", url_host(&forward.bind), forward.listen))
+            .map(Forward::url)
             .collect();
         if !local.is_empty() {
             message.push_str(&format!("; here at {}", local.join(", ")));
         }
         message
+    }
+
+    pub fn urls(&self) -> Vec<String> {
+        self.forwards
+            .iter()
+            .filter(|f| f.direction == Direction::Local)
+            .map(Forward::url)
+            .collect()
+    }
+
+    pub fn environment(&self) -> Vec<String> {
+        let urls = self.urls();
+        let mut env = Vec::new();
+        if let Some(first) = urls.first() {
+            env.extend([
+                "BOATPARTY_FORWARD_URL".to_string(),
+                first.clone(),
+                "BOATPARTY_FORWARD_URLS".to_string(),
+                urls.join(" "),
+            ]);
+            for f in self
+                .forwards
+                .iter()
+                .filter(|f| f.direction == Direction::Local)
+            {
+                env.extend([format!("BOATPARTY_FORWARD_{}_URL", f.target), f.url()]);
+            }
+        }
+        env
     }
 
     /// The server's part of the result frame.
@@ -131,15 +172,6 @@ impl Serve {
             "ready_port": self.ready_port,
             "max_minutes": self.max_minutes,
         })
-    }
-}
-
-fn url_host(bind: &str) -> String {
-    match bind {
-        "*" | "0.0.0.0" => "127.0.0.1".to_string(),
-        "::" => "[::1]".to_string(),
-        other if other.contains(':') => format!("[{other}]"),
-        other => other.to_string(),
     }
 }
 
@@ -266,6 +298,7 @@ mod tests {
 
     fn serve(forwards: &[&str], ready_port: Option<u16>) -> Serve {
         Serve {
+            reserved: Vec::new(),
             forwards: forwards
                 .iter()
                 .map(|spec| {

@@ -39,7 +39,17 @@ pub fn run() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error) => {
-            let _ = error.print();
+            // clap quotes unexpected arguments. Never echo a misplaced secret.
+            if error.use_stderr()
+                && std::env::args_os()
+                    .skip(1)
+                    .find(|a| a != "--json")
+                    .is_some_and(|a| a == "secret")
+            {
+                out_secret_usage();
+            } else {
+                let _ = error.print();
+            }
             return ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(error::EXIT_USAGE));
         }
     };
@@ -67,6 +77,14 @@ pub fn run() -> ExitCode {
     }
 }
 
+fn out_secret_usage() {
+    let json = std::env::args_os().any(|a| a == "--json");
+    Output::new(json).error(&AppError::new(
+        "usage",
+        "use secret set KEY with the value on standard input, secret rm KEY, or secret list",
+    ));
+}
+
 fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
     let ctx = Context {
         paths: Paths::from_env()?,
@@ -91,6 +109,8 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Forward(args) => commands::forward::run(&ctx, &args),
         Command::Desktop { open } => commands::desktop::run(&ctx, open),
         Command::Expose(args) => commands::expose::run(&ctx, &args),
+        Command::Secret { action, create } => commands::env::secret(&ctx, &action, create),
+        Command::Env { action } => commands::env::run(&ctx, &action),
         Command::Status => commands::status::run(&ctx),
         Command::Pool(args) => commands::pool::run(&ctx, &args),
         Command::Config(args) => commands::config::run(&ctx, &args),

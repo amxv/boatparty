@@ -266,6 +266,7 @@ mod tests {
 
     fn sandbox(id: &str, name: &str, state: SandboxState) -> Sandbox {
         Sandbox {
+            environment: Default::default(),
             id: id.into(),
             name: Some(name.into()),
             state,

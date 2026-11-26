@@ -247,3 +247,29 @@ fn a_cancel_stops_the_command_and_exits_143() {
     }));
     drop(input);
 }
+
+#[test]
+fn gate_pipe_targets_exclusive_member_and_keeps_input_private() {
+    let setup = E2e::new("gate-pipe");
+    let boat = setup.boat();
+    let marker = "gate-fixture-secret";
+    let output = setup
+        .cmd(&boat)
+        .args(["pipe", "--gate", "--json", "--sh", "cat > fixture"])
+        .write_stdin(marker)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    for path in ["state/state.json", "state/runs.jsonl"] {
+        let contents = fs::read_to_string(setup.home().join(path)).unwrap();
+        assert!(contents.contains("bp-app-gate"));
+        assert!(!contents.contains(marker));
+    }
+    assert!(!text(&output.stderr).contains(marker));
+    assert!(!text(&output.stdout).contains(marker));
+    setup
+        .cmd(&boat)
+        .args(["shell", "--gate", "--", "test", "-s", "fixture"])
+        .assert()
+        .success();
+}

@@ -265,7 +265,7 @@ fn json_of(value: &Value) -> serde_json::Value {
     }
 }
 
-fn write_atomically(path: &Path, text: &str) -> Result<(), AppError> {
+pub(crate) fn write_atomically(path: &Path, text: &str) -> Result<(), AppError> {
     let temporary = path.with_extension(format!("toml.tmp-{}", std::process::id()));
     fs::write(&temporary, text)
         .and_then(|()| fs::rename(&temporary, path))

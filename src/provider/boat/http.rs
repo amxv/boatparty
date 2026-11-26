@@ -22,6 +22,7 @@ pub enum Method {
     Get,
     Post,
     Patch,
+    Put,
     Delete,
 }
 
@@ -105,9 +106,11 @@ impl Http {
                 }
                 request.call()
             }
-            Method::Post | Method::Patch => {
+            Method::Post | Method::Patch | Method::Put => {
                 let mut request = if method == Method::Post {
                     self.agent.post(&url)
+                } else if method == Method::Put {
+                    self.agent.put(&url)
                 } else {
                     self.agent.patch(&url)
                 };

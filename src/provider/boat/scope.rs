@@ -17,7 +17,7 @@ use super::http::{Answer, Http, Method};
 use crate::provider::{CredentialCheck, CredentialHelp, ErrorKind, ProviderError, ScopeDenial};
 
 /// Every action boatparty uses (measured against boat; see docs/boat-facts.md).
-pub const REQUIRED_ACTIONS: [&str; 14] = [
+pub const REQUIRED_ACTIONS: [&str; 16] = [
     "sandbox.create",
     "sandbox.read",
     "sandbox.update",
@@ -30,6 +30,8 @@ pub const REQUIRED_ACTIONS: [&str; 14] = [
     "snapshot.read",
     "snapshot.write",
     "account.read",
+    "environment.read",
+    "environment.write",
     "file.read",
     "file.write",
 ];
@@ -77,6 +79,20 @@ fn probes() -> Vec<Probe> {
         header: None,
     };
     vec![
+        Probe {
+            action: "environment.read",
+            method: Method::Get,
+            path: "/environments".into(),
+            body: None,
+            header: None,
+        },
+        Probe {
+            action: "environment.write",
+            method: Method::Post,
+            path: "/environments".into(),
+            body: Some(json!({"name":""})),
+            header: None,
+        },
         Probe {
             action: "sandbox.create",
             method: Method::Post,

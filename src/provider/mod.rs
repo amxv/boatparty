@@ -31,8 +31,56 @@ use crate::error::AppError;
 /// Overrides the provider's API base URL (tests point it at a local fake).
 pub const API_URL_ENV: &str = "BOATPARTY_BOAT_API_URL";
 
+pub fn valid_variable(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+/// Metadata safe to display. Variable values never cross the provider boundary.
+pub struct Environment {
+    pub id: String,
+    pub name: String,
+    pub version: u64,
+    pub names: Option<Vec<String>>,
+    pub injects_secrets: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EnvironmentPin {
+    pub name: Option<String>,
+    pub version: Option<u64>,
+}
+
+impl EnvironmentPin {
+    pub fn warning(&self, expected: Option<&str>, version: Option<u64>) -> Option<String> {
+        if self.name.as_deref() == expected && (version.is_none() || version == self.version) {
+            return None;
+        }
+        let label = |name: Option<&str>, version: Option<u64>| {
+            let mut label = name.unwrap_or("none").to_owned();
+            if let Some(version) = version {
+                label.push_str(&format!(" v{version}"));
+            }
+            label
+        };
+        Some(format!(
+            "env: {} (expected {})",
+            label(self.name.as_deref(), self.version),
+            label(expected, version)
+        ))
+    }
+}
+
 /// One sandbox vendor.
 pub trait Provider {
+    fn environments(&self) -> Result<Vec<Environment>, ProviderError>;
+    fn create_environment(&self, name: &str) -> Result<Environment, ProviderError>;
+    fn change_secret(&self, id: &str, key: &str, value: Option<&str>)
+    -> Result<u64, ProviderError>;
+    fn upgrade_environment(&self, id: &str, sandbox: &str) -> Result<(), ProviderError>;
     /// Account-wide limits and usage.
     fn limits(&self) -> Result<AccountLimits, ProviderError>;
 

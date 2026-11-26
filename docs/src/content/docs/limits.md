@@ -58,3 +58,5 @@ A sandbox whose files are still being restored after a resume is never stopped b
 | `[projects.NAME]` | `max_sandboxes`, `max_running`, `max_machine`, `starts_per_hour`, `starts_per_day`, `idle_minutes`, `lease_minutes` |
 
 A project's `boatparty.toml` may ask for less than its limits, never more: a `[sandbox] machine` above `max_machine` is an error naming both files.
+
+When a create or resume uses an exhausted included VM-time allowance, boatparty prints the billing notice once per UTC day per project on this machine.

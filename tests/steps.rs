@@ -732,3 +732,39 @@ fn rust_setup_drops_only_recent_snapshot_units_and_retired_paths_after_the_move(
         run.stderr
     );
 }
+
+#[test]
+fn requires_skips_key_commands_and_first_passing_check_records_the_key() {
+    let mut member = Member::new(
+        "requires",
+        r#"
+[[ensure]]
+name="deps"
+requires=["manifest","alt"]
+key_files=["alt"]
+key_command="touch key-ran"
+check="test -f ready"
+run="exit 13"
+"#,
+    );
+    assert_eq!(member.run("test ! -f key-ran").exit(), 0);
+    write(&member.local.join("alt"), "first");
+    write(&member.local.join("ready"), "yes");
+    assert_eq!(member.run("test -f key-ran").exit(), 0);
+    write(&member.local.join("alt"), "changed");
+    assert_eq!(member.run("true").exit(), 13);
+}
+
+#[test]
+fn built_in_presets_skip_dependency_work_in_an_empty_project() {
+    for preset in ["node", "pnpm", "bun", "python", "go", "rust"] {
+        let mut member = Member::new("empty-preset", &format!("presets=['{preset}']"));
+        let run = member.run("true");
+        assert_eq!(run.exit(), 0, "{preset}: {}", run.stderr);
+        assert!(
+            !run.stderr.contains("boatparty: ensure"),
+            "{preset}: {}",
+            run.stderr
+        );
+    }
+}

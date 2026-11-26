@@ -94,3 +94,12 @@ just remote-test pipe    # cargo test with a filter
 ```
 
 [`AGENTS.md`](AGENTS.md) has the module map and conventions, [`docs/json.md`](docs/json.md) the `--json` contract, and [`docs/boat-facts.md`](docs/boat-facts.md) the measured boat behavior the design relies on. The docs site lives in [`docs/`](docs/).
+
+## Working with project environments and local servers
+
+- Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.
+- Inspect member pins with `env status` and upgrade selected members with `env apply [MEMBER|--all]`. Status, pool, run and serve flag stale environments.
+- Built-in presets skip empty checkouts. Ensure supports `requires` and honors a passing first check.
+- `serve --forward auto:PORT` and `forward PORT --local auto` choose a free local port. Serve exports `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` before expanding `[run.env]`.
+- Seed gate files with `pipe --gate` and inspect them with `shell --gate`.
+- Creating or resuming a member prints one notice per project per UTC day when included VM time is exhausted.

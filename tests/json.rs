@@ -69,7 +69,15 @@ fn parse(shape: &str, stdout: &[u8], streaming: bool) -> Value {
 
 /// Shapes whose success another test checks, where the fakes can produce
 /// it: a whole base build needs `tests/base.rs`'s provider.
-const CHECKED_ELSEWHERE: &[&str] = &["base build", "gate"];
+const CHECKED_ELSEWHERE: &[&str] = &[
+    "base build",
+    "gate",
+    "secret set",
+    "secret rm",
+    "secret list",
+    "env status",
+    "env apply",
+];
 
 /// Collected outputs and how they compare.
 #[derive(Default)]

@@ -98,10 +98,21 @@ run_ensure() {
     [[ -n "${bp_ensure_dirs[$i]}" ]] && dir="$repo/${bp_ensure_dirs[$i]}"
     [[ -d "$dir" ]] || continue
     cd "$dir"
+    if [[ -n "${bp_ensure_requires[$i]:-}" ]]; then
+      local file matched=0
+      while IFS= read -r file; do
+        if [[ -f "$file" ]]; then matched=1; break; fi
+      done <<<"${bp_ensure_requires[$i]}"
+      [[ "$matched" == 1 ]] || continue
+    fi
     key="$(ensure_key "$i")"
     keyfile="$state/ensure/$project/$name"
     why=""
     if [[ ! -f "$keyfile" ]]; then
+      if check_passes "${bp_ensure_checks[$i]}"; then
+        printf '%s\n' "$key" >"$keyfile"
+        continue
+      fi
       why="first run"
     elif [[ "$(cat "$keyfile")" != "$key" ]]; then
       why="its key changed"

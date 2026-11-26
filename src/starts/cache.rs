@@ -50,6 +50,10 @@ pub struct LimitsCache {
     /// provider said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_start_mills: Option<u64>,
+    #[serde(default)]
+    pub included_vm_exhausted: bool,
+    #[serde(default)]
+    pub period_end: Option<String>,
 }
 
 fn cached(window: Option<WindowUsage>) -> Option<CachedWindow> {
@@ -64,6 +68,14 @@ impl LimitsCache {
     pub fn from_limits(limits: &AccountLimits, fetched_at: u64) -> Self {
         Self {
             fetched_at,
+            included_vm_exhausted: limits
+                .included
+                .as_ref()
+                .is_some_and(|plan| plan.vm_hours_remaining <= 0.0),
+            period_end: limits
+                .included
+                .as_ref()
+                .and_then(|plan| plan.period_end.clone()),
             unlimited: limits.starts.unlimited
                 && limits.starts.minute.is_none()
                 && limits.starts.hour.is_none()

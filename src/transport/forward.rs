@@ -76,6 +76,30 @@ impl Forward {
         if self.direction != Direction::Local {
             return Ok(());
         }
+        self.bind_listener().map(drop)
+    }
+
+    /// Reserve a local listener until the dedicated SSH connection takes over.
+    pub fn reserve_local(&mut self) -> Result<TcpListener, AppError> {
+        let listener = self.bind_listener()?;
+        self.listen = listener
+            .local_addr()
+            .map_err(|err| AppError::io("reading allocated port", err))?
+            .port();
+        Ok(listener)
+    }
+
+    pub fn url(&self) -> String {
+        let host = match self.bind.as_str() {
+            "*" | "0.0.0.0" => "127.0.0.1".into(),
+            "::" => "[::1]".into(),
+            other if other.contains(':') => format!("[{other}]"),
+            other => other.to_string(),
+        };
+        format!("http://{host}:{}", self.listen)
+    }
+
+    fn bind_listener(&self) -> Result<TcpListener, AppError> {
         let address = match self.bind.as_str() {
             "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
             "*" => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -83,18 +107,16 @@ impl Forward {
                 .parse()
                 .map_err(|_| AppError::config(format!("{other} is not a bind address")))?,
         };
-        TcpListener::bind(SocketAddr::new(address, self.listen))
-            .map(drop)
-            .map_err(|error| {
-                AppError::new(
-                    "port_in_use",
-                    format!(
-                        "cannot listen on {}:{} on this machine: {error}",
-                        self.bind, self.listen
-                    ),
-                )
-                .with_hint("stop what uses the port, or forward from another local port")
-            })
+        TcpListener::bind(SocketAddr::new(address, self.listen)).map_err(|error| {
+            AppError::new(
+                "port_in_use",
+                format!(
+                    "cannot listen on {}:{} on this machine: {error}",
+                    self.bind, self.listen
+                ),
+            )
+            .with_hint("stop what uses the port, or forward from another local port")
+        })
     }
 }
 
@@ -117,7 +139,7 @@ impl fmt::Display for Forward {
 
 /// `serve --forward [BIND:]LOCAL:REMOTE`.
 pub fn parse_local(value: &str) -> Result<Forward, String> {
-    let (bind, listen, target) = parse_triple(value, "[BIND:]LOCAL:REMOTE")?;
+    let (bind, listen, target) = parse_triple(value, "[BIND:]LOCAL:REMOTE", true)?;
     Ok(Forward {
         direction: Direction::Local,
         bind: bind.unwrap_or_else(|| DEFAULT_BIND.to_string()),
@@ -128,7 +150,7 @@ pub fn parse_local(value: &str) -> Result<Forward, String> {
 
 /// `serve --reverse [BIND:]REMOTE:LOCAL`.
 pub fn parse_reverse(value: &str) -> Result<Forward, String> {
-    let (bind, listen, target) = parse_triple(value, "[BIND:]REMOTE:LOCAL")?;
+    let (bind, listen, target) = parse_triple(value, "[BIND:]REMOTE:LOCAL", false)?;
     Ok(Forward {
         direction: Direction::Reverse,
         bind: bind.unwrap_or_else(|| DEFAULT_BIND.to_string()),
@@ -174,6 +196,14 @@ pub fn parse_bind(value: &str) -> Result<String, String> {
     }
 }
 
+pub fn parse_local_port(value: &str) -> Result<u16, String> {
+    if value == "auto" {
+        Ok(0)
+    } else {
+        parse_port(value)
+    }
+}
+
 /// A port number from 1 to 65535.
 pub fn parse_port(value: &str) -> Result<u16, String> {
     match value.parse::<u16>() {
@@ -183,7 +213,11 @@ pub fn parse_port(value: &str) -> Result<u16, String> {
 }
 
 /// `[BIND:]A:B`, where BIND may be a bracketed IPv6 address.
-fn parse_triple(value: &str, shape: &str) -> Result<(Option<String>, u16, u16), String> {
+fn parse_triple(
+    value: &str,
+    shape: &str,
+    local: bool,
+) -> Result<(Option<String>, u16, u16), String> {
     let wrong = || format!("expected {shape}, got {value:?}");
     let (bind, ports) = if let Some(rest) = value.strip_prefix('[') {
         let (address, ports) = rest.split_once("]:").ok_or_else(wrong)?;
@@ -202,7 +236,12 @@ fn parse_triple(value: &str, shape: &str) -> Result<(Option<String>, u16, u16), 
     let bind = bind.map(parse_bind).transpose()?;
     Ok((
         bind,
-        parse_port(a).map_err(|error| format!("{}: {error}", wrong()))?,
+        (if local {
+            parse_local_port(a)
+        } else {
+            parse_port(a)
+        })
+        .map_err(|error| format!("{}: {error}", wrong()))?,
         parse_port(b).map_err(|error| format!("{}: {error}", wrong()))?,
     ))
 }

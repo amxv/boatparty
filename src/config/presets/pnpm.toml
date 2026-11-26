@@ -18,6 +18,7 @@ XDG_CACHE_HOME = "/home/user/.boatparty/cache/xdg"
 # Install node_modules when the lockfile or Node.js changes, or when a
 # restore left packages without their files.
 name = "pnpm-install"
+requires = ["package.json", "pnpm-workspace.yaml"]
 key_files = ["pnpm-lock.yaml", "pnpm-workspace.yaml"]
 key_command = "node --version; pnpm --version"
 check = '''
@@ -30,5 +31,5 @@ test -d node_modules && perl -e '
 run = "if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi"
 
 [base]
-warm = "pnpm run --if-present build"
+warm = "[ -f package.json ] || [ -f pnpm-workspace.yaml ] || exit 0; pnpm run --if-present build"
 stale_inputs = ["pnpm-lock.yaml", "pnpm-workspace.yaml"]

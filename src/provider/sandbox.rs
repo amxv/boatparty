@@ -76,6 +76,7 @@ impl Hydration {
 /// One sandbox as the provider describes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sandbox {
+    pub environment: super::EnvironmentPin,
     pub id: String,
     pub name: Option<String>,
     pub state: SandboxState,
@@ -118,6 +119,7 @@ impl Sandbox {
     /// A sandbox that no longer exists.
     pub fn gone(id: impl Into<String>) -> Self {
         Self {
+            environment: Default::default(),
             id: id.into(),
             name: None,
             state: SandboxState::Gone,

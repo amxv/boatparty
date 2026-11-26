@@ -18,6 +18,7 @@ PATH = "$PWD/.venv/bin:$PATH"
 # requirements-dev.txt) installed, or the project itself when there is no
 # requirements file.
 name = "python-deps"
+requires = ["uv.lock", "requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg"]
 key_files = ["uv.lock", "requirements.txt", "requirements-dev.txt", "pyproject.toml", "setup.py", "setup.cfg"]
 key_command = "python3 --version"
 check = "test -x .venv/bin/python"
@@ -40,5 +41,5 @@ fi
 [base]
 # Dependency installation (the ensure step above) is the warm-up; byte
 # compiling the project's own modules saves the first import a little more.
-warm = "python3 -m compileall -q -x '/[.]venv/' . >/dev/null"
+warm = "[ -f uv.lock ] || [ -f requirements.txt ] || [ -f requirements-dev.txt ] || [ -f pyproject.toml ] || [ -f setup.py ] || [ -f setup.cfg ] || exit 0; python3 -m compileall -q -x '/[.]venv/' . >/dev/null"
 stale_inputs = ["uv.lock", "requirements.txt", "requirements-dev.txt", "pyproject.toml"]

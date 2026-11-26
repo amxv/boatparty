@@ -13,6 +13,7 @@ script = "npm run"
 # Install node_modules when the lockfile or Node.js changes, or when a
 # restore left packages without their files.
 name = "npm-install"
+requires = ["package.json"]
 key_files = ["package-lock.json", "npm-shrinkwrap.json"]
 key_command = "node --version"
 check = '''
@@ -25,5 +26,5 @@ test -d node_modules && perl -e '
 run = "if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then npm ci; else npm install; fi"
 
 [base]
-warm = "npm run build --if-present"
+warm = "[ -f package.json ] || exit 0; npm run build --if-present"
 stale_inputs = ["package-lock.json", "npm-shrinkwrap.json"]

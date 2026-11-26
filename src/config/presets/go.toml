@@ -12,6 +12,7 @@ GOCACHE = "/home/user/.boatparty/cache/go-build"
 [[ensure]]
 # Download every module go.sum names.
 name = "go-mod-download"
+requires = ["go.mod"]
 key_files = ["go.mod", "go.sum"]
 key_command = "go version"
 run = "go mod download"
@@ -19,6 +20,7 @@ run = "go mod download"
 [base]
 # Compile the packages and their tests into the build cache.
 warm = '''
+[ -f go.mod ] || exit 0
 go build ./...
 go test -run '^$' ./... >/dev/null
 '''

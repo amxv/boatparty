@@ -62,7 +62,7 @@ After a run, boatparty checks matching cache directories up to four levels under
 ## Steps
 
 - A `[[setup]]` step (`name`, `check`, `run`) runs before the first command after each start of a sandbox, unless its `check` succeeds.
-- An `[[ensure]]` step (`name`, `dir`, `key_files`, `key_command`, `check`, `run`) runs before a command when its key (the content of `key_files` plus the output of `key_command`) changed since it last succeeded, or when its `check` fails. `sync` never runs steps.
+- An `[[ensure]]` step (`name`, `dir`, `key_files`, `key_command`, `check`, `run`) runs before a command when its key (the content of `key_files` plus the output of `key_command`) changed since it last succeeded, or when its `check` fails. A successful first check records the initial key and skips the command. Set `requires = ["manifest", "alternative"]` to skip the entire step, including its key command, unless at least one listed file exists relative to `dir`. Built-in presets use this to skip dependency work in empty repositories. `sync` never runs steps.
 - Step output goes to stderr, so stdout stays the command's. A failing step ends the run with the step's exit code and the command does not run.
 
 ## Presets

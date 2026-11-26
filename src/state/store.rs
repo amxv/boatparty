@@ -147,6 +147,8 @@ mod tests {
 
     fn member(name: String) -> Member {
         Member {
+            environment: None,
+            expected_environment: None,
             id: None,
             create_key: name.clone(),
             name,

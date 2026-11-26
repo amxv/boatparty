@@ -41,11 +41,32 @@ pub(crate) fn with_session<T>(
     label: &str,
     work: impl FnOnce(&Held<'_>) -> Result<T, AppError>,
 ) -> Result<Ended<T>, AppError> {
+    target_session(ctx, label, false, work)
+}
+
+pub(crate) fn target_session<T>(
+    ctx: &Context,
+    label: &str,
+    gate: bool,
+    work: impl FnOnce(&Held<'_>) -> Result<T, AppError>,
+) -> Result<Ended<T>, AppError> {
     let workspace = Workspace::current()?;
     let project = workspace.load_project(&ctx.paths)?;
     let name = project.name();
     let store = Store::new(&ctx.paths);
-    let (member, target) = connect(ctx, &store, name, &workspace, LeaseKind::Session, label)?;
+    let (member, target) = if gate {
+        let wctx = WorkspaceContext::open(ctx)?;
+        let pool = wctx.pool(ctx);
+        match crate::pool::warm_gate(&pool)? {
+            Some(pair) => pair,
+            None => {
+                let up = crate::pool::bring_up_gate(&pool, wctx.bring_up_options(false))?;
+                (up.member, up.target)
+            }
+        }
+    } else {
+        connect(ctx, &store, name, &workspace, LeaseKind::Session, label)?
+    };
     let account = super::load_account(ctx)?;
     let times = LeaseTimes::for_project(&account.config, name);
     // SIGINT and SIGTERM reach the child processes, which end; this process

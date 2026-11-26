@@ -2,6 +2,7 @@ pub mod base;
 pub mod config;
 pub mod desktop;
 pub mod doctor;
+pub mod env;
 pub mod expose;
 pub mod fetch;
 pub mod forward;

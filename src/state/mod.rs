@@ -47,6 +47,11 @@ impl Default for State {
 pub struct ProjectState {
     #[serde(default)]
     pub members: Vec<Member>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment_versions: BTreeMap<String, u64>,
+    /// Injected names for observed immutable versions, keyed by environment ID.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment_names: BTreeMap<String, BTreeMap<u64, Vec<String>>>,
     /// Last failed claim by member name, including refused pending creates.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bring_up_failures: BTreeMap<String, BringUpFailure>,
@@ -56,6 +61,8 @@ pub struct ProjectState {
     pub refresh_pid: Option<u32>,
     #[serde(default)]
     pub last_refresh_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_notice_day: Option<u64>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -80,6 +87,10 @@ impl Role {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Member {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<crate::provider::EnvironmentPin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_environment: Option<String>,
     /// The provider's id; `None` while a create is pending.
     pub id: Option<String>,
     /// The idempotency key of the pending or completed create.
@@ -357,6 +368,8 @@ mod tests {
         assert_eq!(project.next_member_name("app"), "bp-app-1");
         for name in ["bp-app-1", "bp-app-3"] {
             project.members.push(Member {
+                environment: None,
+                expected_environment: None,
                 id: None,
                 create_key: name.into(),
                 name: name.into(),

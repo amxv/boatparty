@@ -24,6 +24,7 @@ CARGO_NET_GIT_FETCH_WITH_CLI = "true"
 # rust-toolchain.toml or rust-toolchain pins. rustup would also do it on the
 # first cargo call, in the middle of the command's own output.
 name = "rust-toolchain"
+requires = ["Cargo.toml"]
 key_files = ["rust-toolchain.toml", "rust-toolchain"]
 run = "if [ -f rust-toolchain.toml ] || [ -f rust-toolchain ]; then rustup toolchain install; fi"
 
@@ -31,6 +32,7 @@ run = "if [ -f rust-toolchain.toml ] || [ -f rust-toolchain ]; then rustup toolc
 # Download every crate Cargo.lock names into CARGO_HOME's registry, again
 # only when the lockfile or the toolchain changes.
 name = "cargo-fetch"
+requires = ["Cargo.toml"]
 key_files = ["Cargo.lock", "rust-toolchain.toml", "rust-toolchain"]
 run = "if [ -f Cargo.lock ]; then cargo fetch --locked; fi"
 
@@ -51,6 +53,7 @@ cache_dirs = ["incremental"]
 # Build everything the usual commands build, so a new sandbox made from the
 # base compiles only what changed since.
 warm = '''
+[ -f Cargo.toml ] || exit 0
 locked=
 if [ -f Cargo.lock ]; then locked=--locked; fi
 cargo build $locked --all-targets

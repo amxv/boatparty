@@ -337,12 +337,16 @@ fn the_day_window_fails_with_a_message_naming_it() {
 
 /// A boat whose one sandbox is stopped until resumed; `resume` answers.
 fn stopped_boat(resume: Reply) -> (FakeBoat, Arc<AtomicBool>) {
+    stopped_boat_with_limits(resume, limits_reply(8, 50))
+}
+
+fn stopped_boat_with_limits(resume: Reply, limits: Reply) -> (FakeBoat, Arc<AtomicBool>) {
     let resumed = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&resumed);
     let boat = FakeBoat::start(move |request: &Request| {
         let path = request.path.split('?').next().unwrap_or_default();
         match (request.method.as_str(), path) {
-            ("GET", "/limits") => limits_reply(8, 50),
+            ("GET", "/limits") => limits.clone(),
             ("POST", path) if path.ends_with("/resume") => {
                 if resume.status < 300 {
                     flag.store(true, Ordering::SeqCst);
@@ -607,4 +611,26 @@ fn limits_set_edits_account_toml_in_place_and_limits_shows_usage() {
             .any(|request| request.path.contains("include=cost")),
         "the cost was not asked for"
     );
+}
+
+#[test]
+fn included_time_notice_only_once_across_admitted_resumes() {
+    let setup = Setup::new("included-time");
+    setup.stopped_member(json!([]));
+    let mut limits: Value = serde_json::from_str(&limits_reply(8, 50).body).unwrap();
+    limits["planIncluded"] =
+        json!({"vmHours":555.6,"vmHoursRemaining":0,"periodEnd":"2026-12-11T00:00:00Z"});
+    let (boat, running) = stopped_boat_with_limits(
+        resumed_reply(200, "running", "ready"),
+        Reply::json(200, &limits.to_string()),
+    );
+    for first in [true, false] {
+        running.store(false, Ordering::SeqCst);
+        let output = setup.cmd(&boat).args(["start", "--json"]).output().unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            text(&output.stderr).contains("included VM hours used up until 2026-12-11"),
+            first
+        );
+    }
 }
