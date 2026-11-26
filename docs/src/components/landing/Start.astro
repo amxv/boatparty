@@ -1,17 +1,16 @@
 ---
 import { getCollection } from "astro:content";
+import InstallCommands from "./InstallCommands.astro";
 import PixelBoat from "./PixelBoat.astro";
 import PixelSea from "./PixelSea.astro";
 
 const docs = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
 
-const install = "curl -fsSL https://boatparty.ashray.xyz/install.sh | sh";
-
 const steps = [
   {
     title: "Install",
-    cmd: install,
-    note: "Into ~/.local/bin, checksum-verified. macOS or Linux, with ssh, ssh-keygen and git on PATH."
+    cmd: null,
+    note: "Checksum-verified. macOS and Linux install into ~/.local/bin; Windows installs into %LOCALAPPDATA%\\boatparty\\bin. Git and OpenSSH are required."
   },
   {
     title: "Log in",
@@ -46,13 +45,17 @@ const night = ["#263fa9", "#2840a3", "#243a96", "#203488", "#1d307d", "#1a2b70"]
           <span class="st__num">{index + 1}</span>
           <h3>{step.title}</h3>
           <div class="st__body">
-            <div class="bp-cmd">
-              <span class="bp-cmd__prompt" aria-hidden="true">$</span>
-              <code>{step.cmd}</code>
-              {!step.cmd.includes("…") && (
-                <button class="bp-copy" type="button" data-copy={step.cmd}>copy</button>
-              )}
-            </div>
+            {step.cmd === null ? (
+              <InstallCommands />
+            ) : (
+              <div class="bp-cmd">
+                <span class="bp-cmd__prompt" aria-hidden="true">$</span>
+                <code>{step.cmd}</code>
+                {!step.cmd.includes("…") && (
+                  <button class="bp-copy" type="button" data-copy={step.cmd}>copy</button>
+                )}
+              </div>
+            )}
             <p>{step.note}</p>
           </div>
         </li>
@@ -81,11 +84,7 @@ const night = ["#263fa9", "#2840a3", "#243a96", "#203488", "#1d307d", "#1a2b70"]
       <p>Your first warm sandbox is one command away.</p>
     </div>
     <div class="sail__cta">
-      <div class="bp-cmd sail__cmd">
-        <span class="bp-cmd__prompt" aria-hidden="true">$</span>
-        <code>{install}</code>
-        <button class="bp-copy" type="button" data-copy={install}>copy</button>
-      </div>
+      <InstallCommands dark />
       <a class="sail__docs" href="/docs">Read the docs</a>
     </div>
   </div>
@@ -219,21 +218,6 @@ const night = ["#263fa9", "#2840a3", "#243a96", "#203488", "#1d307d", "#1a2b70"]
     grid-template-columns: minmax(0, 1fr);
     justify-items: start;
     gap: 0.75rem;
-  }
-
-  .sail__cmd {
-    width: 100%;
-    background: #1e3180;
-    color: #fff;
-  }
-
-  .sail__cmd .bp-cmd__prompt,
-  .sail__cmd .bp-copy {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .sail__cmd .bp-copy:hover {
-    color: #fff;
   }
 
   .sail__docs {

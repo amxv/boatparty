@@ -1,8 +1,7 @@
 ---
+import InstallCommands from "./InstallCommands.astro";
 import PixelBoat from "./PixelBoat.astro";
 import PixelSea from "./PixelSea.astro";
-
-const install = "curl -fsSL https://boatparty.ashray.xyz/install.sh | sh";
 
 // Boats on the hero sea: x in %, y in px below the horizon, pixel size.
 const fleet = [
@@ -25,10 +24,8 @@ const fleet = [
         agents.
       </p>
       <div class="bph__cta rise" style="--i:2">
-        <div class="bp-cmd bph__cmd">
-          <span class="bp-cmd__prompt" aria-hidden="true">$</span>
-          <code>{install}</code>
-          <button class="bp-copy" type="button" data-copy={install}>copy</button>
+        <div class="bph__installs">
+          <InstallCommands dark />
         </div>
         <a class="bph__docs" href="/docs/getting-started">Get started</a>
       </div>
@@ -92,26 +89,14 @@ const fleet = [
   .bph__cta {
     display: flex;
     flex-wrap: wrap;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 0.75rem;
     margin-top: 0.6rem;
   }
 
-  .bph__cmd {
+  .bph__installs {
     min-width: 0;
-    flex: 0 1 37rem;
-    background: var(--c-deep);
-    color: #fff;
-  }
-
-  .bph__cmd .bp-cmd__prompt,
-  .bph__cmd .bp-copy {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .bph__cmd .bp-copy:hover,
-  .bph__cmd .bp-copy.is-copied {
-    color: #fff;
+    flex: 0 1 40rem;
   }
 
   .bph__docs {
