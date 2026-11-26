@@ -235,7 +235,10 @@ fn sigterm_cancels_a_detached_run_before_its_lease_expires() {
     let boat = setup.boat();
     setup.start(&boat);
     let started = setup.root.path().join("started");
-    let line = format!("echo ready > '{}'; sleep 120", started.display());
+    let line = format!(
+        "echo changed >> a.txt; echo ready > '{}'; exec sleep 120",
+        started.display()
+    );
     let mut client = setup
         .spawn_cmd(&boat)
         .env("FAKE_SSH_CHECK", "0")
@@ -247,6 +250,10 @@ fn sigterm_cancels_a_detached_run_before_its_lease_expires() {
     rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
     assert!(eventually(|| client.try_wait().unwrap().is_some()));
     assert_eq!(client.wait().unwrap().code(), Some(143));
+    assert_eq!(
+        fs::read_to_string(setup.repo().join("a.txt")).unwrap(),
+        "one\n"
+    );
     let jobs = setup.root.path().join("jobs");
     assert!(
         fs::read_dir(jobs)

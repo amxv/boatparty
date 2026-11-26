@@ -9,7 +9,8 @@ mod common;
 
 use std::cell::Cell;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -272,7 +273,9 @@ fn a_cancel_stops_the_command_and_brings_nothing_back() {
             self.inner.stderr(bytes);
         }
         fn event(&mut self, name: &str) {
-            self.started.set(true);
+            if name == "started" {
+                self.started.set(true);
+            }
             self.inner.event(name);
         }
     }
@@ -310,6 +313,43 @@ fn a_cancel_stops_the_command_and_brings_nothing_back() {
             text(&sink.inner.stderr)
         ),
     }
+}
+
+/// Reproduce the startup ordering from a stalled attached run. The child
+/// receives TERM before setsid, then continues into its new process group.
+#[test]
+fn a_cancel_before_setsid_still_signals_the_new_group() {
+    let root = TempDir::new("cancel-setsid");
+    let host = LocalRunner::new(root.path(), "remote");
+    let mut child = common::isolated("perl")
+        .args([
+            "-MPOSIX",
+            "-e",
+            r#"
+            $SIG{TERM} = sub {
+                POSIX::setsid() >= 0 or die "setsid: $!";
+                $SIG{TERM} = "DEFAULT";
+            };
+            alarm 12;
+            syswrite STDOUT, "R";
+            while (1) { sleep 60 }
+        "#,
+        ])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdout.take().unwrap().read_exact(&mut [0]).unwrap();
+    write(&host.state.join("out/startup.pid"), &child.id().to_string());
+    let mut cancel = host
+        .command(&["kill".into(), "app".into(), "startup".into()])
+        .spawn()
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert!(cancel.wait().unwrap().success());
+    assert_eq!(
+        status.signal(),
+        Some(rustix::process::Signal::TERM.as_raw())
+    );
 }
 
 /// Wait until `check` holds or `limit` passes.

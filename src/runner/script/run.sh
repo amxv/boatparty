@@ -11,14 +11,21 @@ cpu_ticks() {
 # Signal the command's whole process group: TERM, then KILL for whatever is
 # still there a few seconds later.
 kill_group() {
-  local pid="$1" _
-  # Right after the start the command may not have made its own session yet;
-  # then the leader itself is signalled, before it can start anything.
-  kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || return 0
+  local pid="$1" group_signalled=0 _
+  # Before setsid the forked shell can take TERM and still exec the
+  # launcher. Keep looking for the group while that leader is alive.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    kill -0 -- "-$pid" 2>/dev/null || return 0
+    if [[ "$group_signalled" == 1 ]]; then
+      kill -0 -- "-$pid" 2>/dev/null || return 0
+    elif kill -TERM -- "-$pid" 2>/dev/null; then
+      group_signalled=1
+    elif ! kill -TERM "$pid" 2>/dev/null && ! kill -0 -- "-$pid" 2>/dev/null; then
+      # Neither the leader nor a group it left behind still exists.
+      return 0
+    fi
     sleep 0.5
   done
+  if [[ "$group_signalled" == 0 ]]; then kill -KILL "$pid" 2>/dev/null || true; fi
   kill -KILL -- "-$pid" 2>/dev/null || true
 }
 
