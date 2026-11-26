@@ -10,10 +10,9 @@ summary: User-facing release history.
 
 Every boatparty release, newest first, with what changed for users and anything to do when upgrading. To upgrade, run the installer again (see [Installation](/docs/installation#upgrading)).
 
-## Unreleased
+## 0.5.3 - 2026-11-27
 
 - Killing `serve` or `forward` releases its local ports even when a browser or another TCP client still has a forwarded connection open. You can restart on the same fixed port.
-
 - Cancelling a serve, gate, pipe, or base build as its command starts now stops the command even if its process group is still being created.
 
 ## 0.5.2 - 2026-11-27
