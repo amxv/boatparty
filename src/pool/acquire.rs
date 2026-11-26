@@ -247,6 +247,7 @@ pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> O
             label: lease.label.clone(),
             started_at: request.now,
             workspace: Some(request.workspace.to_string()),
+            service: None,
         });
     }
     member.last_used_at = request.now;
@@ -609,6 +610,7 @@ mod tests {
             label: "cargo test".into(),
             started_at: 0,
             workspace: Some("/w".into()),
+            service: None,
         });
         let mut state = state_with(vec![leased]);
         let error = release(&mut state, "app", "/w").unwrap_err();
@@ -658,6 +660,7 @@ mod tests {
             label: String::new(),
             started_at: 0,
             workspace: None,
+            service: None,
         });
         state.project_mut("app").members.push(leased);
         let error = assign(&mut state, "app", "/w", "leased", &exists, 9).unwrap_err();

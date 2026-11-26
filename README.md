@@ -95,6 +95,12 @@ just remote-test pipe    # cargo test with a filter
 
 [`AGENTS.md`](AGENTS.md) has the module map and conventions, [`docs/json.md`](docs/json.md) the `--json` contract, and [`docs/boat-facts.md`](docs/boat-facts.md) the measured boat behavior the design relies on. The docs site lives in [`docs/`](docs/).
 
+## Sharing a workspace between agents
+
+Start a dev server with `boatparty serve --forward auto:3000 -- npm run dev`. From the same worktree, `boatparty url 3000` prints its local URL. Use `boatparty url` to list all serve forwards or `boatparty status` to see them by member.
+
+Runs in one workspace wait their turn through copy-back. Manual `sync` and new serves wait during a run. Once a server starts, use `boatparty sync` to send edits to it. A second serve claiming the same sandbox port reports the existing holder. Gate uses its own member. Stop and release refuse a member with a live lease.
+
 ## Working with project environments and local servers
 
 - Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.

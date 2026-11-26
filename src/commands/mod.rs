@@ -1,4 +1,5 @@
 pub mod base;
+mod checkout;
 pub mod config;
 pub mod desktop;
 pub mod doctor;
@@ -26,6 +27,7 @@ pub mod start;
 pub mod status;
 pub mod stop;
 pub mod sync;
+pub mod url;
 
 use crate::Context;
 use crate::account::{self, ApiKey, KeySource, LoadedAccount, ProjectSettings};

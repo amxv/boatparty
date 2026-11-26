@@ -71,6 +71,7 @@ fn parse(shape: &str, stdout: &[u8], streaming: bool) -> Value {
 /// it: a whole base build needs `tests/base.rs`'s provider.
 const CHECKED_ELSEWHERE: &[&str] = &[
     "base build",
+    "url",
     "gate",
     "secret set",
     "secret rm",
@@ -412,6 +413,7 @@ fn every_subcommand_prints_its_documented_json() {
 fn every_subcommand_fails_with_the_error_shape_and_exit_125() {
     let cases: &[&[&str]] = &[
         &["start"],
+        &["url"],
         &["sync"],
         &["run", "--", "true"],
         &["serve", "--", "true"],

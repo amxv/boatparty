@@ -126,6 +126,20 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
             line.push_str(&format!("  {warning}"));
         }
         ctx.out.text(line.trim_end());
+        for (lease, service) in crate::pool::service::services(&ctx.paths, member) {
+            if service.started {
+                let urls = service
+                    .forwards
+                    .iter()
+                    .map(|f| f.url.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                ctx.out.text(format_args!(
+                    "  serve (pid {}): {} {urls}",
+                    lease.pid, lease.label
+                ));
+            }
+        }
         if let Some(broken) = &member.broken {
             ctx.out.text(format_args!(
                 "  broken: {}; snapshot recovery is attempted before replacement",
@@ -185,11 +199,12 @@ pub fn member_json(
         "affinity": member.affinity,
         "this_workspace": member.affinity.as_deref() == Some(workspace),
         "auto_stop_at": sandbox.and_then(|sandbox| sandbox.auto_stop_at.clone()),
-        "leases": member.live_leases().map(|lease| json!({
+        "leases": member.live_leases().filter(|l| l.service.is_none() || crate::pool::service::held(paths,l)).map(|lease| json!({
             "pid": lease.pid,
             "kind": lease.kind,
             "label": lease.label,
             "started_at": lease.started_at,
+            "service": lease.service,
         })).collect::<Vec<_>>(),
         "bringing_up": member.bringing_up,
         "ssh": ssh,

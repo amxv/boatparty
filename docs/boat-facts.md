@@ -577,3 +577,11 @@ implementation detail. The runner supplies it to the Rust preset for cleanup.
 Boat exposes the environment name and pinned version on sandbox listings. The scoped v1 environment listing includes the latest version’s dotenv contents and secret files. Project output must select names only and discard provider error bodies for secret operations. Earlier versions list counts and IDs without contents. The creation endpoint enables all credential types initially. Configure its flags before attaching a newly created environment or writing any secrets. A 0.3.0 key received HTTP 403 on the environment listing, while a temporary key with `environment.read` succeeded.
 
 The public upgrade endpoint accepted `{"agentIds":["bx_…"]}` but reported zero upgraded and left the selected sandbox at v3. An unfiltered request on the isolated test environment moved it to v4. Boatparty verifies the pin after a scoped request and reports the recreation path if it stays stale. It never sends an unfiltered upgrade.
+
+## Sharing one member, measured on 0.4.0 (2026-11-26)
+
+Two concurrent runs on a scratch member overlapped. Run A wrote a new file and slept. Run B synced a changed page, which deleted A's file, then wrote another file and copied it back. A woke up, saw the changed page, and tried to copy B's file back again. Its patch conflicted with the local copy.
+
+While a gate held its dedicated member, a workspace run and a forwarded HTTP server both started. A manual sync updated the page returned through the existing forward, and a run beside the server read the updated file. A second serve forwarding the same sandbox port to a fresh local port reached Python and failed to bind. Reusing the same local port failed on the client. A second scratch probe used inotify to reload an in-memory page on filesystem events. After a manual sync the same server returned the new content. Release and stop both exited 125 for each of a live run and a live serve, identifying the holder.
+
+On the same project a token-gated expose URL answered a callback POST with a redirect that set an authorization cookie. A public expose forwarded the POST to the application. Use `expose --public` for webhook senders that require the original POST to reach the receiver.

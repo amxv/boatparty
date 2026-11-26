@@ -396,6 +396,7 @@ mod tests {
             label: String::new(),
             started_at: 0,
             workspace: Some("/gone".into()),
+            service: None,
         });
         let mut pool = ProjectState::default();
         pool.members

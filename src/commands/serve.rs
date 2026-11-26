@@ -45,6 +45,22 @@ pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
     let ready_port = args
         .ready_port
         .or_else(|| forwards.iter().find(|f| f.listen == 0).map(|f| f.target));
+    let workspace = crate::project::Workspace::current()?;
+    let project = workspace.load_project(&ctx.paths)?;
+    let state = crate::state::Store::new(&ctx.paths).load()?;
+    let key = workspace.key();
+    if let Some(member) = state
+        .project(project.name())
+        .and_then(|pool| pool.affinity_member(&key))
+    {
+        let ports = forwards
+            .iter()
+            .map(|f| f.target)
+            .chain(args.reverse.iter().map(|f| f.listen))
+            .chain(ready_port)
+            .collect::<Vec<_>>();
+        crate::pool::service::check(&ctx.paths, member, &ports)?;
+    }
     let mut reserved = Vec::new();
     // Reserve explicit ports first so the OS cannot give one to an auto forward.
     for auto in [false, true] {
@@ -74,6 +90,38 @@ pub(crate) struct Serve {
 }
 
 impl Serve {
+    pub fn service(&self) -> crate::state::Service {
+        use crate::state::{Service, ServiceForward};
+        let forwards = self
+            .forwards
+            .iter()
+            .filter(|f| f.direction == Direction::Local)
+            .map(|f| ServiceForward {
+                remote_port: f.target,
+                url: f.url(),
+            })
+            .collect();
+        let mut ports: Vec<_> = self
+            .forwards
+            .iter()
+            .map(|f| {
+                if f.direction == Direction::Local {
+                    f.target
+                } else {
+                    f.listen
+                }
+            })
+            .chain(self.ready_port)
+            .collect();
+        ports.sort_unstable();
+        ports.dedup();
+        Service {
+            ports,
+            forwards,
+            started: false,
+        }
+    }
+
     /// The time cap, if any.
     pub fn cap(&self) -> Option<Duration> {
         (self.max_minutes > 0.0).then(|| Duration::from_secs_f64(self.max_minutes * 60.0))

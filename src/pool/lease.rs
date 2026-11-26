@@ -167,6 +167,7 @@ pub fn register(
             label,
             started_at: system::now_ms(),
             workspace: Some(workspace.to_string()),
+            service: None,
         });
         slot.last_used_at = system::now_ms();
         Ok(true)
@@ -506,6 +507,7 @@ mod tests {
                     label: "dev".into(),
                     started_at: 0,
                     workspace: Some("/w".into()),
+                    service: None,
                 });
                 Ok(())
             })

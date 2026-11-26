@@ -55,7 +55,7 @@ pub enum Command {
                       history. Only files whose content changed are rewritten there. Ignored \
                       files never leave this machine, and the local index and working tree are \
                       not modified. Large packs go through a signed upload URL when the provider \
-                      offers one."
+                      offers one. Sync waits for active runs and can update a running serve."
     )]
     Sync,
     /// Sync, run one command in the sandbox's checkout, stream its output, and
@@ -68,10 +68,16 @@ pub enum Command {
     /// Run a long-lived process, such as a dev server, in the sandbox's
     /// checkout until cancelled, with optional port forwards.
     Serve(ServeArgs),
+    /// Print local forward URLs of running serves in this workspace, one per line.
+    Url {
+        /// Show only forwards to this sandbox port.
+        #[arg(value_name = "REMOTEPORT", value_parser = clap::value_parser!(u16).range(1..))]
+        remote_port: Option<u16>,
+    },
     /// Open a shell in the sandbox's checkout, or run one command there
     /// without syncing.
     Shell(ShellArgs),
-    /// Stop this workspace's sandbox; its disk is kept.
+    /// Stop this workspace's sandbox, keeping its disk. Refused while a command holds a lease.
     Stop(StopArgs),
     /// Run one command in the sandbox's checkout with this process's standard
     /// input (no sync); for input that must not be in a command line or a log.
@@ -104,7 +110,7 @@ pub enum Command {
         #[command(subcommand)]
         action: EnvAction,
     },
-    /// Show this project's sandboxes and flag environment or version mismatches.
+    /// Show this project's sandboxes, active serves, forward URLs and environment drift.
     Status,
     /// Show every project's sandboxes: state, workspace, leases, last use and environment drift.
     Pool(PoolArgs),
@@ -157,7 +163,7 @@ pub enum Command {
                   otherwise it fails and lists the known names. Options such as --json go before \
                   NAME; everything after NAME is passed on, `--` included \
                   (`boatparty run test -- --nocapture` appends `-- --nocapture`).\n\n\
-                  The working tree is synced first (as `boatparty sync` does). stdout is passed through \
+                  Runs sharing a workspace take turns through copy-back. The working tree is synced first (as `boatparty sync` does). stdout is passed through \
                   byte for byte. Files the command changes in the checkout are applied to this working \
                   tree afterwards; if the same lines changed here meanwhile, nothing is changed and the \
                   patch is kept under the Git directory.\n\n\
@@ -219,7 +225,7 @@ pub struct GateArgs {
                   here. Both listen on 127.0.0.1 unless BIND names another address (for example \
                   0.0.0.0, which other machines can reach). Forwards travel on the server's own \
                   SSH connection and end with it; other commands keep using the shared one.\n\n\
-                  With an automatic local port, readiness defaults to its remote port.\n\n\
+                  Use boatparty url [REMOTEPORT] to discover a running forward. A second serve claiming the same sandbox port fails. Send edits with boatparty sync once the server starts. With an automatic local port, readiness defaults to its remote port.\n\n\
                   --ready-port PORT logs once, and sends the event `ready`, when something starts \
                   listening on PORT on the sandbox. --max-minutes stops a forgotten server (default \
                   120; 0 disables the cap).\n\n\

@@ -8,6 +8,11 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
+## Unreleased
+
+- Discover running serve forwards from another process with `boatparty url [REMOTEPORT]` or `status`. Duplicate serves report the existing port holder.
+- Runs sharing a workspace serialize through copy-back. Sync and serve startup wait for an active run. Manual sync can still update a running dev server.
+
 ## 0.4.0 - 2026-11-26
 
 - Manage environment variables with `secret set KEY` (stdin), `secret rm KEY` and `secret list`. Add `--create` to configure a new secrets-only environment. New keys include `environment.read` and `environment.write`.

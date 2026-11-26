@@ -46,6 +46,7 @@ pub(crate) fn run_as(ctx: &Context, args: &RunArgs, serve: Option<Serve>) -> Res
     let mut run = Run {
         ctx,
         serve,
+        checkout: None,
         interrupted: None,
         // A named command's line is known once the project is loaded.
         line: command_line(args).unwrap_or_default(),
@@ -105,6 +106,7 @@ struct Run<'a> {
     serve: Option<Serve>,
     /// A SIGINT or SIGTERM ended the run before the command started.
     interrupted: Option<u8>,
+    checkout: Option<super::checkout::Checkout>,
     line: String,
     /// `run <name> [args...]`: the name and its arguments.
     named: Option<(String, Vec<String>)>,
@@ -186,7 +188,7 @@ impl Run<'_> {
         let token_source = project.run_token_source();
         // Local checks first: a repository without a commit fails before
         // anything remote happens.
-        let info = WorktreeInfo::read(&workspace.root)?;
+        let mut info = WorktreeInfo::read(&workspace.root)?;
         let account = super::load_account(ctx)?;
         let times = LeaseTimes::for_project(&account.config, &name);
         let store = Store::new(&ctx.paths);
@@ -203,6 +205,20 @@ impl Run<'_> {
         } else {
             connect(ctx, &store, &name, &workspace, &self.line)?
         };
+        // Keep bring-up's shared restore progress and failure reporting. Take
+        // the checkout only once the member is available, before snapshotting.
+        let checkout = super::checkout::Checkout::acquire(ctx, &workspace, self.kind().as_str())?;
+        if checkout.waited {
+            info = WorktreeInfo::read(&workspace.root)?;
+        }
+        self.checkout = Some(checkout);
+        if let Some(current) = store
+            .load()?
+            .project(&name)
+            .and_then(|pool| pool.find(&conn.member.name))
+        {
+            conn.member.sync = current.sync.clone();
+        }
         if let Some(pin) = &conn.member.environment {
             let latest = project.environment().and_then(|expected| {
                 store
@@ -422,6 +438,18 @@ impl Run<'_> {
             self.serve.as_ref().map_or(0.0, |serve| serve.max_minutes),
         );
         loop {
+            let _service_guard = self
+                .serve
+                .as_ref()
+                .map(|serve| {
+                    crate::pool::service::claim(
+                        &self.ctx.paths,
+                        name,
+                        &conn.member.create_key,
+                        serve.service(),
+                    )
+                })
+                .transpose()?;
             let snapshot = sync::snapshot(info)?;
             let (refs, digest) = sync::mirrored_refs(info, history)?;
             let sync_state = &conn.member.sync;
@@ -451,6 +479,9 @@ impl Run<'_> {
                 started: None,
                 failed_step: None,
                 serve: self.serve.as_ref(),
+                checkout: &mut self.checkout,
+                project: name,
+                member_key: &conn.member.create_key,
                 ready_seconds: None,
                 reattached: false,
                 mux_refused: false,
@@ -785,6 +816,9 @@ struct StartWatch<'a> {
     failed_step: Option<String>,
     /// A server's settings, for its ready line.
     serve: Option<&'a Serve>,
+    checkout: &'a mut Option<super::checkout::Checkout>,
+    project: &'a str,
+    member_key: &'a str,
     ready_seconds: Option<f64>,
 }
 
@@ -816,6 +850,15 @@ impl Sink for StartWatch<'_> {
         }
         if name == "started" && self.started.is_none() {
             self.started = Some(Instant::now());
+            if self.serve.is_some() {
+                if let Err(e) =
+                    crate::pool::service::started(self.paths, self.project, self.member_key)
+                {
+                    self.stream
+                        .note(format_args!("could not publish serve forwards: {e}"));
+                }
+                self.checkout.take();
+            }
         }
         if let Some(step) = name.strip_prefix("failed-step ") {
             self.failed_step = Some(step.to_string());

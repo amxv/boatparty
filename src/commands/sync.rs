@@ -33,6 +33,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
     let name = project.name();
     // Local work first: a repository without a commit fails before any
     // provider call.
+    let _checkout = super::checkout::Checkout::acquire(ctx, &workspace, "sync")?;
     let info = WorktreeInfo::read(&workspace.root)?;
     let history = project.history();
     let snapshot = sync::snapshot(&info)?;

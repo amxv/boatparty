@@ -19,6 +19,16 @@ summary: The everyday commands, then everything else.
 | `shell` | Open a shell in the checkout, or run one command there without syncing |
 | `stop` | Stop this workspace's sandbox; its disk is kept |
 
+### Sharing a workspace between agents
+
+After starting `boatparty serve --forward auto:3000 -- npm run dev`, another agent in the same worktree can run `boatparty url 3000`. Omit the port to print every running serve forward, one URL per line. The command reads local lease records. With no matching forward it exits 125. Use `--json` for the remote port, local URL, serve PID and start time in Unix milliseconds. Publication happens at command launch. Use the serve ready event to wait for application readiness. `status` lists servers under their member.
+
+A run holds the workspace from before its snapshot until it finishes applying file changes locally. Another run, manual sync or serve startup waits, reports the holder, then snapshots the latest tree. A detached remote run can keep the checkout busy after its client dies until the command ends or its reconnect window expires.
+
+A serve releases its turn once the server starts. Run `boatparty sync` after editing locally so the server can reload. Sync replaces changed tracked and non-ignored files with the local version. A running server shares the checkout, including build outputs, with commands beside it. Use separate worktrees for isolated builds. A duplicate declared sandbox port reports the existing serve. End its process to free the port. Standalone forwards have their own lifecycle.
+
+Gate checks committed code on a separate member and can overlap workspace commands. Two gates for the same project conflict. Release and stop refuse a member with a live lease and identify its holder.
+
 ### run and serve
 
 Both take the command in three forms:

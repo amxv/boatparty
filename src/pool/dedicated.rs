@@ -104,6 +104,7 @@ fn bring_up_dedicated(pool: &Pool<'_>, options: BringUp, role: Role) -> Result<U
             .to_string(),
             started_at: now,
             workspace: None,
+            service: None,
         });
         member.bringing_up = Some(BringingUp::new(pid, now));
         Ok(Ok((member.clone(), fresh)))
@@ -201,6 +202,7 @@ pub fn warm_gate(pool: &Pool<'_>) -> Result<Option<(Member, SshTarget)>, AppErro
             label: "gate".into(),
             started_at: system::now_ms(),
             workspace: None,
+            service: None,
         });
         Ok(Some((slot.clone(), target)))
     })

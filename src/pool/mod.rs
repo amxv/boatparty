@@ -16,6 +16,7 @@ pub mod policy;
 pub mod reconcile;
 mod recovery;
 pub mod remove;
+pub mod service;
 pub mod wait;
 
 use std::collections::{BTreeMap, BTreeSet};

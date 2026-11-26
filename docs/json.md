@@ -326,6 +326,8 @@ Names only. For older pins, boatparty uses locally observed names for the last 3
 
 ### status
 
+A lease has a nullable `service` field. A serve records its claimed sandbox ports, local forwards, and whether its command has started.
+
 One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `broken` gives the reason for pending recovery. `health` and `health_reason` are the provider's last observations. A degraded tunnel permits direct SSH. After a forced restart, `restarted_from` is the Unix timestamp in seconds of the recovered snapshot. Writes made after that snapshot may have been lost. Otherwise this field is `null`. `base` summarizes the project's base snapshot.
 
 <!-- shape: status -->
@@ -349,7 +351,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
       "affinity": "/Users/me/code/app",
       "this_workspace": true,
       "auto_stop_at": "2026-11-15T12:15:00Z",
-      "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
+      "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
       "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
       "ssh": {
         "host_alias": "bx_23456789",
@@ -399,7 +401,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
-    "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
+    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
     "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
@@ -662,6 +664,20 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
 }
 ```
 
+### url
+
+`url [REMOTEPORT]` lists local forwards of live serves in this workspace. The optional port filters the array. Times are Unix milliseconds. No match produces the standard `no_serve_forward` error and exit 125.
+
+<!-- shape: url -->
+```json
+{
+  "ok": true,
+  "project": "app",
+  "workspace": "/Users/me/code/app",
+  "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000, "pid": 4242, "started_at": 1794730331934}]
+}
+```
+
 ### release
 
 `released` is false (and `member` `null`) when the workspace held no sandbox.
@@ -716,7 +732,7 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
-    "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
+    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
     "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
@@ -971,6 +987,8 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `invalid_limit` | `limits set` got an unknown key or a bad value |
 | `doctor_failed` | At least one `doctor` check failed (the document also carries `checks`) |
 | `no_member` | This workspace has no sandbox, or a named sandbox or project is unknown |
+| `no_serve_forward` | No running serve forward matches this workspace and port |
+| `already_serving` | A live serve already claims the sandbox port |
 | `member_in_use` | The sandbox has a live lease or another process is bringing it up |
 | `member_pending` | The sandbox's create has no answer yet |
 | `member_failed` | The sandbox is in the provider's error state |

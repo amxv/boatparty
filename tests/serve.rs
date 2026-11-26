@@ -335,7 +335,15 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
     let log = fs::File::create(setup.root.path().join("client.err")).unwrap();
     let mut client = setup
         .spawn_cmd(&boat)
-        .args(["serve", "--sh", &line])
+        .args([
+            "serve",
+            "--forward",
+            "auto:3011",
+            "--forward",
+            "auto:3012",
+            "--sh",
+            &line,
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(log)
@@ -358,9 +366,61 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
         "{state}"
     );
 
+    let read = |args: &[&str]| setup.cmd(&boat).args(args).output().unwrap();
+    let urls = read(&["--json", "url"]);
+    let urls: Value = serde_json::from_slice(&urls.stdout).unwrap();
+    common::contract::assert_shape("url", &urls);
+    let forwards = urls["forwards"].as_array().unwrap();
+    assert_eq!(forwards.len(), 2);
+    for (row, port) in forwards.iter().zip([3011, 3012]) {
+        assert_eq!(row["remote_port"], port);
+        assert_eq!(row["pid"], client.id());
+        assert!(row["started_at"].as_u64().unwrap() > 0);
+        assert_eq!(
+            text(&read(&["url", &port.to_string()]).stdout).trim(),
+            row["url"].as_str().unwrap()
+        );
+    }
+    let first = forwards[0]["url"].as_str().unwrap();
+    let listing = common::FakeBoat::start(|_| {
+        common::Reply::json(200, &serde_json::json!({
+        "ok": true, "sandboxes": [{"id": ID, "name":"bp-app-1", "state":"idle", "hydrated":true}],
+        "pageInfo":{"nextCursor":null, "hasMore":false}
+    }).to_string())
+    });
+    let status = setup
+        .cmd(&listing)
+        .args(["--json", "status"])
+        .output()
+        .unwrap();
+    let status: Value = serde_json::from_slice(&status.stdout).unwrap();
+    common::contract::assert_shape("status", &status);
+    assert_eq!(
+        status["members"][0]["leases"][0]["service"]["forwards"][0]["url"],
+        first
+    );
+    assert!(text(&setup.cmd(&listing).arg("status").output().unwrap().stdout).contains(first));
+    let duplicate = read(&["--json", "serve", "--forward", "auto:3011", "--", "false"]);
+    assert_eq!(duplicate.status.code(), Some(125));
+    let failure: Value = serde_json::from_slice(&duplicate.stdout).unwrap();
+    assert_eq!(failure["error"]["code"], "already_serving");
+    assert!(text(&duplicate.stderr).contains(first));
+    assert!(read(&["sync"]).status.success());
+    for cmd in ["release", "stop"] {
+        assert_eq!(read(&[cmd]).status.code(), Some(125));
+    }
+
     let killed_at = Instant::now();
     client.kill().unwrap(); // SIGKILL
+    // Leave the killed client unreaped while querying its URL.
+    std::thread::sleep(Duration::from_millis(50));
+    let gone = read(&["--json", "url"]);
+    let error: Value = serde_json::from_slice(&gone.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "no_serve_forward");
+    assert_eq!(gone.status.code(), Some(125));
+    assert!(!state_text(&setup).contains(first));
     let _ = client.wait();
+
     assert!(
         eventually(Duration::from_secs(15), || {
             !boatparty::system::pid_alive(leader) && !boatparty::system::pid_alive(child)
@@ -716,4 +776,44 @@ fn a_new_server_reaps_an_orphan_and_preserves_a_connected_server() {
     assert!(boatparty::system::pid_alive(live_pid));
     drop(connected.stdin.take());
     connected.wait().unwrap();
+}
+
+#[test]
+fn a_second_run_snapshots_only_after_the_first_copies_back() {
+    let setup = E2e::new("shared-run");
+    let boat = setup.boat();
+    setup.start(&boat);
+    let dir = setup.root.path();
+    let started = dir.join("started");
+    let resume = dir.join("resume");
+    let cmd = format!(
+        "echo one > first; touch '{}'; for i in {{1..300}}; do test -e '{}' && break; sleep 0.1; done; test -f first",
+        started.display(),
+        resume.display()
+    );
+    let mut first = setup
+        .spawn_cmd(&boat)
+        .args(["run", "--sh", &cmd])
+        .spawn()
+        .unwrap();
+    assert!(eventually(Duration::from_secs(15), || started.exists()));
+    let log = dir.join("wait.log");
+    let mut next = setup
+        .spawn_cmd(&boat)
+        .args(["run", "--sh", "cat first > second"])
+        .stderr(fs::File::create(&log).unwrap())
+        .spawn()
+        .unwrap();
+    assert!(eventually(Duration::from_secs(10), || {
+        fs::read_to_string(&log)
+            .unwrap()
+            .contains(&format!("(pid {})", first.id()))
+    }));
+    fs::write(resume, "").unwrap();
+    assert!(first.wait().unwrap().success());
+    assert!(next.wait().unwrap().success());
+    assert_eq!(
+        fs::read_to_string(setup.repo().join("second")).unwrap(),
+        "one\n"
+    );
 }

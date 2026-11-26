@@ -32,7 +32,7 @@ mode_detach() {
       flock($owner, 2) or die;
       rename "$dir/starting", "$dir/supervisor" or die;
       my $pid = fork(); defined $pid or die;
-      if (!$pid) { setsid() >= 0 or die; exec @ARGV or die }
+      if (!$pid) { POSIX::close(4); setsid() >= 0 or die; exec @ARGV or die }
       close STDIN;
       my $cancel = 0;
       my $last = 0;
@@ -61,6 +61,7 @@ mode_detach() {
       done
       printf '\n'
     ) >>"$job/out" 2>>"$job/err" &
+  exec 4>&- # The supervisor now owns the run lock.
   stream_job "$nonce" 0 0
 }
 

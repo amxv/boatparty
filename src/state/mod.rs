@@ -5,6 +5,7 @@
 //! Unknown fields are kept on write, so an older binary never drops what a
 //! newer one stored. Times are milliseconds since the Unix epoch.
 
+mod service;
 mod store;
 
 use std::collections::BTreeMap;
@@ -12,6 +13,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+pub use service::{Service, ServiceForward};
 pub use store::Store;
 
 use crate::system;
@@ -201,6 +203,9 @@ pub struct Lease {
     /// The workspace the holder works for (older records have none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
+    /// What a `serve` offers while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<Service>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -402,6 +407,7 @@ mod tests {
             label: String::new(),
             started_at: 0,
             workspace: None,
+            service: None,
         });
         assert!(!member.has_live_lease());
         member.leases.push(Lease {
@@ -410,6 +416,7 @@ mod tests {
             label: String::new(),
             started_at: 0,
             workspace: None,
+            service: None,
         });
         assert!(member.has_live_lease());
     }

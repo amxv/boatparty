@@ -103,6 +103,7 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Run(args) => commands::run::run(&ctx, &args),
         Command::Serve(args) => commands::serve::run(&ctx, &args),
         Command::Shell(args) => commands::shell::run(&ctx, &args),
+        Command::Url { remote_port } => commands::url::run(&ctx, remote_port),
         Command::Sync => commands::sync::run(&ctx),
         Command::Pipe(args) => commands::pipe::run(&ctx, &args),
         Command::Fetch(args) => commands::fetch::run(&ctx, &args),

@@ -249,6 +249,21 @@ mode_settle() {
   echo settled
 }
 
+# A run's detached supervisor can outlive a killed client. Keep its checkout
+# protected until it exits, even after the client's workspace lock is gone.
+case "$mode" in
+  run|sync|serve|seed)
+    exec 4>"$state/run.lock"
+    perl -e 'unless (flock(STDIN, 2|4)) {
+      print STDERR "boatparty: waiting for a previous run on the sandbox\n";
+      flock(STDIN, 2) or die "cannot lock sandbox run: $!"
+    }' <&4
+    # The local workspace lock serializes attached clients. Only detached
+    # runs need ownership past this point.
+    if [[ "$mode" != run ]]; then exec 4>&-; fi
+    ;;
+esac
+
 case "$mode" in
   sync) mode_sync "$@" ;;
   run) mode_detach "$@" ;;

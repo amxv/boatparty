@@ -51,6 +51,13 @@ boatparty limits                      # starts, running sandboxes, caps
   back. Ignored build outputs stay on the sandbox: get one with
   `boatparty fetch target/release/app [dest]`.
 
+## Sharing a workspace between agents
+
+- Use `boatparty url [REMOTEPORT]` to find existing serve forwards. `--json` includes the local URL, remote port, holder PID and start time. `status` groups servers by member.
+- Run, sync and serve startup take turns in each workspace. A run holds its turn through copy-back. A waiting command reports the holder and takes its snapshot when admitted.
+- Once a serve starts, other commands can run beside it. Send edits with `boatparty sync` for the dev server to reload. Keep server-generated files in ignored directories when possible.
+- Reuse the URL if another serve holds the port. Stop the owning process to free it. Stop and release refuse busy members. Gate can run independently on its dedicated member.
+
 ## Starts are scarce
 
 Every create or resume is a start, and the account has a few per minute,
