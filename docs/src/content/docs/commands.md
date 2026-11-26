@@ -21,7 +21,7 @@ summary: The everyday commands, then everything else.
 
 ### Sharing a workspace between agents
 
-After starting `boatparty serve --forward auto:3000 -- npm run dev`, another agent in the same worktree can run `boatparty url 3000`. Omit the port to print every running serve forward, one URL per line. The command reads local lease records. With no matching forward it exits 125. Use `--json` for the remote port, local URL, serve PID and start time in Unix milliseconds. Publication happens at command launch. Use the serve ready event to wait for application readiness. `status` lists servers under their member.
+After starting `boatparty serve --forward auto:3000 -- npm run dev`, another agent in the same worktree can run `boatparty url 3000`. Omit the port to print every running serve forward, one URL per line. The command reads local lease records. With no matching forward it exits 1. A tool failure exits 125. Use `--json` for the remote port, local URL, serve PID and start time in Unix milliseconds. Publication happens at command launch. Use the serve ready event to wait for application readiness. `status` lists servers under their member.
 
 A run holds the workspace from before its snapshot until it finishes applying file changes locally. Another run, manual sync or serve startup waits, reports the holder, then snapshots the latest tree. A detached remote run can keep the checkout busy after its client dies until the command ends or its reconnect window expires.
 
@@ -53,7 +53,7 @@ boatparty serve --forward 3000:3000 --ready-port 3000 -- npm run dev
 boatparty serve --reverse 20000:7777 --sh 'API=http://127.0.0.1:20000 npm start'
 ```
 
-Forwards listen on 127.0.0.1 unless you name another address. `--max-minutes` (default 120) stops a forgotten server. If the client dies in any way, SIGKILL included, the sandbox stops the server within seconds.
+By default, local forwards publish `http://localhost:PORT` and listen on both `127.0.0.1` and `::1` at the same port. If IPv6 is unavailable, boatparty prints a note and uses IPv4. An explicit bind address selects the listener. Reverse forwards default to the sandbox’s `127.0.0.1`. `--max-minutes` (default 120) stops a forgotten server. If the client dies in any way, SIGKILL included, the sandbox stops the server within seconds.
 
 ### gate
 
@@ -119,6 +119,7 @@ The command gets the project's credentials and `[run.env]`, and its stdout is pa
 | the command's own | `run`, `gate`, `serve`, `pipe`, `shell -- CMD` |
 | 0 | Other commands succeeded |
 | 2 | Usage error |
+| 1 | `url` found no matching running serve forward |
 | 125 | boatparty itself failed: configuration, credentials, provider, connection, limits. Not the command |
 | 130, 143 | Cancelled by SIGINT or SIGTERM (the remote command is stopped too) |
 

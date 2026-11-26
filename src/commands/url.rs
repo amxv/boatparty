@@ -75,10 +75,11 @@ pub fn run(ctx: &Context, port: Option<u16>) -> Result<u8, AppError> {
     }
     if forwards.is_empty() {
         let which = port.map_or(String::new(), |p| format!(" for remote port {p}"));
-        return Err(AppError::new(
+        ctx.out.error(&AppError::new(
             "no_serve_forward",
             format!("no running serve forward{which} in this workspace"),
         ));
+        return Ok(1);
     }
     if ctx.out.is_json() {
         ctx.out

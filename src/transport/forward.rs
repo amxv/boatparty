@@ -1,18 +1,25 @@
 //! Port forwards over SSH: parsing what the user types, and the `ssh`
 //! options that carry them.
 //!
-//! Every forward listens on the loopback address (127.0.0.1) unless the
+//! Every forward listens on loopback unless the
 //! caller names a bind address, so nothing becomes reachable from the
 //! network by default. The other end is always the loopback address of the
 //! machine that is forwarded to.
 
-use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::{fmt, io};
 
 use crate::error::AppError;
 
-/// The address a forward listens on when the caller names none.
-pub const DEFAULT_BIND: &str = "127.0.0.1";
+pub const IPV4_ONLY_NOTE: &str =
+    "IPv6 loopback is unavailable; forwarding localhost on 127.0.0.1 only";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Bind {
+    BothLoopbacks,
+    Ipv4Fallback,
+    Address(String),
+}
 
 /// Which side listens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,7 +35,7 @@ pub enum Direction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Forward {
     pub direction: Direction,
-    pub bind: String,
+    bind: Bind,
     pub listen: u16,
     pub target: u16,
 }
@@ -38,59 +45,108 @@ impl Forward {
     pub fn local(bind: Option<String>, local: u16, remote: u16) -> Self {
         Self {
             direction: Direction::Local,
-            bind: bind.unwrap_or_else(|| DEFAULT_BIND.to_string()),
+            bind: bind.map_or(Bind::BothLoopbacks, Bind::Address),
             listen: local,
             target: remote,
         }
     }
 
-    /// `ssh` arguments for this forward (`-L` or `-R` and its spec).
-    pub fn ssh_args(&self) -> [String; 2] {
+    pub fn bind(&self) -> &str {
+        match &self.bind {
+            Bind::BothLoopbacks | Bind::Ipv4Fallback => "localhost",
+            Bind::Address(address) => address,
+        }
+    }
+
+    pub fn ipv4_fallback(&self) -> bool {
+        self.bind == Bind::Ipv4Fallback
+    }
+
+    /// Separate numeric -L options let ExitOnForwardFailure catch a
+    /// handoff race on either loopback (OpenSSH can partially bind a name).
+    pub fn ssh_args(&self) -> Vec<String> {
         let flag = match self.direction {
             Direction::Local => "-L",
             Direction::Reverse => "-R",
         };
-        let bind = if self.bind.contains(':') {
-            format!("[{}]", self.bind)
-        } else {
-            self.bind.clone()
+        let option = |bind: &str| {
+            let host = if bind.contains(':') {
+                format!("[{bind}]")
+            } else {
+                bind.to_string()
+            };
+            [
+                flag.to_string(),
+                format!("{host}:{}:127.0.0.1:{}", self.listen, self.target),
+            ]
         };
-        [
-            flag.to_string(),
-            format!("{bind}:{}:127.0.0.1:{}", self.listen, self.target),
-        ]
-    }
-
-    /// Whether this forward listens on a loopback address only.
-    pub fn is_loopback(&self) -> bool {
-        self.bind == "localhost"
-            || self
-                .bind
-                .parse::<IpAddr>()
-                .is_ok_and(|address| address.is_loopback())
-    }
-
-    /// Fail when a local forward's port cannot be bound on this machine (it
-    /// is taken), before any connection is made.
-    pub fn check_local_port(&self) -> Result<(), AppError> {
-        if self.direction != Direction::Local {
-            return Ok(());
+        match &self.bind {
+            Bind::BothLoopbacks => option("127.0.0.1")
+                .into_iter()
+                .chain(option("::1"))
+                .collect(),
+            Bind::Ipv4Fallback => option("127.0.0.1").into(),
+            Bind::Address(bind) => option(bind).into(),
         }
-        self.bind_listener().map(drop)
     }
 
-    /// Reserve a local listener until the dedicated SSH connection takes over.
-    pub fn reserve_local(&mut self) -> Result<TcpListener, AppError> {
-        let listener = self.bind_listener()?;
-        self.listen = listener
-            .local_addr()
-            .map_err(|err| AppError::io("reading allocated port", err))?
-            .port();
-        Ok(listener)
+    pub fn is_loopback(&self) -> bool {
+        self.bind() == "localhost"
+            || self
+                .bind()
+                .parse::<IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    }
+
+    /// Reserve each address on the same port until SSH takes over.
+    pub fn reserve_local(&mut self) -> Result<Vec<TcpListener>, AppError> {
+        self.reserve_with(TcpListener::bind)
+    }
+
+    fn reserve_with(
+        &mut self,
+        mut bind: impl FnMut(SocketAddr) -> io::Result<TcpListener>,
+    ) -> Result<Vec<TcpListener>, AppError> {
+        let address = match self.bind() {
+            "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
+            "*" => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            other => other
+                .parse()
+                .map_err(|_| AppError::config(format!("{other} is not a bind address")))?,
+        };
+        // An ephemeral port chosen by the IPv4 stack may be busy on IPv6.
+        let mut attempts = 0;
+        loop {
+            attempts += 1;
+            let first = SocketAddr::new(address, self.listen);
+            let listener = bind(first).map_err(|e| bind_error(first, e))?;
+            let port = listener
+                .local_addr()
+                .map_err(|e| AppError::io("reading allocated port", e))?
+                .port();
+            let mut listeners = vec![listener];
+            if self.bind == Bind::BothLoopbacks {
+                let second = SocketAddr::new(Ipv6Addr::LOCALHOST.into(), port);
+                match bind(second) {
+                    Ok(v6) => listeners.push(v6),
+                    Err(e) if ipv6_unavailable(&e) => self.bind = Bind::Ipv4Fallback,
+                    Err(e)
+                        if self.listen == 0
+                            && attempts < 64
+                            && e.kind() == io::ErrorKind::AddrInUse =>
+                    {
+                        continue;
+                    }
+                    Err(e) => return Err(bind_error(second, e)),
+                }
+            }
+            self.listen = port;
+            return Ok(listeners);
+        }
     }
 
     pub fn url(&self) -> String {
-        let host = match self.bind.as_str() {
+        let host = match self.bind() {
             "*" | "0.0.0.0" => "127.0.0.1".into(),
             "::" => "[::1]".into(),
             other if other.contains(':') => format!("[{other}]"),
@@ -98,26 +154,30 @@ impl Forward {
         };
         format!("http://{host}:{}", self.listen)
     }
+}
 
-    fn bind_listener(&self) -> Result<TcpListener, AppError> {
-        let address = match self.bind.as_str() {
-            "localhost" => IpAddr::V4(Ipv4Addr::LOCALHOST),
-            "*" => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-            other => other
-                .parse()
-                .map_err(|_| AppError::config(format!("{other} is not a bind address")))?,
-        };
-        TcpListener::bind(SocketAddr::new(address, self.listen)).map_err(|error| {
-            AppError::new(
-                "port_in_use",
-                format!(
-                    "cannot listen on {}:{} on this machine: {error}",
-                    self.bind, self.listen
-                ),
-            )
-            .with_hint("stop what uses the port, or forward from another local port")
-        })
-    }
+fn ipv6_unavailable(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    let unsupported = [
+        rustix::io::Errno::AFNOSUPPORT.raw_os_error(),
+        rustix::io::Errno::PROTONOSUPPORT.raw_os_error(),
+    ];
+    #[cfg(windows)]
+    let unsupported = [10047, 10043]; // WSAEAFNOSUPPORT, WSAEPROTONOSUPPORT
+    matches!(
+        error.kind(),
+        io::ErrorKind::AddrNotAvailable | io::ErrorKind::Unsupported
+    ) || error
+        .raw_os_error()
+        .is_some_and(|code| unsupported.contains(&code))
+}
+
+fn bind_error(address: SocketAddr, error: io::Error) -> AppError {
+    AppError::new(
+        "port_in_use",
+        format!("cannot listen on {address} on this machine: {error}"),
+    )
+    .with_hint("stop what uses the port, or forward from another local port")
 }
 
 impl fmt::Display for Forward {
@@ -126,12 +186,16 @@ impl fmt::Display for Forward {
             Direction::Local => write!(
                 f,
                 "{}:{} -> sandbox port {}",
-                self.bind, self.listen, self.target
+                self.bind(),
+                self.listen,
+                self.target
             ),
             Direction::Reverse => write!(
                 f,
                 "sandbox {}:{} -> local port {}",
-                self.bind, self.listen, self.target
+                self.bind(),
+                self.listen,
+                self.target
             ),
         }
     }
@@ -140,12 +204,7 @@ impl fmt::Display for Forward {
 /// `serve --forward [BIND:]LOCAL:REMOTE`.
 pub fn parse_local(value: &str) -> Result<Forward, String> {
     let (bind, listen, target) = parse_triple(value, "[BIND:]LOCAL:REMOTE", true)?;
-    Ok(Forward {
-        direction: Direction::Local,
-        bind: bind.unwrap_or_else(|| DEFAULT_BIND.to_string()),
-        listen,
-        target,
-    })
+    Ok(Forward::local(bind, listen, target))
 }
 
 /// `serve --reverse [BIND:]REMOTE:LOCAL`.
@@ -153,7 +212,7 @@ pub fn parse_reverse(value: &str) -> Result<Forward, String> {
     let (bind, listen, target) = parse_triple(value, "[BIND:]REMOTE:LOCAL", false)?;
     Ok(Forward {
         direction: Direction::Reverse,
-        bind: bind.unwrap_or_else(|| DEFAULT_BIND.to_string()),
+        bind: Bind::Address(bind.unwrap_or_else(|| "127.0.0.1".into())),
         listen,
         target,
     })
@@ -275,31 +334,44 @@ mod tests {
     #[test]
     fn a_local_forward_binds_loopback_unless_a_bind_address_is_given() {
         let plain = parse_local("8000:9000").unwrap();
-        assert_eq!(plain.bind, "127.0.0.1");
+        assert_eq!(plain.bind(), "localhost");
         assert_eq!((plain.listen, plain.target), (8000, 9000));
         assert!(plain.is_loopback());
-        assert_eq!(plain.ssh_args(), ["-L", "127.0.0.1:8000:127.0.0.1:9000"]);
+        assert_eq!(
+            plain.ssh_args(),
+            [
+                "-L",
+                "127.0.0.1:8000:127.0.0.1:9000",
+                "-L",
+                "[::1]:8000:127.0.0.1:9000"
+            ]
+        );
 
         let open = parse_local("0.0.0.0:8000:8000").unwrap();
-        assert_eq!(open.bind, "0.0.0.0");
+        assert_eq!(open.bind(), "0.0.0.0");
         assert!(!open.is_loopback());
         assert_eq!(open.ssh_args(), ["-L", "0.0.0.0:8000:127.0.0.1:8000"]);
 
         let v6 = parse_local("[::1]:8000:80").unwrap();
-        assert_eq!(v6.bind, "::1");
+        assert_eq!(v6.bind(), "::1");
         assert!(v6.is_loopback());
         assert_eq!(v6.ssh_args(), ["-L", "[::1]:8000:127.0.0.1:80"]);
 
         let any = parse_local("*:8000:80").unwrap();
-        assert_eq!(any.bind, "*");
+        assert_eq!(any.bind(), "*");
         assert!(!any.is_loopback());
 
         assert_eq!(
             Forward::local(None, 3000, 3001).ssh_args(),
-            ["-L", "127.0.0.1:3000:127.0.0.1:3001"]
+            [
+                "-L",
+                "127.0.0.1:3000:127.0.0.1:3001",
+                "-L",
+                "[::1]:3000:127.0.0.1:3001"
+            ]
         );
         assert_eq!(
-            Forward::local(Some("localhost".into()), 3000, 3001).bind,
+            Forward::local(Some("localhost".into()), 3000, 3001).bind(),
             "localhost"
         );
     }
@@ -308,14 +380,12 @@ mod tests {
     fn a_reverse_forward_listens_on_the_sandbox_loopback_by_default() {
         let reverse = parse_reverse("20000:7777").unwrap();
         assert_eq!(reverse.direction, Direction::Reverse);
-        assert_eq!(reverse.bind, "127.0.0.1");
+        assert_eq!(reverse.bind(), "127.0.0.1");
         assert_eq!(reverse.ssh_args(), ["-R", "127.0.0.1:20000:127.0.0.1:7777"]);
         assert_eq!(
             reverse.to_string(),
             "sandbox 127.0.0.1:20000 -> local port 7777"
         );
-        // A reverse forward needs no free local port.
-        assert!(reverse.check_local_port().is_ok());
     }
 
     #[test]
@@ -377,18 +447,85 @@ mod tests {
     }
 
     #[test]
+    fn auto_reserves_one_port_on_both_loopbacks_after_an_ipv6_collision() {
+        // Hosts without IPv6 exercise the fallback path in the next test.
+        if let Err(error) = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)) {
+            assert!(ipv6_unavailable(&error), "{error}");
+            return;
+        }
+        let mut collision = None;
+        let mut forward = Forward::local(None, 0, 80);
+        let held = forward
+            .reserve_with(|address| {
+                if address.is_ipv6() && collision.is_none() {
+                    collision = Some(TcpListener::bind(address)?);
+                }
+                TcpListener::bind(address)
+            })
+            .unwrap();
+        assert_ne!(
+            collision.unwrap().local_addr().unwrap().port(),
+            forward.listen
+        );
+        let addresses: Vec<_> = held.iter().map(|s| s.local_addr().unwrap()).collect();
+        assert_eq!(
+            addresses,
+            [
+                SocketAddr::new(Ipv4Addr::LOCALHOST.into(), forward.listen),
+                SocketAddr::new(Ipv6Addr::LOCALHOST.into(), forward.listen),
+            ]
+        );
+    }
+
+    #[test]
+    fn unavailable_ipv6_keeps_localhost_url_with_only_an_ipv4_forward() {
+        let mut forward = Forward::local(None, 0, 80);
+        let held = forward
+            .reserve_with(|address| {
+                if address.is_ipv6() {
+                    Err(io::ErrorKind::AddrNotAvailable.into())
+                } else {
+                    TcpListener::bind(address)
+                }
+            })
+            .unwrap();
+        assert_eq!(held.len(), 1);
+        assert!(forward.ipv4_fallback());
+        assert_eq!(
+            forward.url(),
+            format!("http://localhost:{}", forward.listen)
+        );
+        assert_eq!(
+            forward.ssh_args(),
+            [
+                "-L".into(),
+                format!("127.0.0.1:{}:127.0.0.1:80", forward.listen)
+            ]
+        );
+    }
+
+    #[test]
+    fn an_explicit_ipv4_bind_keeps_one_listener_and_its_numeric_url() {
+        let mut forward = parse_local("127.0.0.1:auto:80").unwrap();
+        assert_eq!(forward.reserve_local().unwrap().len(), 1);
+        assert_eq!(
+            forward.url(),
+            format!("http://127.0.0.1:{}", forward.listen)
+        );
+        assert_eq!(forward.ssh_args().len(), 2);
+    }
+
+    #[test]
     fn a_taken_local_port_is_reported_before_connecting() {
         let held = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = held.local_addr().unwrap().port();
-        let error = Forward::local(None, port, 80)
-            .check_local_port()
-            .unwrap_err();
+        let error = Forward::local(None, port, 80).reserve_local().unwrap_err();
         assert_eq!(error.code(), "port_in_use");
         // Free again once released; tests running in parallel may take the
         // same ephemeral port meanwhile, so allow a few tries.
         drop(held);
         let free = (0..50).any(|_| {
-            Forward::local(None, port, 80).check_local_port().is_ok() || {
+            Forward::local(None, port, 80).reserve_local().is_ok() || {
                 std::thread::sleep(std::time::Duration::from_millis(20));
                 false
             }

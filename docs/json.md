@@ -351,7 +351,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
       "affinity": "/Users/me/code/app",
       "this_workspace": true,
       "auto_stop_at": "2026-11-15T12:15:00Z",
-      "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
+      "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://localhost:51824", "remote_port": 3000}], "started": true} } ],
       "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
       "ssh": {
         "host_alias": "bx_23456789",
@@ -401,7 +401,7 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
-    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
+    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://localhost:51824", "remote_port": 3000}], "started": true} } ],
     "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
@@ -491,7 +491,7 @@ Frames, then this result. `queued_seconds` measures time waiting for a start bud
 }
 ```
 
-The serve ready event includes `urls`, an array of local forward URLs in argument order. Auto allocation is reflected in every URL and listen port.
+The serve ready event includes `urls`, an array of local forward URLs in argument order. With no explicit bind address, the host is `localhost`. Auto allocation is reflected in every URL and listen port.
 
 ### serve
 
@@ -533,7 +533,7 @@ Frames, then the `run` result with `kind` `serve` and the server's settings. The
   "git_identity": true,
   "github_token": false,
   "copy_back": { "status": "none", "files": [], "patch": null, "error": null, "route": null },
-  "forwards": [ { "bind": "127.0.0.1", "listen": 3000, "target": 3000 } ],
+  "forwards": [ { "bind": "localhost", "listen": 3000, "target": 3000 } ],
   "reverses": [ { "bind": "127.0.0.1", "listen": 20000, "target": 7777 } ],
   "ready_port": 3000,
   "desktop": false,
@@ -619,7 +619,7 @@ Frames, then this result. `input_bytes` is how much input the command was sent; 
   "ok": true,
   "project": "app",
   "member": { "name": "bp-app-1", "id": "bx_23456789" },
-  "forward": { "bind": "127.0.0.1", "listen": 15432, "target": 5432, "url": "http://127.0.0.1:15432" },
+  "forward": { "bind": "localhost", "listen": 15432, "target": 5432, "url": "http://localhost:15432" },
   "ready_seconds": 0.6
 }
 ```
@@ -666,7 +666,7 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
 
 ### url
 
-`url [REMOTEPORT]` lists local forwards of live serves in this workspace. The optional port filters the array. Times are Unix milliseconds. No match produces the standard `no_serve_forward` error and exit 125.
+`url [REMOTEPORT]` lists local forwards of live serves in this workspace. The optional port filters the array. Times are Unix milliseconds. No match produces the standard `no_serve_forward` error and exit 1. Other boatparty failures exit 125.
 
 <!-- shape: url -->
 ```json
@@ -674,7 +674,7 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
   "ok": true,
   "project": "app",
   "workspace": "/Users/me/code/app",
-  "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000, "pid": 4242, "started_at": 1794730331934}]
+  "forwards": [{"url": "http://localhost:51824", "remote_port": 3000, "pid": 4242, "started_at": 1794730331934}]
 }
 ```
 
@@ -732,7 +732,7 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
-    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://127.0.0.1:51824", "remote_port": 3000}], "started": true} } ],
+    "leases": [ { "pid": 4242, "kind": "serve", "label": "npm run dev", "started_at": 1794730331934, "service": {"ports": [3000], "forwards": [{"url": "http://localhost:51824", "remote_port": 3000}], "started": true} } ],
     "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
@@ -987,7 +987,7 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `invalid_limit` | `limits set` got an unknown key or a bad value |
 | `doctor_failed` | At least one `doctor` check failed (the document also carries `checks`) |
 | `no_member` | This workspace has no sandbox, or a named sandbox or project is unknown |
-| `no_serve_forward` | No running serve forward matches this workspace and port |
+| `no_serve_forward` | No running serve forward matches this workspace and port (exit 1) |
 | `already_serving` | A live serve already claims the sandbox port |
 | `member_in_use` | The sandbox has a live lease or another process is bringing it up |
 | `member_pending` | The sandbox's create has no answer yet |

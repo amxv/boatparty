@@ -41,10 +41,13 @@ pub fn run(ctx: &Context, args: &ForwardArgs) -> Result<u8, AppError> {
         args.ports.remote,
     );
     let reserved = forward.reserve_local()?;
+    if forward.ipv4_fallback() {
+        ctx.out.note(crate::transport::forward::IPV4_ONLY_NOTE);
+    }
     if !forward.is_loopback() {
         ctx.out.note(format_args!(
             "listening on {}, which other machines may reach",
-            forward.bind
+            forward.bind()
         ));
     }
     let label = format!("forward {forward}");
@@ -321,7 +324,7 @@ fn announce(ctx: &Context, held: &Held<'_>, forward: &Forward, began: Instant) {
                 "id": held.member.id,
             },
             "forward": {
-                "bind": forward.bind,
+                "bind": forward.bind(),
                 "url": forward.url(),
                 "listen": forward.listen,
                 "target": forward.target,

@@ -373,6 +373,12 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
     let forwards = urls["forwards"].as_array().unwrap();
     assert_eq!(forwards.len(), 2);
     for (row, port) in forwards.iter().zip([3011, 3012]) {
+        assert!(
+            row["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://localhost:")
+        );
         assert_eq!(row["remote_port"], port);
         assert_eq!(row["pid"], client.id());
         assert!(row["started_at"].as_u64().unwrap() > 0);
@@ -381,6 +387,9 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
             row["url"].as_str().unwrap()
         );
     }
+    let missing = read(&["url", "3013"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(text(&missing.stderr).contains("no running serve forward for remote port 3013"));
     let first = forwards[0]["url"].as_str().unwrap();
     let listing = common::FakeBoat::start(|_| {
         common::Reply::json(200, &serde_json::json!({
@@ -417,7 +426,7 @@ fn cruise_stops_the_server_within_seconds_after_its_client_is_killed() {
     let gone = read(&["--json", "url"]);
     let error: Value = serde_json::from_slice(&gone.stdout).unwrap();
     assert_eq!(error["error"]["code"], "no_serve_forward");
-    assert_eq!(gone.status.code(), Some(125));
+    assert_eq!(gone.status.code(), Some(1));
     assert!(!state_text(&setup).contains(first));
     let _ = client.wait();
 
@@ -453,7 +462,7 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
             "--forward",
             &format!("auto:{port}"),
             "--sh",
-            &format!("test -n \"$APP_URL\" && test \"$APP_URL\" = \"$BOATPARTY_FORWARD_{port}_URL\" && echo \"$BOATPARTY_FORWARD_URLS\" && {}",listener(port,3)),
+            &format!("test \"$APP_URL\" = \"$BOATPARTY_FORWARD_URLS\" && test \"$APP_URL\" = \"$BOATPARTY_FORWARD_{port}_URL\" && echo \"$BOATPARTY_FORWARD_URLS\" && {}",listener(port,3)),
         ])
         .output()
         .unwrap();
@@ -467,7 +476,7 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
         .as_u64()
         .unwrap();
     assert!(local > 0);
-    let url = format!("http://127.0.0.1:{local}");
+    let url = format!("http://localhost:{local}");
     assert!(
         frames
             .iter()
@@ -494,7 +503,7 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
         "{stderr}"
     );
     assert!(
-        stderr.contains(&format!("here at http://127.0.0.1:{local}")),
+        stderr.contains(&format!("here at http://localhost:{local}")),
         "{stderr}"
     );
     let result = frames.last().unwrap();
@@ -502,7 +511,7 @@ fn cruise_reports_ready_forwards_on_its_own_connection_and_records_a_serve_run()
     assert_eq!(result["kind"], "serve");
     assert_eq!(result["capped"], false);
     assert!(result["ready_seconds"].as_f64().is_some(), "{result}");
-    assert_eq!(result["forwards"][0]["bind"], "127.0.0.1");
+    assert_eq!(result["forwards"][0]["bind"], "localhost");
     assert_eq!(result["forwards"][0]["listen"], local);
     assert_eq!(result["forwards"][0]["target"], port);
     assert_eq!(result["max_minutes"], 120.0);
@@ -742,8 +751,8 @@ fn a_forward_whose_connection_drops_reconnects_until_cancelled() {
     let status = child.wait().unwrap();
     assert!(reconnected, "{printed}");
     assert!(
-        printed.contains("here at http://127.0.0.1:")
-            && !printed.contains("here at http://127.0.0.1:0;")
+        printed.contains("here at http://localhost:")
+            && !printed.contains("here at http://localhost:0;")
     );
     assert!(
         printed.contains("ended (exit 255); reconnecting"),

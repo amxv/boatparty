@@ -97,7 +97,7 @@ just remote-test pipe    # cargo test with a filter
 
 ## Sharing a workspace between agents
 
-Start a dev server with `boatparty serve --forward auto:3000 -- npm run dev`. From the same worktree, `boatparty url 3000` prints its local URL. Use `boatparty url` to list all serve forwards or `boatparty status` to see them by member.
+Start a dev server with `boatparty serve --forward auto:3000 -- npm run dev`. From the same worktree, `boatparty url 3000` prints its local URL, such as `http://localhost:51824`. By default the forward listens on both `127.0.0.1` and `::1` when IPv6 is available. If no running serve matches, `url` exits 1. Use `boatparty url` to list all serve forwards or `boatparty status` to see them by member.
 
 Runs in one workspace wait their turn through copy-back. Manual `sync` and new serves wait during a run. Once a server starts, use `boatparty sync` to send edits to it. A second serve claiming the same sandbox port reports the existing holder. Gate uses its own member. Stop and release refuse a member with a live lease.
 

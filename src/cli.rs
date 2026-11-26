@@ -69,6 +69,7 @@ pub enum Command {
     /// checkout until cancelled, with optional port forwards.
     Serve(ServeArgs),
     /// Print local forward URLs of running serves in this workspace, one per line.
+    /// Exits 1 when no forward matches and 125 on a boatparty failure.
     Url {
         /// Show only forwards to this sandbox port.
         #[arg(value_name = "REMOTEPORT", value_parser = clap::value_parser!(u16).range(1..))]
@@ -222,7 +223,7 @@ pub struct GateArgs {
                   holds the sandbox (a `serve` lease) until it ends.\n\n\
                   --forward [BIND:]LOCAL:REMOTE makes LOCAL on this machine reach REMOTE on the \
                   sandbox; --reverse [BIND:]REMOTE:LOCAL makes REMOTE on the sandbox reach LOCAL \
-                  here. Both listen on 127.0.0.1 unless BIND names another address (for example \
+                  here. Local forwards listen on localhost (127.0.0.1 and ::1 when available). Reverse forwards listen on 127.0.0.1. Set BIND to use another address (for example \
                   0.0.0.0, which other machines can reach). Forwards travel on the server's own \
                   SSH connection and end with it; other commands keep using the shared one.\n\n\
                   Use boatparty url [REMOTEPORT] to discover a running forward. A second serve claiming the same sandbox port fails. Send edits with boatparty sync once the server starts. With an automatic local port, readiness defaults to its remote port.\n\n\
@@ -348,11 +349,11 @@ pub struct SkillArgs {
 
 #[derive(Debug, Args)]
 #[command(after_help = "Examples:\n  \
-                  boatparty forward 5432               127.0.0.1:5432 here reaches port 5432 on the sandbox\n  \
-                  boatparty forward 8000:18000         127.0.0.1:18000 here reaches port 8000 there\n  \
+                  boatparty forward 5432               localhost:5432 here reaches port 5432 on the sandbox\n  \
+                  boatparty forward 8000:18000         localhost:18000 here reaches port 8000 there\n  \
                   boatparty forward 8000 --bind 0.0.0.0   also reachable from other machines\n\n\
                   Holds the forward, and the sandbox (a `session` lease), until Ctrl-C or SIGTERM; \
-                  it ends too if this process dies. The forward listens on 127.0.0.1 unless --bind \
+                  it ends too if this process dies. The forward listens on localhost (127.0.0.1 and ::1 when available) unless --bind \
                   names another address, and uses an SSH connection of its own. A ready line goes \
                   to stderr once it listens. When the connection drops, it is reopened (bringing \
                   the sandbox up again if needed) for up to 10 minutes. Exit status: 130 or 143 \
@@ -365,7 +366,7 @@ pub struct ForwardArgs {
     #[arg(value_name = "REMOTE[:LOCAL]", value_parser = crate::transport::forward::parse_pair)]
     pub ports: crate::transport::forward::PortPair,
 
-    /// The local address to listen on instead of 127.0.0.1.
+    /// The local address to listen on instead of the default loopbacks.
     #[arg(long, value_name = "ADDR", value_parser = crate::transport::forward::parse_bind)]
     pub bind: Option<String>,
 }
@@ -774,8 +775,8 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(args.forward.len(), 2);
-        assert_eq!(args.forward[0].bind, "127.0.0.1");
-        assert_eq!(args.forward[1].bind, "0.0.0.0");
+        assert_eq!(args.forward[0].bind(), "localhost");
+        assert_eq!(args.forward[1].bind(), "0.0.0.0");
         assert_eq!(args.reverse[0].listen, 20000);
         assert_eq!(args.ready_port, Some(8000));
         assert_eq!(args.max_minutes, 120.0);

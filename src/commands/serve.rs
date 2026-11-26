@@ -65,8 +65,11 @@ pub fn run(ctx: &Context, args: &ServeArgs) -> Result<u8, AppError> {
     // Reserve explicit ports first so the OS cannot give one to an auto forward.
     for auto in [false, true] {
         for forward in forwards.iter_mut().filter(|f| (f.listen == 0) == auto) {
-            reserved.push(forward.reserve_local()?);
+            reserved.extend(forward.reserve_local()?);
         }
+    }
+    if forwards.iter().any(Forward::ipv4_fallback) {
+        ctx.out.note(crate::transport::forward::IPV4_ONLY_NOTE);
     }
     forwards.extend(args.reverse.iter().cloned());
     let serve = Serve {
@@ -139,7 +142,7 @@ impl Serve {
             if !forward.is_loopback() {
                 stream.note(format_args!(
                     "{forward}: listens on {}, which other machines may reach",
-                    forward.bind
+                    forward.bind()
                 ));
             }
         }
@@ -206,7 +209,7 @@ impl Serve {
                 .filter(|forward| forward.direction == direction)
                 .map(|forward| {
                     json!({
-                        "bind": forward.bind,
+                        "bind": forward.bind(),
                         "listen": forward.listen,
                         "target": forward.target,
                     })
@@ -369,6 +372,8 @@ mod tests {
             [
                 "-L",
                 "127.0.0.1:8000:127.0.0.1:8000",
+                "-L",
+                "[::1]:8000:127.0.0.1:8000",
                 "-R",
                 "127.0.0.1:20000:127.0.0.1:7777"
             ]
@@ -376,11 +381,11 @@ mod tests {
         let message = serve.ready_message(Duration::from_millis(2500));
         assert!(message.starts_with("port 8000 is listening on the sandbox (2.5s"));
         assert!(
-            message.ends_with("here at http://127.0.0.1:8000"),
+            message.ends_with("here at http://localhost:8000"),
             "{message}"
         );
         let value = serve.json();
-        assert_eq!(value["forwards"][0]["bind"], "127.0.0.1");
+        assert_eq!(value["forwards"][0]["bind"], "localhost");
         assert_eq!(value["reverses"][0]["listen"], 20000);
     }
 

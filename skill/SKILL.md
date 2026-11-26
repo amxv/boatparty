@@ -53,7 +53,7 @@ boatparty limits                      # starts, running sandboxes, caps
 
 ## Sharing a workspace between agents
 
-- Use `boatparty url [REMOTEPORT]` to find existing serve forwards. `--json` includes the local URL, remote port, holder PID and start time. `status` groups servers by member.
+- Use `boatparty url [REMOTEPORT]` to find existing serve forwards. Exit 1 means no running serve matches the workspace and optional remote port. Tool failures exit 125. `--json` includes the local URL, remote port, holder PID and start time. `status` groups servers by member.
 - Run, sync and serve startup take turns in each workspace. A run holds its turn through copy-back. A waiting command reports the holder and takes its snapshot when admitted.
 - Once a serve starts, other commands can run beside it. Send edits with `boatparty sync` for the dev server to reload. Keep server-generated files in ignored directories when possible.
 - Reuse the URL if another serve holds the port. Stop the owning process to free it. Stop and release refuse busy members. Gate can run independently on its dedicated member.
@@ -111,8 +111,7 @@ member can discard remote writes made since that snapshot.
   asks. They delete sandboxes or change account limits.
 - `boatparty desktop --open` opens the streamed desktop. Treat its signed URL as a password. Use `serve --desktop` to start a GUI app.
 - Run summaries report CPU steal. At 15% or more, host contention can cause timing-sensitive failures.
-- `serve --forward LOCAL:REMOTE` reaches a server on this computer's
-  127.0.0.1. `boatparty expose PORT` gives a token-gated public URL instead
+- `serve --forward LOCAL:REMOTE` publishes `http://localhost:LOCAL` on both loopbacks by default. When IPv6 is unavailable, boatparty prints a note and listens on IPv4 only. `boatparty expose PORT` gives a token-gated public URL instead
   (the server must listen on 0.0.0.0, or add `--localhost`); it is printed
   only on stdout, so treat it like a password. `expose PORT --hide` takes it
   down.
