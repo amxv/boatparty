@@ -1,22 +1,22 @@
 //! `boatparty forward`: hold a local port forward to the sandbox until
 //! cancelled, under a `session` lease (so the member stays up meanwhile).
 //!
-//! The forward travels on an SSH connection of its own, never the shared
-//! control master: a forward added to the master would outlive this
-//! process. The remote side of the connection only waits for end of file on
-//! its stdin, which this process holds, so the connection (and with it the
-//! forward) ends however this process ends, SIGKILL included.
+//! The forward travels on a supervised, dedicated SSH connection. Closing
+//! stdin ends the remote command on graceful shutdown. If this client dies,
+//! the supervisor also closes SSH and any active forwarded channels.
 //!
 //! When the connection drops after the forward was up, it is opened again
 //! (see `hold`), so a network gap or a sandbox restart only interrupts the
 //! forward.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Stdio};
+use std::process::{ChildStdin, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+
+use crate::transport::connection::Connection;
 
 use super::session::{Held, with_session};
 use crate::Context;
@@ -198,19 +198,12 @@ fn connect_once(
         .args(forward.ssh_args())
         .arg("-T")
         .arg(&held.target.alias)
-        .arg(REMOTE)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    // Its own process group: Ctrl-C reaches this process, which closes the
-    // connection itself.
-    crate::system::separate_process_group(&mut command);
-    let mut child = command
-        .spawn()
+        .arg(REMOTE);
+    let mut connection = Connection::spawn(command, true, Stdio::inherit())
         .map_err(|error| AppError::io("cannot run ssh", error))?;
-    let stdin = child.stdin.take();
+    let stdin = connection.child.stdin.take();
     let (tx, rx) = mpsc::channel::<()>();
-    if let Some(stdout) = child.stdout.take() {
+    if let Some(stdout) = connection.child.stdout.take() {
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 match line {
@@ -226,7 +219,7 @@ fn connect_once(
     let mut ready = false;
     loop {
         if let Some(status) = interrupts.exit_status() {
-            close(&mut child, stdin);
+            close(&mut connection, stdin);
             return Ok(Attempt::Cancelled { status, ready });
         }
         match rx.recv_timeout(TICK) {
@@ -236,7 +229,7 @@ fn connect_once(
             }
             Ok(()) | Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {}
         }
-        if let Ok(Some(status)) = child.try_wait() {
+        if let Ok(Some(status)) = connection.child.try_wait() {
             // A "ready" may have arrived just before the end.
             if !ready && rx.try_recv().is_ok() {
                 ready = true;
@@ -298,20 +291,20 @@ fn bring_up_again(ctx: &Context, held: &Held<'_>) -> Result<(), AppError> {
 
 /// Close the connection by closing its stdin, which ends the remote side
 /// and so the session; kill it if it lingers.
-fn close(child: &mut Child, stdin: Option<ChildStdin>) {
+fn close(connection: &mut Connection, stdin: Option<ChildStdin>) {
     if let Some(mut stdin) = stdin {
         let _ = stdin.flush();
         drop(stdin);
     }
     let deadline = Instant::now() + CLOSE_GRACE;
     while Instant::now() < deadline {
-        if let Ok(Some(_)) = child.try_wait() {
+        if let Ok(Some(_)) = connection.child.try_wait() {
             return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = connection.kill();
+    let _ = connection.child.wait();
 }
 
 fn announce(ctx: &Context, held: &Held<'_>, forward: &Forward, began: Instant) {

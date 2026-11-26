@@ -100,6 +100,11 @@ pub trait RunnerHost {
     /// up its standard streams.
     fn command(&self, args: &[String]) -> Command;
 
+    /// Whether this invocation owns a dedicated OpenSSH connection.
+    fn dedicated_ssh(&self, _mode: &str) -> bool {
+        false
+    }
+
     /// Install this version of the runner, and the spec when there is one,
     /// after an exit 96.
     fn install(&self) -> Result<(), AppError>;
@@ -192,6 +197,10 @@ impl SshRunner {
 }
 
 impl RunnerHost for SshRunner {
+    fn dedicated_ssh(&self, mode: &str) -> bool {
+        mode == "serve" && self.dedicated.is_some()
+    }
+
     fn explain_timeout(&self, error: AppError) -> AppError {
         if error.code() == "step_timeout"
             && let Some(upload) = &self.upload

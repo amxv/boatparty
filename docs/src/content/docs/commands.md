@@ -91,7 +91,7 @@ Runs a long-lived process (a dev server) in the sandbox's checkout until cancell
 | `--desktop` | off | Run in the sandbox desktop session; without a ready port, signal ready on its first visible window |
 | `--sh LINE` | | Run a shell line instead of an argument list |
 
-Local forwards export `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` to the command before `[run.env]` is expanded. A second `serve` in the workspace claiming the same sandbox port fails with `already_serving`. Ctrl-C or SIGTERM stops the server; if `serve` dies any other way, the sandbox stops the server within seconds. Files the server changed come back only when it exits by itself.
+Local forwards export `BOATPARTY_FORWARD_URL`, `BOATPARTY_FORWARD_URLS` and `BOATPARTY_FORWARD_<REMOTEPORT>_URL` to the command before `[run.env]` is expanded. A second `serve` in the workspace claiming the same sandbox port fails with `already_serving`. Ctrl-C or SIGTERM stops the server. If `serve` is killed, its local forwards close and the sandbox stops the server within seconds. Files the server changed come back only when it exits by itself.
 
 Exit status: the server's own; 125; 130 or 143. Guide: [Dev servers, ports and URLs](/docs/dev-servers-and-urls).
 
@@ -223,7 +223,7 @@ This project's sandboxes: state, whether files are fully restored, auto-stop tim
 boatparty forward REMOTE[:LOCAL] [--local PORT|auto] [--bind ADDR]
 ```
 
-Forwards a local port to a sandbox port until Ctrl-C or SIGTERM, holding a `session` lease. LOCAL defaults to the same number as REMOTE. A ready line goes to stderr once it listens. When the connection drops, it is reopened (bringing the sandbox up again if needed) for up to 10 minutes.
+Forwards a local port to a sandbox port until Ctrl-C or SIGTERM, holding a `session` lease. LOCAL defaults to the same number as REMOTE. A ready line goes to stderr once it listens. Killing `forward` closes active forwarded connections and releases its local port. When the connection drops, it is reopened (bringing the sandbox up again if needed) for up to 10 minutes.
 
 | Option | Meaning |
 | --- | --- |

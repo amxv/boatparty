@@ -123,6 +123,8 @@ fn dispatch(cli: Cli, out: Output) -> Result<u8, AppError> {
         Command::Base(args) => commands::base::run(&ctx, &args),
         Command::Log(args) => commands::log::run(&ctx, &args),
         Command::Skill(args) => commands::skill::run(&ctx, &args),
+        Command::SshHelper { args } => transport::connection::supervise(&args)
+            .map_err(|error| AppError::io("cannot supervise ssh", error)),
         Command::IdleHelper(args) => {
             pool::lease::idle_helper(&ctx.paths, &args.project, &args.member)?;
             Ok(0)

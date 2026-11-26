@@ -3,6 +3,8 @@
 #![cfg(windows)]
 
 mod common;
+#[path = "common/forward_death.rs"]
+mod forward_death;
 
 use std::fs;
 use std::io::Write;
@@ -156,6 +158,14 @@ fn native_client_runs_the_linux_checkout() {
         .assert()
         .success()
         .stdout("original\n");
+    forward_death::assert_released(22222, || {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_boatparty"));
+        cmd.current_dir(&repo)
+            .env("BOATPARTY_HOME", &home)
+            .env("BOATPARTY_BOAT_API_URL", boat.url())
+            .env("BOATPARTY_POLL_MS", "100");
+        cmd
+    });
     cli().arg("status").assert().success();
     cli().args(["stop", "--wait"]).assert().success();
     assert!(

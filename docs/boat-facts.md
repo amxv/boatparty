@@ -587,3 +587,9 @@ Two concurrent runs on a scratch member overlapped. Run A wrote a new file and s
 While a gate held its dedicated member, a workspace run and a forwarded HTTP server both started. A manual sync updated the page returned through the existing forward, and a run beside the server read the updated file. A second serve forwarding the same sandbox port to a fresh local port reached Python and failed to bind. Reusing the same local port failed on the client. A second scratch probe used inotify to reload an in-memory page on filesystem events. After a manual sync the same server returned the new content. Release and stop both exited 125 for each of a live run and a live serve, identifying the holder.
 
 On the same project a token-gated expose URL answered a callback POST with a redirect that set an authorization cookie. A public expose forwarded the POST to the application. Use `expose --public` for webhook senders that require the original POST to reach the receiver.
+
+## Local SSH listeners after client death (2026-11-27)
+
+On macOS with OpenSSH 10.2p1 and boatparty 0.5.2, an open TCP connection through `serve --forward auto:3000` kept the local SSH listener alive for over 12 seconds after SIGKILL. The sandbox HTTP server had stopped listening and `boatparty url 3000` exited 1, but a new serve on the same local port failed with `port_in_use`. Closing the open socket released the listener within 0.3 seconds. Standalone `forward` showed the same behavior.
+
+With dedicated SSH supervision, both commands released their listeners after SIGKILL, SIGINT and SIGTERM. A replacement started on the same fixed port while the original TCP client was still open in all six cases. The shared SSH master kept the same PID throughout.

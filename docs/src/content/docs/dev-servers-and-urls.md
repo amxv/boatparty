@@ -96,7 +96,7 @@ NEXTAUTH_URL = "$BOATPARTY_FORWARD_3000_URL"
 
 ### Stopping the server
 
-Press Ctrl-C (or send SIGTERM). The server is stopped on the sandbox, and `serve` exits with 130 (or 143). If the `serve` process dies any other way, even with SIGKILL, the sandbox notices within seconds and stops the server, so nothing keeps running unattended.
+Press Ctrl-C (or send SIGTERM). The server is stopped on the sandbox, and `serve` exits with 130 (or 143). If the `serve` process is killed, the sandbox stops the server within seconds. The dedicated SSH connection closes its local listeners and disconnects forwarded clients, so you can restart on the same port even with a browser tab open.
 
 `--max-minutes N` stops a forgotten server after N minutes. The default is 120; `--max-minutes 0` removes the cap.
 

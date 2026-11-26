@@ -97,6 +97,15 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Test active SSH forwards across client death
+        run: |
+          if [ ! -x /usr/sbin/sshd ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends openssh-server
+          fi
+          sudo mkdir -p /run/sshd
+          cargo test --locked --test forward_death -- --ignored
+
       - name: Check shell scripts
         run: |
           shopt -s nullglob globstar

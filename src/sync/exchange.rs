@@ -14,7 +14,7 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, Stdio};
+use std::process::{ChildStdin, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -26,6 +26,7 @@ use crate::error::AppError;
 use crate::runner::{
     EXIT_MISSING, EXIT_NEEDFULL, MISSING_MARKER, Piece, RunnerHost, Trailer, TrailerFilter,
 };
+use crate::transport::connection::Connection;
 
 /// How long a child that exited may keep its pipes open before they are abandoned.
 const PIPE_GRACE: Duration = Duration::from_millis(1500);
@@ -169,15 +170,11 @@ pub fn run(
             .take()
             .map(|stdout| Box::new(stdout) as Box<dyn Read + Send>);
     }
-    let mut command = host.command(&spec.args);
-    // Its own process group: a terminal's Ctrl-C reaches boatparty, which
-    // cancels through stdin, rather than killing the connection outright.
-    crate::system::separate_process_group(&mut command);
-    command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = match command.spawn() {
+    let mut connection = match Connection::spawn(
+        host.command(&spec.args),
+        host.dedicated_ssh(&spec.args[0]),
+        Stdio::piped(),
+    ) {
         Ok(child) => child,
         Err(error) => {
             if let Some(mut pack) = pack {
@@ -191,20 +188,20 @@ pub fn run(
     let hold = spec.hold_stdin || spec.input.is_some();
     let go = spec.input.map(|input| spawn_input(input, close_tx.clone()));
     let writer = spawn_writer(
-        child.stdin.take().expect("stdin is piped"),
+        connection.child.stdin.take().expect("stdin is piped"),
         spec.header,
         source,
         hold.then_some(close_rx),
     );
     let (tx, rx) = mpsc::channel();
     pump(
-        child.stdout.take().expect("stdout is piped"),
+        connection.child.stdout.take().expect("stdout is piped"),
         tx.clone(),
         Chunk::Out,
         Chunk::OutEnd,
     );
     pump(
-        child.stderr.take().expect("stderr is piped"),
+        connection.child.stderr.take().expect("stderr is piped"),
         tx,
         Chunk::Err,
         Chunk::ErrEnd,
@@ -213,7 +210,7 @@ pub fn run(
     let mut filter = TrailerFilter::new(spec.nonce);
     let mut sniffer = MissingSniffer::default();
     let watched = watch(
-        &mut child,
+        &mut connection,
         &rx,
         &mut filter,
         &mut sniffer,
@@ -230,7 +227,7 @@ pub fn run(
         sink.stderr(&tail);
     }
     let _ = close_tx.send(Feed::Close);
-    let status = reap(&mut child, watched.killed);
+    let status = reap(&mut connection, watched.killed);
     if watched.timed_out {
         if let Some(mut pack) = pack {
             let _ = pack.kill();
@@ -279,7 +276,7 @@ struct Watch {
 /// runner reports `started`.
 #[allow(clippy::too_many_arguments)]
 fn watch(
-    child: &mut Child,
+    connection: &mut Connection,
     rx: &Receiver<Chunk>,
     filter: &mut TrailerFilter,
     sniffer: &mut MissingSniffer,
@@ -361,11 +358,11 @@ fn watch(
             CancelState::Hard => {
                 result.cancelled = true;
                 result.killed = true;
-                let _ = child.kill();
+                let _ = connection.kill();
                 return result;
             }
         }
-        if exited_at.is_none() && matches!(child.try_wait(), Ok(Some(_))) {
+        if exited_at.is_none() && matches!(connection.child.try_wait(), Ok(Some(_))) {
             exited_at = Some(Instant::now());
         }
         let overdue =
@@ -373,7 +370,7 @@ fn watch(
         if sync_limit.is_some_and(|limit| overdue(syncing, limit)) {
             result.timed_out = true;
             result.killed = true;
-            let _ = child.kill();
+            let _ = connection.kill();
             break;
         }
         if overdue(exited_at, PIPE_GRACE) {
@@ -381,7 +378,7 @@ fn watch(
         }
         if overdue(trailer_at, AFTER_TRAILER) || overdue(cancel_at, CANCEL_GRACE) {
             result.killed = true;
-            let _ = child.kill();
+            let _ = connection.kill();
             break;
         }
     }
@@ -390,15 +387,15 @@ fn watch(
 
 /// Wait for the child, killing it if it does not exit soon after its pipes
 /// closed.
-fn reap(child: &mut Child, killed: bool) -> Option<i32> {
+fn reap(connection: &mut Connection, killed: bool) -> Option<i32> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        match child.try_wait() {
+        match connection.child.try_wait() {
             Ok(Some(status)) => return if killed { None } else { status.code() },
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                let _ = connection.kill();
+                let _ = connection.child.wait();
                 return None;
             }
             Err(_) => return None,

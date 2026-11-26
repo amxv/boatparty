@@ -88,6 +88,7 @@ case "$mode" in
     line="$prelude
 $fmt_clippy
 step \"cargo test\"; cargo test --locked
+step \"active SSH forwards\"; cargo test --locked --test forward_death -- --ignored
 $shellcheck_step"
     [ "$docs" -eq 0 ] || line="$line
 $docs_step"

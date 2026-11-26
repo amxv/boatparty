@@ -7,6 +7,7 @@
 //! machine that is forwarded to.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
+use std::time::{Duration, Instant};
 use std::{fmt, io};
 
 use crate::error::AppError;
@@ -100,7 +101,24 @@ impl Forward {
 
     /// Reserve each address on the same port until SSH takes over.
     pub fn reserve_local(&mut self) -> Result<Vec<TcpListener>, AppError> {
-        self.reserve_with(TcpListener::bind)
+        // A killed owner's supervisor may be closing SSH on another CPU as
+        // its replacement binds. Allow that handoff for explicit ports.
+        let fixed = self.listen != 0;
+        let deadline = Instant::now() + Duration::from_millis(500);
+        self.reserve_with(|address| {
+            loop {
+                match TcpListener::bind(address) {
+                    Err(error)
+                        if fixed
+                            && error.kind() == io::ErrorKind::AddrInUse
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    result => return result,
+                }
+            }
+        })
     }
 
     fn reserve_with(

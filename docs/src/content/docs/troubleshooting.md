@@ -154,7 +154,7 @@ Another `serve` in this workspace already serves that sandbox port. Use its URL 
 
 ### port_in_use
 
-The local port you asked for is taken on your computer. Use `--forward auto:PORT` (or `forward PORT --local auto`) to get a free one.
+The local port you asked for is taken on your computer. A killed `serve` or `forward` releases its port even if clients were connected. If the port is still busy, identify its owner with `lsof -nP -iTCP:PORT -sTCP:LISTEN` on macOS, `ss -ltnp` on Linux, or `Get-NetTCPConnection -LocalPort PORT -State Listen` in PowerShell. Substitute the local port number for `PORT`. Use `--forward auto:PORT` (or `forward PORT --local auto`) to get a free one.
 
 ### Auth or CORS fails on localhost after upgrading to 0.5.1
 

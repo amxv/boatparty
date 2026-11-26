@@ -148,6 +148,12 @@ pub enum Command {
     /// Internal: set a member's idle deadline after its last lease ended.
     #[command(name = "__idle", hide = true)]
     IdleHelper(IdleHelperArgs),
+    /// Internal owner of a dedicated SSH connection.
+    #[command(name = "__ssh", hide = true)]
+    SshHelper {
+        #[arg(last = true, required = true)]
+        args: Vec<std::ffi::OsString>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -231,7 +237,7 @@ pub struct GateArgs {
                   listening on PORT on the sandbox. --max-minutes stops a forgotten server (default \
                   120; 0 disables the cap).\n\n\
                   Ctrl-C (SIGINT) or SIGTERM stops the server; if this process dies in any other \
-                  way, SIGKILL included, the sandbox stops the server within seconds. Files the \
+                  way, SIGKILL included, local forwards close and the sandbox stops the server within seconds. Files the \
                   server changed in the checkout come back like `run` only when it exits by \
                   itself; a stopped server sends nothing back, and the next sync replaces them.\n\n\
                   Exit status: the server's own; 125 when boatparty itself failed; 130 or 143 \
@@ -353,7 +359,7 @@ pub struct SkillArgs {
                   boatparty forward 8000:18000         localhost:18000 here reaches port 8000 there\n  \
                   boatparty forward 8000 --bind 0.0.0.0   also reachable from other machines\n\n\
                   Holds the forward, and the sandbox (a `session` lease), until Ctrl-C or SIGTERM; \
-                  it ends too if this process dies. The forward listens on localhost (127.0.0.1 and ::1 when available) unless --bind \
+                  if this process dies, its port is released even with active connections. The forward listens on localhost (127.0.0.1 and ::1 when available) unless --bind \
                   names another address, and uses an SSH connection of its own. A ready line goes \
                   to stderr once it listens. When the connection drops, it is reopened (bringing \
                   the sandbox up again if needed) for up to 10 minutes. Exit status: 130 or 143 \
