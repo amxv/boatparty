@@ -8,7 +8,7 @@ summary: User-facing release history.
 
 Keep the newest release first. Describe user-visible behavior and important installation or compatibility changes rather than copying raw commit subjects.
 
-## Unreleased
+## 0.5.1 - 2026-11-26
 
 - Local forwards now publish `http://localhost:PORT` and listen on both `127.0.0.1` and `::1` when IPv6 is available. If you pinned `127.0.0.1` in CORS or auth configuration, add the localhost origin or pass an explicit bind address to keep the old URL.
 - `boatparty url [REMOTEPORT]` exits 1 when no running serve matches. Tool failures still exit 125.
