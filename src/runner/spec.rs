@@ -108,6 +108,15 @@ impl RunnerSpec {
         spec
     }
 
+    pub fn with_restart(mut self, seconds: Option<u64>) -> Self {
+        if let Some(seconds) = seconds {
+            self.text
+                .push_str(&format!("bp_restart_seconds={seconds}\n"));
+            self.hash = content_hash(self.text.as_bytes());
+        }
+        self
+    }
+
     /// A spec with this exact text and no checkout (tests).
     pub fn from_text(text: String) -> Self {
         let hash = content_hash(text.as_bytes());

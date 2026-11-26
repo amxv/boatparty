@@ -94,9 +94,27 @@ pub struct Sandbox {
     /// Since when the provider cannot fully reach the machine (boat's
     /// `health: degraded`), RFC 3339; `None` while it is healthy.
     pub degraded_since: Option<String>,
+    pub health: Option<String>,
+    pub health_reason: Option<String>,
+    pub last_reboot: Option<serde_json::Value>,
+    pub snapshot_seconds: Option<u64>,
+    pub restore_entries: Option<(u64, u64)>,
 }
 
 impl Sandbox {
+    pub fn condition(&self) -> String {
+        format!(
+            "{} state {}, health {}{}",
+            self.id,
+            self.state,
+            self.health.as_deref().unwrap_or("unknown"),
+            self.health_reason
+                .as_ref()
+                .map(|r| format!(" ({r})"))
+                .unwrap_or_default()
+        )
+    }
+
     /// A sandbox that no longer exists.
     pub fn gone(id: impl Into<String>) -> Self {
         Self {
@@ -111,6 +129,11 @@ impl Sandbox {
             error: None,
             restore_stalled: false,
             degraded_since: None,
+            health: None,
+            health_reason: None,
+            last_reboot: None,
+            snapshot_seconds: None,
+            restore_entries: None,
         }
     }
 }

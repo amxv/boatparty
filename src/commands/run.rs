@@ -10,7 +10,7 @@
 //! Before launch permission, an SSH 255 may retry sync once. After permission,
 //! a run reconnects to its nonce and resumes both streams by byte offset.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -129,6 +129,7 @@ struct Conn {
     started_member: bool,
     /// How far the member's files are restored, when a provider call said.
     hydration: Option<Hydration>,
+    restore_wait: Duration,
 }
 
 impl Conn {
@@ -214,7 +215,7 @@ impl Run<'_> {
         self.record["github_token"] = json!(credentials.github_token.is_some());
         let interrupts = Interrupts::install()?;
         let mut heartbeat = None;
-        let ran = match self.prepare_serve(stream, &conn, times, &interrupts, &mut heartbeat) {
+        let ran = match self.prepare_serve(stream, &mut conn, times, &interrupts, &mut heartbeat) {
             Ok(()) => self.drive(
                 stream,
                 &name,
@@ -230,6 +231,14 @@ impl Run<'_> {
             ),
             Err(error) => Err(error),
         };
+        if let Err(e) = &ran
+            && e.code() == "degraded_timeout"
+            && let Err(err) = lease::mark_broken(&store, &name, &conn.id(), e.message())
+        {
+            stream.note(format_args!(
+                "could not record the timeout for recovery: {err}"
+            ));
+        }
         // The token is not kept past the command.
         drop(credentials);
         drop(seed);
@@ -238,6 +247,7 @@ impl Run<'_> {
         self.record["queued_seconds"] = json!(round(conn.queued.as_secs_f64()));
         self.record["waited_seconds"] = json!(round(conn.waited.as_secs_f64()));
         self.record["recovery"] = json!(conn.recovery);
+        self.record["restore_wait_seconds"] = json!(round(conn.restore_wait.as_secs_f64()));
         self.record["warm"] = json!(conn.warm);
         self.record["started_member"] = json!(conn.started_member);
 
@@ -333,7 +343,7 @@ impl Run<'_> {
     fn prepare_serve(
         &mut self,
         stream: &mut Stream,
-        conn: &Conn,
+        conn: &mut Conn,
         times: LeaseTimes,
         interrupts: &Interrupts,
         heartbeat: &mut Option<Heartbeat>,
@@ -344,6 +354,7 @@ impl Run<'_> {
         let id = conn.id();
         *heartbeat = Some(Heartbeat::for_member(&self.ctx.paths, &id, times));
         let hydration = conn.hydration.unwrap_or(Hydration::Unknown);
+        let wait_started = Instant::now();
         let interrupted = serve::wait_hydrated(
             self.ctx,
             stream,
@@ -352,6 +363,9 @@ impl Run<'_> {
             hydration,
             interrupts,
         )?;
+        if !hydration.is_complete() {
+            conn.restore_wait += wait_started.elapsed();
+        }
         if let Some(status) = interrupted {
             self.interrupted = Some(status);
             return Err(AppError::new(
@@ -509,6 +523,7 @@ impl Run<'_> {
                     conn.target.close_master();
                     let warm = conn.warm;
                     let mut next = bring_up(self.ctx, &self.line, self.kind())?;
+                    next.restore_wait += conn.restore_wait;
                     next.queued += conn.queued;
                     next.waited += conn.waited;
                     next.recovery = next.recovery.or(conn.recovery);
@@ -637,6 +652,7 @@ impl Run<'_> {
                 "waited_seconds": self.record["waited_seconds"],
                 "recovery": conn.recovery,
                 "warm": conn.warm,
+                "restore_wait_seconds": self.record["restore_wait_seconds"],
                 "started_member": conn.started_member,
                 "retried": ran.retried,
                 "pack_bytes": ran.outcome.pack_bytes,
@@ -815,6 +831,7 @@ fn connect(
             warm: true,
             started_member: false,
             hydration: None,
+            restore_wait: Duration::ZERO,
         });
     }
     bring_up(ctx, line, LeaseKind::Run)
@@ -836,6 +853,7 @@ fn bring_up(ctx: &Context, line: &str, kind: LeaseKind) -> Result<Conn, AppError
         warm: false,
         started_member: up.created || up.resumed,
         hydration: Some(up.sandbox.hydration),
+        restore_wait: up.restore_wait,
     })
 }
 

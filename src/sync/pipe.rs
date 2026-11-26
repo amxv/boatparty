@@ -51,6 +51,7 @@ pub fn pipe_command(
                 nonce: &nonce,
                 header: credentials.header(),
                 pack: PackInput::None,
+                uploaded_bytes: 0,
                 root: &root,
                 hold_stdin: true,
                 input: Some(input()),

@@ -37,6 +37,9 @@ const WAIT_STEP: Duration = Duration::from_secs(15);
 /// The delay after a refusal that named no delay.
 const DEFAULT_RETRY: Duration = Duration::from_secs(30);
 
+/// Allows a full hourly start window to roll over, with margin for retries.
+pub(crate) const ADMISSION_LIMIT: Duration = Duration::from_secs(65 * 60);
+
 impl Budget {
     pub fn from_settings(settings: &ProjectSettings) -> Self {
         Self {
@@ -105,10 +108,11 @@ impl StartGate<'_> {
         mut call: impl FnMut() -> Result<T, ProviderError>,
         counted: impl Fn(&T) -> bool,
     ) -> Result<T, StartFailure> {
+        let deadline = Instant::now() + ADMISSION_LIMIT;
         let mut force_refresh = false;
         loop {
             let id = self
-                .reserve(what, std::mem::take(&mut force_refresh))
+                .reserve(what, std::mem::take(&mut force_refresh), deadline)
                 .map_err(StartFailure::Refused)?;
             match call() {
                 Ok(value) => {
@@ -138,7 +142,9 @@ impl StartGate<'_> {
                                 .unwrap_or_default(),
                             duration_words(delay)
                         ));
-                        self.wait_in_queue(delay);
+                        self.wait_in_queue(
+                            delay.min(deadline.saturating_duration_since(Instant::now())),
+                        );
                         force_refresh = true;
                     }
                     kind if nothing_started(kind) => {
@@ -176,12 +182,26 @@ impl StartGate<'_> {
         }
     }
 
-    fn reserve(&self, what: &str, mut force_refresh: bool) -> Result<String, AppError> {
+    fn reserve(
+        &self,
+        what: &str,
+        mut force_refresh: bool,
+        deadline: Instant,
+    ) -> Result<String, AppError> {
         let id = system::random_hex(8)?;
         let pid = std::process::id();
         let mut announced: Option<String> = None;
         let mut fetched: Option<Instant> = None;
         loop {
+            if Instant::now() >= deadline {
+                return Err(AppError::new(
+                    "admission_timeout",
+                    format!(
+                        "waiting for start admission for {what} exceeded {} minutes",
+                        ADMISSION_LIMIT.as_secs() / 60
+                    ),
+                ));
+            }
             let cache_age = self.cache_age()?;
             let stale = cache_age.is_none_or(|age| age >= CACHE_TTL);
             if (force_refresh || stale) && fetched.is_none_or(|at| at.elapsed() >= RECHECK) {

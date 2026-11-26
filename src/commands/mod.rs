@@ -81,7 +81,7 @@ pub(crate) fn runner_host(
     crate::runner::SshRunner {
         target: target.clone(),
         upload,
-        spec: Some(spec),
+        spec: Some(spec.with_restart(member.recovery.snapshot_seconds)),
         dedicated: None,
     }
 }

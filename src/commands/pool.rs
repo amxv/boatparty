@@ -173,7 +173,7 @@ fn member_json(member: &Member, state: String) -> Value {
         })).collect::<Vec<_>>(),
         "bringing_up": member.bringing_up.as_ref()
             .filter(|claim| system::pid_alive(claim.pid))
-            .map(|claim| json!({"pid": claim.pid, "started_at": claim.started_at})),
+            .map(|claim| json!(claim)),
         "created_at": member.created_at,
         "last_used_at": member.last_used_at,
         "last_run": member.last_run,

@@ -32,6 +32,13 @@ pub fn run(ctx: &Context, args: &ExposeArgs) -> Result<u8, AppError> {
             .clone()
             .ok_or_else(|| AppError::new("member_pending", "the sandbox has no id yet"))?;
         let provider = super::open_provider(ctx)?;
+        crate::pool::health::ensure_tunnel(
+            ctx,
+            held.project,
+            held.member,
+            held.target,
+            provider.as_ref(),
+        )?;
         let hosted = provider.host_port(&id, &request)?;
         Ok((
             hosted,

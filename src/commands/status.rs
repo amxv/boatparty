@@ -90,6 +90,9 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         if let Some(sandbox) = sandbox
             && sandbox.state == SandboxState::Running
         {
+            if sandbox.degraded_since.is_some() {
+                line.push_str(" tunnel degraded");
+            }
             line.push_str(&format!(" files {}", sandbox.hydration.as_str()));
             line.push_str(&format!(
                 " auto-stop {}",
@@ -102,7 +105,7 @@ pub fn run(ctx: &Context) -> Result<u8, AppError> {
         ctx.out.text(line.trim_end());
         if let Some(broken) = &member.broken {
             ctx.out.text(format_args!(
-                "  broken: {}; the next command replaces it",
+                "  broken: {}; snapshot recovery is attempted before replacement",
                 broken.reason
             ));
         }
@@ -150,6 +153,9 @@ pub fn member_json(
         "id": member.id,
         "role": member.role.as_str(),
         "state": state_word(member, sandbox),
+        "health": sandbox.and_then(|s| s.health.as_ref()),
+        "health_reason": sandbox.and_then(|s| s.health_reason.as_ref()),
+        "restarted_from": member.recovery.snapshot_seconds,
         "hydration": sandbox.map(|sandbox| sandbox.hydration.as_str()),
         "size": sandbox.and_then(|sandbox| sandbox.size).map(|size| size.as_str()),
         "affinity": member.affinity,
@@ -161,10 +167,7 @@ pub fn member_json(
             "label": lease.label,
             "started_at": lease.started_at,
         })).collect::<Vec<_>>(),
-        "bringing_up": member.bringing_up.as_ref().map(|claim| json!({
-            "pid": claim.pid,
-            "started_at": claim.started_at,
-        })),
+        "bringing_up": member.bringing_up,
         "ssh": ssh,
         "created_at": member.created_at,
         "last_used_at": member.last_used_at,

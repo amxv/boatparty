@@ -4,8 +4,9 @@
 //! A member's state comes from the provider every time; nothing unknown is
 //! resumed on a guess. Only `Stopped` (or `Stopping`) members are resumed.
 
+use super::recovery;
 use std::cell::RefCell;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::wait::{self, Deadline};
 use super::{LABEL_PROJECT, LeaseRequest, Pool, member_labels, new_member};
@@ -48,6 +49,7 @@ pub struct Up {
     pub reclaimed: bool,
     /// The key was authorized and the host key pinned again.
     pub reconnected: bool,
+    pub restore_wait: Duration,
 }
 
 pub fn bring_up(
@@ -108,10 +110,7 @@ pub fn bring_up_builder(pool: &Pool<'_>, options: BringUp) -> Result<Up, AppErro
             started_at: now,
             workspace: None,
         });
-        member.bringing_up = Some(BringingUp {
-            pid,
-            started_at: now,
-        });
+        member.bringing_up = Some(BringingUp::new(pid, now));
         Ok(Ok((member.clone(), fresh)))
     })?;
     let (member, fresh) = claim.map_err(|busy| {
@@ -154,175 +153,176 @@ pub fn release_builder(pool: &Pool<'_>) {
     });
 }
 
-/// The single-flight claim on a member's bring-up.
-enum Claim {
-    Mine(Member),
-    /// Another live process is bringing it up.
-    Theirs(Member),
-    /// The record went away meanwhile.
-    Lost,
-}
-
 fn bring_up_inner(
     pool: &Pool<'_>,
     options: BringUp,
     lease: Option<&LeaseRequest>,
 ) -> Result<Up, AppError> {
-    let deadline = Deadline::after(START_TIMEOUT);
-    let project = pool.project.clone();
-    let mut announced = false;
     loop {
         let (member, fresh) = pool.acquire(lease)?;
-        let claim = pool.store.update(|state| {
-            let Some(slot) = state
-                .project_mut(&project)
-                .find_mut_by_key(&member.create_key)
-            else {
-                return Ok(Claim::Lost);
-            };
-            if slot.bring_up_claimed_by_other() {
-                return Ok(Claim::Theirs(slot.clone()));
-            }
-            slot.bringing_up = Some(BringingUp {
-                pid: std::process::id(),
-                started_at: system::now_ms(),
-            });
-            Ok(Claim::Mine(slot.clone()))
-        })?;
-        match claim {
-            Claim::Mine(member) => return claimed(pool, member, fresh, options),
-            Claim::Lost => continue,
-            Claim::Theirs(member) => {
-                let since = std::time::Instant::now();
-                if !announced {
-                    announced = true;
-                    pool.out.note(format_args!(
-                        "another boatparty process is starting {}; waiting for it",
-                        member.name
-                    ));
-                }
-                // Wait for that claim to end, then acquire again: the member
-                // is then up and its connection is reused.
-                loop {
-                    let state = pool.store.load()?;
-                    let still = state
-                        .project(&project)
-                        .and_then(|pool| {
-                            pool.members
-                                .iter()
-                                .find(|other| other.create_key == member.create_key)
-                        })
-                        .is_some_and(Member::bring_up_claimed_by_other);
-                    if !still {
-                        pool.waited.set(pool.waited.get() + since.elapsed());
-                        break;
-                    }
-                    if !deadline.tick() {
-                        return Err(AppError::new(
-                            "start_timeout",
-                            format!(
-                                "{} was still being started by another process after {} minutes",
-                                member.name,
-                                START_TIMEOUT.as_secs() / 60
-                            ),
-                        ));
-                    }
-                }
-            }
+        if member
+            .bringing_up
+            .as_ref()
+            .is_some_and(|c| c.pid == std::process::id())
+        {
+            return claimed(pool, member, fresh, options);
         }
+        let began = Instant::now();
+        let waited = wait_for_claim(pool, &member);
+        pool.waited.set(pool.waited.get() + began.elapsed());
+        waited?;
     }
 }
 
 /// Bring up a member this process holds the claim on, then clear the claim.
 fn claimed(pool: &Pool<'_>, member: Member, fresh: bool, options: BringUp) -> Result<Up, AppError> {
-    let result = run(pool, member.clone(), fresh, options);
-    // Clear the claim whatever happened; the record may have been replaced.
-    let key = match &result {
-        Ok(up) => up.member.clone(),
-        Err(_) => member,
-    };
-    let project = pool.project.clone();
+    let claim = member.bringing_up.clone().expect("bring-up claim");
+    let name = member.name.clone();
+    let result = recovery::bring_up(pool, member, fresh, options);
     let cleared = pool.store.update(|state| {
-        let pool = state.project_mut(&project);
-        if let Some(slot) = pool.find_mut_by_key(&key.create_key) {
+        let project = state.project_mut(&pool.project);
+        if let Err(error) = &result {
+            project.bring_up_failures.insert(
+                name.clone(),
+                crate::state::BringUpFailure {
+                    pid: claim.pid,
+                    started_at: claim.started_at,
+                    message: error.to_string(),
+                },
+            );
+        }
+        if let Some(slot) = project.members.iter_mut().find(|m| m.name == name)
+            && slot
+                .bringing_up
+                .as_ref()
+                .is_some_and(|c| c.pid == claim.pid && c.started_at == claim.started_at)
+        {
             slot.bringing_up = None;
             return Ok(Some(slot.clone()));
         }
         Ok(None)
-    });
+    })?;
     let mut up = result?;
-    if let Ok(Some(member)) = cleared {
+    if let Some(member) = cleared {
         up.member = member;
     }
     Ok(up)
 }
 
-fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Result<Up, AppError> {
+fn wait_for_claim(pool: &Pool<'_>, member: &Member) -> Result<(), AppError> {
+    let original = member.bringing_up.as_ref().expect("other claim");
+    let mut reported = None;
+    let mut last = Instant::now();
+    loop {
+        let state = pool.store.load()?;
+        let Some(project) = state.project(&pool.project) else {
+            return Ok(());
+        };
+        if let Some(failure) = project.bring_up_failures.get(&member.name)
+            && failure.pid == original.pid
+            && failure.started_at == original.started_at
+        {
+            return Err(AppError::new(
+                "member_failed",
+                format!(
+                    "{} bring-up by pid {} failed: {}",
+                    member.name, original.pid, failure.message
+                ),
+            ));
+        }
+        let Some(claim) = project
+            .find(&member.name)
+            .and_then(|m| m.bringing_up.as_ref())
+            .filter(|claim| {
+                claim.pid == original.pid
+                    && claim.started_at == original.started_at
+                    && system::pid_alive(claim.pid)
+            })
+        else {
+            return Ok(());
+        };
+        let step = if claim.step.is_empty() {
+            "starting sandbox"
+        } else {
+            &claim.step
+        };
+        if claim.wedged(system::now_ms()) {
+            return Err(AppError::new(
+                "start_timeout",
+                format!(
+                    "{} bring-up holder pid {} looks wedged during {step} (limit {}s)",
+                    member.name, claim.pid, claim.limit_seconds
+                ),
+            ));
+        }
+        if reported.as_deref() != Some(step) || last.elapsed() >= Duration::from_secs(60) {
+            pool.out.note(format_args!(
+                "another boatparty process is starting {}; waiting for pid {}: {step} (limit {}s)",
+                member.name, claim.pid, claim.limit_seconds
+            ));
+            reported = Some(step.to_string());
+            last = Instant::now();
+        }
+        std::thread::sleep(wait::poll_interval());
+    }
+}
+
+pub(super) fn step(
+    pool: &Pool<'_>,
+    member: &Member,
+    name: &str,
+    limit: Duration,
+) -> Result<(), AppError> {
+    pool.modify(member, |m| {
+        if let Some(c) = m.bringing_up.as_mut() {
+            c.step = name.into();
+            c.since = system::now_ms();
+            c.limit_seconds = limit.as_secs();
+        }
+    })?;
+    Ok(())
+}
+
+pub(super) fn run(
+    pool: &Pool<'_>,
+    mut member: Member,
+    fresh: bool,
+    options: BringUp,
+) -> Result<Up, AppError> {
     let mut fresh = fresh;
     let mut created = false;
     let mut resumed = false;
     let mut reclaimed = false;
     let mut recreated = false;
-    let deadline = Deadline::after(START_TIMEOUT);
-
-    if let (Some(broken), Some(id)) = (member.broken.clone(), member.id.clone()) {
-        let me = std::process::id();
-        let refused = if member.live_leases().any(|lease| lease.pid != me) {
-            pool.out.note(format_args!(
-                "{} is broken ({}) but still in use; it is replaced once that ends",
-                member.name, broken.reason
-            ));
-            true
-        } else if let Some(error) = pool.start_gate().refused_today() {
-            // Deleting it now would leave this workspace with nothing.
-            pool.out.note(format_args!(
-                "{} is broken ({}), but a replacement cannot start today ({}); using it as it is",
-                member.name,
-                broken.reason,
-                error.message()
-            ));
-            true
-        } else {
-            false
-        };
-        if !refused {
-            pool.out.note(format_args!(
-                "{} ({id}) is broken: {}; deleting it and creating a new sandbox in its place",
-                member.name, broken.reason
-            ));
-            discard(pool, &member.name, &id)?;
-            pool.recovery.set(Some("replaced"));
-            let key = system::uuid_v4()?;
-            member = pool.modify(&member, |member| {
-                member.id = None;
-                member.create_key = key;
-                member.sync = SyncState::default();
-                member.created_at = system::now_ms();
-                member.broken = None;
-            })?;
-            fresh = true;
-        }
-    }
-
+    let mut deadline = Deadline::after(START_TIMEOUT);
     let sandbox = 'outer: loop {
         let mut sandbox = match member.id.clone() {
             Some(id) => get(pool.provider, &id)?,
             None => {
+                step(
+                    pool,
+                    &member,
+                    "admitting and creating sandbox",
+                    crate::starts::ADMISSION_LIMIT + CREATE_RETRY,
+                )?;
                 let (sandbox, record, base) = create(pool, &member, fresh, options)?;
                 let id = sandbox.id.clone();
                 member = pool.modify(&record, |member| {
                     member.id = Some(id);
+                    member.recovery.restoring = true;
                     // The base's repository is this sandbox's: the first
                     // sync sends only what changed since the base commit.
                     if let Some(base) = &base {
                         member.sync = base.seeded_sync();
                     }
                 })?;
+                deadline = Deadline::after(START_TIMEOUT);
                 created = true;
                 sandbox
             }
         };
         let id = sandbox.id.clone();
+        step(pool, &member, "waiting for running sandbox", START_TIMEOUT)?;
         loop {
             match sandbox.state {
                 SandboxState::Running => break 'outer sandbox,
@@ -343,6 +343,7 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                         member.create_key = key;
                         member.sync = SyncState::default();
                         member.created_at = system::now_ms();
+                        member.recovery = Default::default();
                     })?;
                     fresh = true;
                     pool.recovery.set(Some("replaced"));
@@ -377,8 +378,17 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                     }
                     pool.out
                         .note(format_args!("resuming {} ({id})", member.name));
+                    step(
+                        pool,
+                        &member,
+                        "admitting and resuming sandbox",
+                        crate::starts::ADMISSION_LIMIT + START_TIMEOUT,
+                    )?;
+                    pool.modify(&member, |m| m.recovery.restoring = true)?;
                     match resume(pool, &member.name, &id, options.ttl_seconds)? {
                         Some(outcome) => {
+                            step(pool, &member, "waiting for running sandbox", START_TIMEOUT)?;
+                            deadline = Deadline::after(START_TIMEOUT);
                             resumed = true;
                             reclaimed = outcome.reclaimed;
                             sandbox = match outcome.sandbox {
@@ -391,7 +401,11 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                             if deadline.passed() {
                                 return Err(AppError::new(
                                     "start_timeout",
-                                    format!("{} ({id}) could not be resumed in time", member.name),
+                                    format!(
+                                        "resuming {} timed out: {}",
+                                        member.name,
+                                        sandbox.condition()
+                                    ),
                                 ));
                             }
                             sandbox = get(pool.provider, &id)?;
@@ -403,9 +417,9 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
                         return Err(AppError::new(
                             "start_timeout",
                             format!(
-                                "{} ({id}) is still {} after {} minutes",
+                                "waiting for {} to run: {} after {} minutes",
                                 member.name,
-                                sandbox.state,
+                                sandbox.condition(),
                                 START_TIMEOUT.as_secs() / 60
                             ),
                         ));
@@ -428,10 +442,56 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
             ));
         }
     }
-    let (target, reconnected) =
-        ensure_connected(pool.paths, pool.provider, pool.out, &sandbox.id, started)?;
+    let wait_for_restore = member
+        .leases
+        .iter()
+        .any(|l| l.pid == std::process::id() && l.kind == LeaseKind::Run)
+        && (started || member.recovery.restoring || !sandbox.hydration.is_complete());
+    let (sandbox, restore_wait) = if wait_for_restore {
+        recovery::wait_restore(pool, &member, sandbox, options.ttl_seconds)?
+    } else {
+        (sandbox, Duration::ZERO)
+    };
+    if sandbox.degraded_since.is_some() {
+        pool.out.note(format_args!(
+            "{}: {}. Using direct SSH",
+            member.name,
+            sandbox.condition()
+        ));
+    }
+    step(
+        pool,
+        &member,
+        "authorizing SSH and opening connection",
+        Duration::from_secs(420),
+    )?;
+    let pinned = SshTarget::for_sandbox(pool.paths, &sandbox.id);
+    let (target, reconnected) = if sandbox.degraded_since.is_some()
+        && pinned.config.exists()
+        && matches!(pinned.run_quiet("true"), Ok((0, _)))
+    {
+        (pinned, false)
+    } else {
+        connect_steps(
+            pool.paths,
+            pool.provider,
+            pool.out,
+            &sandbox.id,
+            started,
+            |name, limit| step(pool, &member, name, limit),
+        )
+        .map_err(|e| {
+            let condition = pool
+                .provider
+                .get(&sandbox.id)
+                .map(|s| s.condition())
+                .unwrap_or_else(|_| format!("last observed {}", sandbox.condition()));
+            e.with_hint(condition)
+        })?
+    };
     let member = pool.modify(&member, |member| {
         member.last_used_at = system::now_ms();
+        member.recovery.restoring = !sandbox.hydration.is_complete();
     })?;
     Ok(Up {
         member,
@@ -441,10 +501,11 @@ fn run(pool: &Pool<'_>, mut member: Member, fresh: bool, options: BringUp) -> Re
         resumed,
         reclaimed,
         reconnected,
+        restore_wait,
     })
 }
 
-fn get(provider: &dyn Provider, id: &str) -> Result<Sandbox, AppError> {
+pub(super) fn get(provider: &dyn Provider, id: &str) -> Result<Sandbox, AppError> {
     Ok(wait::retry(
         Duration::from_secs(60),
         wait::transient,
@@ -479,8 +540,19 @@ fn resume(
                 Ok(None)
             }
             kind if wait::transient(kind) => {
-                std::thread::sleep(wait::retry_delay(&error, 0));
-                Ok(None)
+                // The reply could have been lost after boat started the machine.
+                let observed = get(pool.provider, id)?;
+                if matches!(
+                    observed.state,
+                    SandboxState::Starting | SandboxState::Running
+                ) {
+                    Ok(Some(crate::provider::Resumed {
+                        reclaimed: false,
+                        sandbox: Some(observed),
+                    }))
+                } else {
+                    Err(error.into())
+                }
             }
             _ => Err(error.into()),
         },
@@ -597,18 +669,40 @@ fn create(
         // pending record can go. After an unclear outcome it stays, and the
         // next run reuses its key.
         Err(StartFailure::Provider(error)) => {
-            if !ambiguous && refused(&error) {
-                pool.forget(&record)?;
+            let forget = !ambiguous && refused(&error);
+            let error = AppError::from(error);
+            if forget {
+                forget_failure(pool, &record, &error)?;
             }
-            Err(error.into())
+            Err(error)
         }
         Err(StartFailure::Refused(error)) => {
             if !ambiguous {
-                pool.forget(&record)?;
+                forget_failure(pool, &record, &error)?;
             }
             Err(error)
         }
     }
+}
+
+/// Publish the holder's error atomically with removal so a waiter never
+/// observes a vanished record before it can read why creation failed.
+fn forget_failure(pool: &Pool<'_>, member: &Member, error: &AppError) -> Result<(), AppError> {
+    pool.store.update(|state| {
+        let project = state.project_mut(&pool.project);
+        if let Some(claim) = &member.bringing_up {
+            project.bring_up_failures.insert(
+                member.name.clone(),
+                crate::state::BringUpFailure {
+                    pid: claim.pid,
+                    started_at: claim.started_at,
+                    message: error.to_string(),
+                },
+            );
+        }
+        project.remove_by_key(&member.create_key);
+        Ok(())
+    })
 }
 
 /// Give a pending record a new create key.
@@ -646,7 +740,7 @@ fn refused(error: &ProviderError) -> bool {
 /// Ask the provider to delete a broken member's sandbox, without waiting
 /// for the deletion to finish (a sandbox that is already gone is fine), and
 /// forget its SSH files.
-fn discard(pool: &Pool<'_>, name: &str, id: &str) -> Result<(), AppError> {
+pub(super) fn discard(pool: &Pool<'_>, name: &str, id: &str) -> Result<(), AppError> {
     let target = SshTarget::for_sandbox(pool.paths, id);
     target.close_master();
     match wait::retry(Duration::from_secs(60), wait::transient, || {
@@ -674,14 +768,30 @@ pub fn ensure_connected(
     id: &str,
     force: bool,
 ) -> Result<(SshTarget, bool), AppError> {
+    connect_steps(paths, provider, out, id, force, |_, _| Ok(()))
+}
+
+fn connect_steps(
+    paths: &Paths,
+    provider: &dyn Provider,
+    out: crate::output::Output,
+    id: &str,
+    force: bool,
+    progress: impl Fn(&str, Duration) -> Result<(), AppError>,
+) -> Result<(SshTarget, bool), AppError> {
     let target = SshTarget::for_sandbox(paths, id);
     if !force && target.reachable() {
         return Ok((target, false));
     }
+    progress(
+        "authorizing SSH key",
+        SSH_KEY_RETRY + Duration::from_secs(120),
+    )?;
     let public_key = ssh::ensure_key(paths)?;
     let access = wait::retry(SSH_KEY_RETRY, wait::ssh_not_ready, || {
         provider.authorize_ssh_key(id, &public_key)
     })?;
+    progress("opening SSH connection", Duration::from_secs(210))?;
     // The old master, if any, talks to the previous machine.
     target.close_master();
     ssh::write_target(paths, &target, &access)?;
@@ -690,7 +800,16 @@ pub fn ensure_connected(
     let remote = format!("mkdir -p {}", shell_quote(crate::runner::REMOTE_STATE_DIR));
     let mut last = String::new();
     for attempt in 0..CONNECT_ATTEMPTS {
-        let (code, stderr) = target.run_quiet(&remote)?;
+        let (code, stderr) = match target.run_quiet(&remote) {
+            Err(e) if e.code() == "step_timeout" => (255, e.to_string()),
+            result => result?,
+        };
+        if code != 255 && code != 0 {
+            return Err(AppError::new(
+                "ssh",
+                format!("initializing runner directory on {id} failed: {stderr}"),
+            ));
+        }
         if code == 0 {
             return Ok((target, true));
         }
@@ -701,7 +820,7 @@ pub fn ensure_connected(
         }
     }
     Err(AppError::new(
-        "ssh",
+        "ssh_unreachable",
         format!("cannot connect to {id} over SSH: {last}"),
     ))
 }

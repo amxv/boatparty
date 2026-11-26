@@ -52,4 +52,8 @@ boatparty run -- cargo test --locked
 
 Every sandbox is Linux x86_64 (Ubuntu 24.04) with boat's tool image: Git, compilers and runtimes for the common stacks. Sandboxes are created without the account's stored secrets unless the project names a boat environment. The API key never appears in a process argument list, a log, `state.json` or `runs.jsonl`.
 
-A sandbox resumed onto a new machine gets its files back in the background ("hydration"). boatparty keeps such a sandbox up until that finishes, and works around files the restore leaves unreadable in build caches by dropping those caches. When a restore makes no progress, or boat reports it failing, for 10 minutes, or boat cannot reach the machine for as long, boatparty marks the member broken (`status` shows why): the next command deletes that sandbox and creates a new one under the same name, from the base snapshot when there is one. A member is a cache of your working tree, so nothing but build outputs is lost.
+A sandbox resumed onto a new machine restores its files in the background. A cold `run` waits for that restore before syncing. It prints progress each minute. Other commands waiting on bring-up see the holder PID, its current step and any failure reason.
+
+A stalled restore or repeated SSH failure triggers recovery. When the disk has finished restoring and a completed snapshot is available, boatparty force-stops the sandbox and resumes from that snapshot. Writes after the snapshot can be lost. If a restart is unavailable, recently attempted or fails to restore service, boatparty replaces the member. The Rust preset invalidates Cargo units written near the recovered snapshot and units that reference a retired home directory.
+
+A degraded provider tunnel leaves direct SSH usable. `expose` and `desktop` need the tunnel and can reboot the member over SSH when no other lease is live. It waits up to five minutes for health to recover and permits one reboot per 30 minutes.

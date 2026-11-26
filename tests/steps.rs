@@ -688,3 +688,47 @@ fn bun_checks_the_real_isolated_package_manifest_including_scopes() {
     fs::remove_file(manifest).unwrap();
     assert!(!intact());
 }
+
+#[test]
+fn rust_setup_drops_only_recent_snapshot_units_and_retired_paths_after_the_move() {
+    let mut member = Member::new("restore-units", "presets = [\"rust\"]\n");
+    write(&member.local.join(".gitignore"), "target/\n");
+    member.load();
+    let retired = member.root().join("retired");
+    member.set_env("BOATPARTY_RUNNER_RETIRED_ROOT", retired.to_str().unwrap());
+    let repo = member.remote().to_path_buf();
+    let target = repo.join("target/debug");
+    let stale = target.join("build/old-abc/output");
+    let recent = target.join("deps/libmid-def.rlib");
+    let good = target.join("deps/libgood-fed.rlib");
+    write(&stale, &format!("{}/home/user/app", retired.display()));
+    write(&recent, "possibly truncated");
+    write(&good, "complete");
+    let snapshot = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    fs::File::open(&good)
+        .unwrap()
+        .set_modified(UNIX_EPOCH + Duration::from_secs(snapshot - 4000))
+        .unwrap();
+    let spec = member
+        .host
+        .spec
+        .borrow_mut()
+        .take()
+        .unwrap()
+        .with_restart(Some(snapshot));
+    *member.host.spec.borrow_mut() = Some(spec);
+    member.set_env("BOATPARTY_RUNNER_HYDRATING", "1");
+    assert_eq!(member.run("true").exit(), 0);
+    assert!(stale.exists() && recent.exists());
+    member.set_env("BOATPARTY_RUNNER_HYDRATING", "0");
+    let run = member.run("true");
+    assert_eq!(run.exit(), 0, "{}", run.stderr);
+    assert!(
+        !stale.exists() && !recent.exists() && good.exists(),
+        "{}",
+        run.stderr
+    );
+}

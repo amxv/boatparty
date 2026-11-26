@@ -81,6 +81,8 @@ pub struct Spec<'a> {
     pub header: Vec<u8>,
     /// What follows the header on stdin.
     pub pack: PackInput,
+    /// Pack delivered by signed URL before this exchange.
+    pub uploaded_bytes: u64,
     pub root: &'a Path,
     /// Keep stdin open after the pack until the runner finishes (or a cancel
     /// closes it). The runner treats its end as "stop the command".
@@ -149,6 +151,13 @@ pub fn run(
         PackInput::Stream(revs) => Some(pack::spawn(spec.root, revs)?),
         _ => None,
     };
+    let bytes = match &spec.pack {
+        PackInput::Bytes(pack) => pack.len() as u64,
+        PackInput::File(pack) => pack.bytes(),
+        _ => 0,
+    };
+    let sync_limit = (spec.args.first().map(String::as_str) != Some("reattach"))
+        .then(|| Duration::from_secs(600 + bytes.max(spec.uploaded_bytes).div_ceil(1_000_000)));
     let mut source: Option<Box<dyn Read + Send>> = match spec.pack {
         PackInput::None | PackInput::Stream(_) => None,
         PackInput::Bytes(bytes) => Some(Box::new(io::Cursor::new(bytes))),
@@ -213,6 +222,7 @@ pub fn run(
         &close_tx,
         go,
         spec.args[0].as_str(),
+        sync_limit,
     );
     let mut tail = sniffer.pass(&filter.end());
     tail.extend(sniffer.finish());
@@ -221,6 +231,19 @@ pub fn run(
     }
     let _ = close_tx.send(Feed::Close);
     let status = reap(&mut child, watched.killed);
+    if watched.timed_out {
+        if let Some(mut pack) = pack {
+            let _ = pack.kill();
+            let _ = pack.wait();
+        }
+        return Err(host.explain_timeout(AppError::new(
+            "step_timeout",
+            format!(
+                "sync before command start timed out after {}s",
+                sync_limit.expect("timed sync").as_secs()
+            ),
+        )));
+    }
     let pack_bytes = writer.join().unwrap_or(0);
     let trailer = filter.result();
     if let Some(mut child) = pack {
@@ -246,6 +269,7 @@ pub fn run(
 }
 
 struct Watch {
+    timed_out: bool,
     killed: bool,
     cancelled: bool,
 }
@@ -264,14 +288,17 @@ fn watch(
     close: &Sender<Feed>,
     mut go: Option<Sender<()>>,
     mode: &str,
+    sync_limit: Option<Duration>,
 ) -> Watch {
     let detached = matches!(mode, "run" | "reattach");
     let mut renewal = (mode == "reattach").then(Instant::now);
+    let mut syncing = Some(Instant::now());
     let mut open = 2;
     let mut exited_at: Option<Instant> = None;
     let mut trailer_at: Option<Instant> = None;
     let mut cancel_at: Option<Instant> = None;
     let mut result = Watch {
+        timed_out: false,
         killed: false,
         cancelled: false,
     };
@@ -288,6 +315,9 @@ fn watch(
                             }
                         }
                         Piece::Event(name) => {
+                            if matches!(name.as_str(), "armed" | "started") {
+                                syncing = None;
+                            }
                             if detached && name == "armed" && !result.cancelled {
                                 renewal = Some(Instant::now());
                                 let _ = close.send(Feed::Control(b"go\n"));
@@ -340,6 +370,12 @@ fn watch(
         }
         let overdue =
             |at: Option<Instant>, limit: Duration| at.is_some_and(|at| at.elapsed() > limit);
+        if sync_limit.is_some_and(|limit| overdue(syncing, limit)) {
+            result.timed_out = true;
+            result.killed = true;
+            let _ = child.kill();
+            break;
+        }
         if overdue(exited_at, PIPE_GRACE) {
             break;
         }

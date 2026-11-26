@@ -61,6 +61,7 @@ pub trait Provider {
     fn resume(&self, id: &str, ttl_seconds: u64) -> Result<Resumed, ProviderError>;
 
     /// Stop a sandbox, keeping its disk. Returns once the stop is accepted.
+    fn force_stop(&self, id: &str) -> Result<(), ProviderError>;
     fn stop(&self, id: &str) -> Result<(), ProviderError>;
 
     /// Set the auto-stop deadline to now plus `ttl_seconds`.

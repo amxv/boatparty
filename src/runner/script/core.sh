@@ -92,7 +92,13 @@ stage_all() {
 # private index or moves the checkout holds this lock.
 lock_checkout() {
   exec 9>"$state/checkout.lock"
-  if command -v flock >/dev/null 2>&1; then flock 9; fi
+  if command -v flock >/dev/null 2>&1; then
+    flock 9
+  else
+    # macOS has flock(2) but no flock command. This duplicate of fd 9
+    # owns the same open file description, so the lock survives Perl's exit.
+    perl -e 'flock(STDIN, 2) or die "cannot lock checkout: $!"' <&9
+  fi
 }
 unlock_checkout() { exec 9>&-; }
 
@@ -165,6 +171,7 @@ trailer() {
 }
 
 ensure_repo() {
+  lock_checkout
   if [[ ! -d "$repo/.git" ]]; then
     mkdir -p "$repo"
     git init -q "$repo"
@@ -172,6 +179,7 @@ ensure_repo() {
     git -C "$repo" config core.trustctime false
     git -C "$repo" config advice.detachedHead false
   fi
+  unlock_checkout
 }
 
 # Mirror the client's branches, tags and default remote branch: set every

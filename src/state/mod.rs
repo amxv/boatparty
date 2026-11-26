@@ -47,6 +47,9 @@ impl Default for State {
 pub struct ProjectState {
     #[serde(default)]
     pub members: Vec<Member>,
+    /// Last failed claim by member name, including refused pending creates.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub bring_up_failures: BTreeMap<String, BringUpFailure>,
     #[serde(default)]
     pub base: Option<Value>,
     #[serde(flatten)]
@@ -91,14 +94,32 @@ pub struct Member {
     pub last_used_at: u64,
     #[serde(default)]
     pub last_run: Option<Value>,
-    /// Why this member must be replaced (its sandbox is deleted and a new
-    /// one created at its next bring-up), when boatparty found it broken:
-    /// a file restore that stalled or never finished, or a machine the
-    /// provider could not reach for long.
+    /// Why the next bring-up must attempt recovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub broken: Option<Broken>,
+    #[serde(default)]
+    pub recovery: Recovery,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
+}
+
+/// Durable facts about this physical sandbox, reset on replacement.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Recovery {
+    pub restoring: bool,
+    pub force_stopping: bool,
+    pub restarted_at: Option<u64>,
+    /// Unix seconds of the snapshot restored by the last forced stop.
+    pub snapshot_seconds: Option<u64>,
+    pub rebooted_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BringUpFailure {
+    pub pid: u32,
+    pub started_at: u64,
+    pub message: String,
 }
 
 /// Why and when a member was found broken.
@@ -169,6 +190,33 @@ pub struct Lease {
 pub struct BringingUp {
     pub pid: u32,
     pub started_at: u64,
+    #[serde(default)]
+    pub step: String,
+    #[serde(default)]
+    pub since: u64,
+    #[serde(default = "default_step_seconds")]
+    pub limit_seconds: u64,
+}
+
+fn default_step_seconds() -> u64 {
+    600
+}
+
+impl BringingUp {
+    pub fn new(pid: u32, now: u64) -> Self {
+        Self {
+            pid,
+            started_at: now,
+            step: "checking sandbox state".into(),
+            since: now,
+            limit_seconds: 120,
+        }
+    }
+
+    pub fn wedged(&self, now: u64) -> bool {
+        now.saturating_sub(self.since.max(self.started_at)) / 1000
+            > self.limit_seconds.saturating_add(60)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,6 +363,7 @@ mod tests {
                 last_used_at: 0,
                 last_run: None,
                 broken: None,
+                recovery: Default::default(),
                 extra: Map::new(),
             });
         }

@@ -11,7 +11,7 @@ pub mod spec;
 pub mod trailer;
 
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::error::AppError;
 use crate::provider::Provider;
@@ -92,6 +92,10 @@ pub fn remote_invocation_in(checkout: Option<&str>, args: &[String]) -> String {
 
 /// Where the runner runs: a sandbox over SSH, or (in tests) a local child.
 pub trait RunnerHost {
+    fn explain_timeout(&self, error: AppError) -> AppError {
+        error
+    }
+
     /// A command that runs the runner with these arguments. The caller sets
     /// up its standard streams.
     fn command(&self, args: &[String]) -> Command;
@@ -188,6 +192,21 @@ impl SshRunner {
 }
 
 impl RunnerHost for SshRunner {
+    fn explain_timeout(&self, error: AppError) -> AppError {
+        if error.code() == "step_timeout"
+            && let Some(upload) = &self.upload
+        {
+            return match upload.provider.get(&upload.sandbox_id) {
+                Ok(s) if s.degraded_since.is_some() => {
+                    AppError::new("degraded_timeout", format!("{error}; {}", s.condition()))
+                }
+                Ok(s) => error.with_hint(s.condition()),
+                Err(e) => error.with_hint(format!("provider state unavailable: {e}")),
+            };
+        }
+        error
+    }
+
     fn command(&self, args: &[String]) -> Command {
         let mut command = match (&self.dedicated, args.first().map(String::as_str)) {
             (Some(options), Some("serve")) => {
@@ -280,30 +299,18 @@ impl SshRunner {
             "mkdir -p {dir} && cat > {path}.$$.tmp && mv {path}.$$.tmp {path}",
             dir = shell_quote(dir),
         );
-        let mut child = self
-            .target
-            .ssh()
-            .args(["-T", &self.target.alias, &remote])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| AppError::io("cannot run ssh", error))?;
-        let mut stdin = child.stdin.take().expect("stdin is piped");
-        let written = std::io::Write::write_all(&mut stdin, bytes);
-        drop(stdin);
-        let output = child
-            .wait_with_output()
-            .map_err(|error| AppError::io("cannot run ssh", error))?;
-        if !output.status.success() || written.is_err() {
+        let step = format!("uploading {what} to {}", self.target.alias);
+        let (code, stderr) = crate::transport::bounded::capture(
+            self.target.ssh().args(["-T", &self.target.alias, &remote]),
+            Some(bytes.to_vec()),
+            &step,
+            std::time::Duration::from_secs(120),
+        )
+        .map_err(|e| self.explain_timeout(e))?;
+        if code != 0 {
             return Err(AppError::new(
                 "ssh",
-                format!(
-                    "uploading {what} to {} failed (exit {}): {}",
-                    self.target.alias,
-                    output.status.code().unwrap_or(-1),
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ),
+                format!("{step} failed (exit {code}): {stderr}"),
             ));
         }
         Ok(())

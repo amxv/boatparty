@@ -9,9 +9,11 @@
 
 pub mod acquire;
 mod bringup;
+pub mod health;
 pub mod lease;
 pub mod policy;
 pub mod reconcile;
+mod recovery;
 pub mod remove;
 pub mod wait;
 
@@ -74,7 +76,7 @@ pub fn warm_member(
     let Some(id) = member.id.as_deref() else {
         return Ok(None);
     };
-    if member.broken.is_some() {
+    if member.broken.is_some() || member.bring_up_claimed_by_other() || member.recovery.restoring {
         // The bring-up path replaces it.
         return Ok(None);
     }
@@ -223,9 +225,21 @@ impl<'a> Pool<'a> {
                 new_key: &key,
                 now: system::now_ms(),
             };
-            let outcome = self
-                .store
-                .update(|state| Ok(acquire::acquire(state, &request, &facts)))?;
+            let outcome = self.store.update(|state| {
+                let mut outcome = acquire::acquire(state, &request, &facts);
+                if let Outcome::Acquired { member, .. } = &mut outcome
+                    && !member.bring_up_claimed_by_other()
+                {
+                    let claim = Some(crate::state::BringingUp::new(request.pid, request.now));
+                    let slot = state
+                        .project_mut(&self.project)
+                        .find_mut_by_key(&member.create_key)
+                        .expect("just acquired");
+                    slot.bringing_up = claim.clone();
+                    member.bringing_up = claim;
+                }
+                Ok(outcome)
+            })?;
             match outcome {
                 Outcome::Acquired { member, how } => {
                     self.announce(&member, &how);
@@ -498,6 +512,7 @@ pub fn new_member(name: String, create_key: String, affinity: Option<String>, no
         last_used_at: now,
         last_run: None,
         broken: None,
+        recovery: Default::default(),
         extra: serde_json::Map::new(),
     }
 }

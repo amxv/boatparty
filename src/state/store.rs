@@ -159,6 +159,7 @@ mod tests {
             last_used_at: 0,
             last_run: None,
             broken: None,
+            recovery: Default::default(),
             extra: serde_json::Map::new(),
         }
     }

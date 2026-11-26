@@ -159,6 +159,14 @@ impl E2e {
     /// fake, whose `PUT` and `GET` answer `put_status` and, on success, write
     /// or read the file in the mapped /home/user/.
     pub fn boat_with_uploads(&self, put_status: u16) -> FakeBoat {
+        self.boat_with_state(put_status, |_, _| {})
+    }
+
+    pub fn boat_with_state(
+        &self,
+        put_status: u16,
+        state: impl Fn(&super::Request, &mut serde_json::Value) + Send + Sync + 'static,
+    ) -> FakeBoat {
         let events = self.events();
         let remote = self.remote();
         let base: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
@@ -179,11 +187,12 @@ impl E2e {
             // and `writeln!` on a file may split a line into several writes.
             let line = format!("provider {} {} {}\n", request.method, path_only, body);
             let _ = log.write_all(line.as_bytes());
-            let sandbox = json!({
+            let mut sandbox = json!({
                 "id": ID, "name": "bp-app-1", "state": "idle", "hydrated": true,
                 "labels": {"boatparty.project": "app", "boatparty.role": "pool"},
                 "type": "default", "archiveAfter": "2026-11-15T12:15:00Z",
             });
+            state(request, &mut sandbox);
             let upload_prefix = format!("/upload/{URL_SECRET}");
             let download_prefix = format!("/download/{URL_SECRET}");
             match (request.method.as_str(), request.path.as_str()) {

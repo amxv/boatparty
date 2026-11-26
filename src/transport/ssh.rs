@@ -10,7 +10,7 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::error::AppError;
 use crate::paths::Paths;
@@ -80,13 +80,15 @@ impl SshTarget {
         if !self.config.exists() {
             return false;
         }
-        self.ssh_connect()
-            .args(["-O", "check", &self.alias])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success())
+        matches!(
+            super::bounded::capture(
+                self.ssh_connect().args(["-O", "check", &self.alias]),
+                None,
+                "checking SSH master",
+                std::time::Duration::from_secs(5)
+            ),
+            Ok((0, _))
+        )
     }
 
     /// Ask the control master to exit, if there is one.
@@ -98,13 +100,12 @@ impl SshTarget {
         if !self.config.exists() {
             return;
         }
-        let _ = self
-            .ssh_connect()
-            .args(["-O", "exit", &self.alias])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let _ = super::bounded::capture(
+            self.ssh_connect().args(["-O", "exit", &self.alias]),
+            None,
+            "closing SSH master",
+            std::time::Duration::from_secs(5),
+        );
     }
 
     /// Recover a master whose mux channel has refused a session. Only
@@ -112,18 +113,23 @@ impl SshTarget {
     #[cfg(unix)]
     pub fn repair_master(&self) {
         use std::os::unix::fs::{FileTypeExt, MetadataExt};
-        let query = |args: &[&str]| {
-            self.ssh_connect()
-                .args(args)
-                .arg(&self.alias)
-                .stdin(Stdio::null())
-                .output()
-                .ok()
+        let query = |args: &[&str], stdout| {
+            super::bounded::capture_stream(
+                self.ssh_connect().args(args).arg(&self.alias),
+                None,
+                "inspecting SSH master",
+                std::time::Duration::from_secs(5),
+                stdout,
+            )
+            .ok()
         };
         let socket =
-            query(&["-G"])
-                .and_then(|out| {
-                    String::from_utf8_lossy(&out.stdout)
+            query(&["-G"], true)
+                .and_then(|(code, config)| {
+                    if code != 0 {
+                        return None;
+                    }
+                    config
                         .lines()
                         .find_map(|line| line.strip_prefix("controlpath ").map(PathBuf::from))
                 })
@@ -137,21 +143,17 @@ impl SshTarget {
             let same =
                 || fs::symlink_metadata(&path).is_ok_and(|m| m.dev() == dev && m.ino() == ino);
             if same()
-                && let Some(check) = query(&["-O", "check"])
-                && check.status.success()
-            {
-                let msg = String::from_utf8_lossy(&check.stderr);
-                if let Some(pid) = msg
+                && let Some((0, msg)) = query(&["-O", "check"], false)
+                && let Some(pid) = msg
                     .trim()
                     .strip_prefix("Master running (pid=")
                     .and_then(|s| s.strip_suffix(')'))
                     .and_then(|s| s.parse::<i32>().ok())
                     .filter(|p| *p > 1)
                     .and_then(rustix::process::Pid::from_raw)
-                    && same()
-                {
-                    let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
-                }
+                && same()
+            {
+                let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
             }
             if same() {
                 let _ = fs::remove_file(path);
@@ -165,18 +167,12 @@ impl SshTarget {
     /// Run a short remote command, opening the master if needed. Returns the
     /// exit status and stderr.
     pub fn run_quiet(&self, remote: &str) -> Result<(i32, String), AppError> {
-        let output = self
-            .ssh_connect()
-            .args(["-T", &self.alias, remote])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|error| AppError::io("cannot run ssh", error))?;
-        Ok((
-            output.status.code().unwrap_or(255),
-            String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        ))
+        super::bounded::capture(
+            self.ssh_connect().args(["-T", &self.alias, remote]),
+            None,
+            "running SSH control command",
+            std::time::Duration::from_secs(30),
+        )
     }
 
     /// Delete the config and the pinned key.
@@ -319,28 +315,38 @@ pub fn ensure_key(paths: &Paths) -> Result<String, AppError> {
             .truncate(false)
             .open(&lock_path)
             .map_err(|error| AppError::io(format!("cannot open {}", lock_path.display()), error))?;
-        lock.lock()
-            .map_err(|error| AppError::io(format!("cannot lock {}", lock_path.display()), error))?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        loop {
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    return Err(AppError::new(
+                        "step_timeout",
+                        "waiting for SSH key generation timed out after 45s",
+                    ));
+                }
+                Err(std::fs::TryLockError::Error(e)) => {
+                    return Err(AppError::io("cannot lock SSH key", e));
+                }
+            }
+        }
         if !(private.exists() && public.exists()) {
             let _ = fs::remove_file(&private);
             let _ = fs::remove_file(&public);
-            let output = Command::new("ssh-keygen")
-                .args(["-q", "-t", "ed25519", "-N", "", "-C", "boatparty", "-f"])
-                .arg(&private)
-                .stdin(Stdio::null())
-                .output()
-                .map_err(|error| {
-                    AppError::io("cannot run ssh-keygen", error)
-                        .with_hint("install OpenSSH and run `boatparty doctor`")
-                })?;
-            if !output.status.success() {
-                return Err(AppError::new(
-                    "ssh",
-                    format!(
-                        "ssh-keygen failed: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ),
-                ));
+            let (status, stderr) = super::bounded::capture(
+                Command::new("ssh-keygen")
+                    .args(["-q", "-t", "ed25519", "-N", "", "-C", "boatparty", "-f"])
+                    .arg(&private),
+                None,
+                "generating SSH key",
+                std::time::Duration::from_secs(30),
+            )
+            .map_err(|e| e.with_hint("install OpenSSH and run `boatparty doctor`"))?;
+            if status != 0 {
+                return Err(AppError::new("ssh", format!("ssh-keygen failed: {stderr}")));
             }
         }
     }

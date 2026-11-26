@@ -87,6 +87,11 @@ printf '%s\n' "$TOKEN" | boatparty pipe -- sh -c 'cat > ~/.app-token'
 - `boatparty base build` saves a snapshot with dependencies built, so new
   sandboxes start warm. `boatparty base status` says how stale it is.
 
+A cold `run` reports restore progress before starting the command. When another
+client is bringing up the member, its PID and step appear in the wait message.
+A degraded tunnel still allows direct SSH. Snapshot recovery for a stuck
+member can discard remote writes made since that snapshot.
+
 ## Cautions
 
 - Do not run `rm`, `pool prune`, `base rm` or `limits set` unless the user

@@ -57,3 +57,79 @@ cargo build $locked --all-targets
 cargo test $locked --no-run
 '''
 stale_inputs = ["Cargo.lock", "rust-toolchain.toml", "rust-toolchain"]
+
+[[setup]]
+name = "cargo-restore"
+check = 'test -z "$BOATPARTY_OUTPUT_ROOTS" || test "$BOATPARTY_RETIRED_CHECKOUT" = 1'
+run = '''
+python3 - <<'PY'
+import os
+import re
+import shutil
+import subprocess
+from collections import defaultdict
+from pathlib import Path
+
+retired = os.fsencode(os.environ["BOATPARTY_RETIRED_ROOT"])
+snapshot = int(os.environ["BOATPARTY_RESTARTED_FROM"] or 0)
+units = defaultdict(set)
+
+def unit_hash(name):
+    match = re.search(r"-([a-z0-9]+)(?:\..*)?$", name)
+    return match.group(1) if match else None
+
+def names_retired(path):
+    if not path.is_file() or path.is_symlink():
+        return False
+    with path.open("rb") as lines:
+        return any(retired in line for line in lines)
+
+def snapshot_write(path):
+    if not snapshot:
+        return False
+    for base, _, files in os.walk(path) if path.is_dir() else [(path.parent, [], [path.name])]:
+        for name in files:
+            file = Path(base, name)
+            if snapshot - 1800 <= file.lstat().st_mtime <= snapshot + 1:
+                return True
+    return False
+
+roots = list(map(Path, os.environ["BOATPARTY_OUTPUT_ROOTS"].splitlines()))
+tracked = {Path(os.fsdecode(path)) for path in
+           subprocess.check_output(["git", "ls-files", "-z", "--", *roots],
+                                   env={**os.environ, "GIT_INDEX_FILE": os.environ["BOATPARTY_SYNC_INDEX"]}).split(b"\0") if path}
+protected = tracked | {parent for path in tracked for parent in path.parents}
+for root in roots:
+    if root.resolve() != Path.cwd() / root or Path.cwd() not in root.resolve().parents:
+        continue
+    for pattern in ("*/deps", "*/*/deps", "*/build", "*/*/build",
+                    "*/.fingerprint", "*/*/.fingerprint", "*/incremental", "*/*/incremental"):
+        for folder in root.glob(pattern):
+            if not folder.is_dir() or folder.resolve() != Path.cwd() / folder:
+                continue
+            for path in folder.iterdir():
+                if path.is_symlink():
+                    continue
+                key = unit_hash(path.name)
+                if not key:
+                    continue
+                stale = ((folder.name == "deps" and path.suffix == ".d" and names_retired(path))
+                         or (folder.name == "build" and names_retired(path / "output")))
+                if stale or snapshot_write(path):
+                    units[folder.parent].add(key)
+
+for profile, keys in units.items():
+    for kind in ("deps", ".fingerprint", "build", "incremental"):
+        folder = profile / kind
+        if not folder.is_dir() or folder.resolve() != Path.cwd() / folder:
+            continue
+        for path in folder.iterdir():
+            if path not in protected and unit_hash(path.name) in keys:
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+if units:
+    print(f"boatparty: removed {sum(map(len, units.values()))} Cargo units affected by restore")
+PY
+'''

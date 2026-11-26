@@ -24,6 +24,7 @@ boatparty is for [boat.dev](https://boat.dev) users: it needs a boat account and
 ## Why else
 
 - **Warm by default.** Each checkout keeps its own sandbox, with dependencies installed and build outputs kept. Only files whose content changed are synced, and when the sandbox is up, nothing talks to boat before your command starts.
+- After a create or resume, `run` waits for file restore and reports progress. A stuck member gets a snapshot restart when possible before replacement. A degraded provider tunnel still permits direct SSH.
 - **Cheap when idle.** A sandbox stops 5 minutes after its last command and keeps its disk. Every project gets a capped pool, and one file, `~/.config/boatparty/account.toml`, holds every limit for every project, including the account's scarce sandbox starts.
 
 ## Install

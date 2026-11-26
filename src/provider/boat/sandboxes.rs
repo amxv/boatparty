@@ -69,6 +69,12 @@ pub struct SandboxBody {
     #[serde(default)]
     health: Option<String>,
     #[serde(default)]
+    health_reason: Option<String>,
+    #[serde(default)]
+    last_reboot: Option<Value>,
+    #[serde(default)]
+    snapshot_completed_at: Option<String>,
+    #[serde(default)]
     degraded_since: Option<String>,
     #[serde(default)]
     cost: Option<CostBody>,
@@ -89,6 +95,10 @@ struct CostBody {
 pub struct HydrationBody {
     #[serde(default)]
     percent: Option<i64>,
+    #[serde(default, rename = "entriesDone")]
+    entries_done: Option<u64>,
+    #[serde(default, rename = "entriesTotal")]
+    entries_total: Option<u64>,
     /// The restore step; `degraded` and `stuck` mean a step failed and is
     /// retried.
     #[serde(default)]
@@ -114,6 +124,18 @@ impl SandboxBody {
                     .as_ref()
                     .and_then(|progress| progress.phase.as_deref())
                     .is_some_and(|phase| matches!(phase, "degraded" | "stuck")),
+            restore_entries: self
+                .hydration
+                .as_ref()
+                .and_then(|h| h.entries_done.zip(h.entries_total)),
+            health_reason: self.health_reason,
+            last_reboot: self.last_reboot,
+            snapshot_seconds: self
+                .snapshot_completed_at
+                .as_deref()
+                .and_then(crate::runs::parse_rfc3339)
+                .map(|ms| ms / 1000),
+            health: self.health.clone(),
             degraded_since: (self.health.as_deref() == Some("degraded")).then(|| {
                 self.degraded_since
                     .clone()
@@ -317,13 +339,17 @@ pub fn resume(http: &Http, id: &str, ttl_seconds: u64) -> Result<Resumed, Provid
     Ok(Resumed { reclaimed, sandbox })
 }
 
-pub fn stop(http: &Http, id: &str) -> Result<(), ProviderError> {
+pub fn stop(http: &Http, id: &str, force: bool) -> Result<(), ProviderError> {
     let id = checked_id(id)?;
     let _: Value = http
         .send(
             Method::Post,
             &format!("/sandboxes/{id}/stop"),
-            Some(&json!({})),
+            Some(&if force {
+                json!({"force": true})
+            } else {
+                json!({})
+            }),
             None,
         )?
         .json()?;

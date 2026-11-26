@@ -15,6 +15,9 @@ Keep the newest release first. Describe user-visible behavior and important inst
 - Run summaries include CPU steal, start queue time, bring-up wait time and recovery. The Bun preset checks transitive packages in isolated installs.
 - Cache entries expire after three days by default. Under disk pressure, boatparty evicts the least recently used entries after a run.
 - Idle desktop streaming shuts down in the background. Use `desktop --open` to view the sandbox or `serve --desktop` to run a GUI application.
+- Cold commands wait for file restore. Bring-up reports the current step, holder PID and failure to waiting clients.
+- Direct SSH continues on degraded members. Hosting and desktop access can repair the provider tunnel with a reboot.
+- Stuck members try a snapshot restart before replacement. The Rust preset invalidates affected outputs after a restart or machine move.
 
 ## 0.2.2 - 2026-11-20
 

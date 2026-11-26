@@ -186,7 +186,7 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
           "affinity": "/Users/me/code/app",
           "workspace_exists": true,
           "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "workspace": "/Users/me/code/app", "started_at": 1794730331934 } ],
-          "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
+          "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
           "created_at": 1794730331934,
           "last_used_at": 1794730332265,
           "last_run": { "at": "2026-11-15T08:12:12Z", "kind": "run", "command": "cargo test", "exit_code": 0, "seconds": 5.2 },
@@ -286,7 +286,7 @@ Provider figures first (`starts` per window, `sandboxes` running against the acc
 
 ### status
 
-One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `broken` is why boatparty will replace the member at its next start (a file restore that stalled for 10 minutes, or a machine the provider could not reach for as long), else `null`. `base` summarizes the project's base snapshot.
+One entry per member of this project. `state` is `starting`, `running`, `stopping`, `stopped`, `error`, `gone`, `pending` (create not answered yet) or `unknown`; `hydration` is `complete`, `in_progress` or `unknown`. `ssh` gives what scripts need to reach a member with plain `ssh -F <config> <host_alias>`. `broken` gives the reason for pending recovery. `health` and `health_reason` are the provider's last observations. A degraded tunnel permits direct SSH. After a forced restart, `restarted_from` is the Unix timestamp in seconds of the recovered snapshot. Writes made after that snapshot may have been lost. Otherwise this field is `null`. `base` summarizes the project's base snapshot.
 
 <!-- shape: status -->
 ```json
@@ -301,12 +301,15 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
       "role": "pool",
       "state": "running",
       "hydration": "complete",
+    "health": "ok",
+    "health_reason": null,
+    "restarted_from": null,
       "size": "default",
       "affinity": "/Users/me/code/app",
       "this_workspace": true,
       "auto_stop_at": "2026-11-15T12:15:00Z",
       "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
-      "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
+      "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
       "ssh": {
         "host_alias": "bx_23456789",
         "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf",
@@ -346,12 +349,15 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
     "role": "pool",
     "state": "running",
     "hydration": "complete",
+    "health": "ok",
+    "health_reason": null,
+    "restarted_from": null,
     "size": "default",
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
     "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
-    "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
+    "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
     "last_used_at": 1794730332265,
@@ -398,6 +404,8 @@ One entry per member of this project. `state` is `starting`, `running`, `stoppin
 
 Frames, then this result. `queued_seconds` measures time waiting for a start budget and `waited_seconds` measures time waiting for another process to bring up this member. `recovery` names the recovery action or is null. `cpu_steal_percent` is the percentage of total CPU ticks spent in steal across the command, or null when no interval was measurable. At 15% or more boatparty reports host contention on stderr. `exit_code` is the process's exit status; `command_exit_code` is the remote command's (`null` when it never reported one, for example after a cancel). `prep_seconds` runs from the start until the command started. `warm` means no provider call was needed; `started_member` that this run created or resumed the sandbox; `retried` means the client repeated the sync after SSH failed before launch. `reattached` means the client recovered the original command's output and result after a disconnect. `failed_step` names a setup or ensure step that failed (`ensure.deps`), in which case the command did not run. `git_identity` and `github_token` say which credentials the command got. `copy_back.status` is `none`, `applied`, `conflict` (the patch is kept at `patch`), `off` (`[sync] copy_back = false`) or `failed` (with `error`); `applied` and `conflict` add `route`, how the changes came back: `ssh`, or `signed_url` for a patch above the signed-transfer threshold (512 KiB).
 
+`restore_wait_seconds` measures time spent waiting for files to finish restoring before this command. It is zero on the warm path.
+
 <!-- shape: run -->
 ```json
 {
@@ -417,6 +425,7 @@ Frames, then this result. `queued_seconds` measures time waiting for a start bud
   "waited_seconds": 0.0,
   "recovery": null,
   "prep_seconds": 0.8,
+  "restore_wait_seconds": 0.0,
   "warm": true,
   "started_member": false,
   "retried": false,
@@ -460,6 +469,7 @@ Frames, then the `run` result with `kind` `serve` and the server's settings. The
   "waited_seconds": 0.0,
   "recovery": null,
   "prep_seconds": 1.4,
+  "restore_wait_seconds": 0.5,
   "warm": false,
   "started_member": false,
   "retried": false,
@@ -654,12 +664,15 @@ The signed URL grants access to the streamed desktop. `opened` records whether `
     "role": "pool",
     "state": "stopping",
     "hydration": "complete",
+    "health": "ok",
+    "health_reason": null,
+    "restarted_from": null,
     "size": "default",
     "affinity": "/Users/me/code/app",
     "this_workspace": true,
     "auto_stop_at": "2026-11-15T12:15:00Z",
     "leases": [ { "pid": 4242, "kind": "run", "label": "cargo test", "started_at": 1794730331934 } ],
-    "bringing_up": { "pid": 4242, "started_at": 1794730331934 },
+    "bringing_up": { "pid": 4242, "started_at": 1794730331934, "step": "opening SSH connection", "since": 1794730331940, "limit_seconds": 210 },
     "ssh": { "host_alias": "bx_23456789", "config": "/Users/me/.local/state/boatparty/ssh/bx_23456789.conf", "known_hosts": "/Users/me/.local/state/boatparty/ssh/bx_23456789.known_hosts", "configured": true },
     "created_at": 1794730331934,
     "last_used_at": 1794730332265,
@@ -913,6 +926,10 @@ Every failure of boatparty itself exits 125 with one of these codes. Codes are s
 | `not_found` | The provider has no such sandbox or snapshot |
 | `start_rate_limited`, `request_rate_limited` | The provider's start or request rate limit (starts normally wait instead) |
 | `provider_at_capacity`, `concurrency_limit`, `billing` | The provider has no machine, the account's concurrent limit is reached, or the account needs payment |
+| `restore_stalled`, `ssh_unreachable` | File restore stopped progressing or repeated direct SSH probes failed |
+| `step_timeout`, `degraded_timeout` | A named connection or sync step exceeded its deadline. A degraded member is marked for recovery |
+| `admission_timeout` | A start could not be admitted within 65 minutes |
+| `tunnel_degraded` | A tunnel-dependent operation could not safely repair the degraded tunnel |
 | `provider_busy`, `not_running`, `conflict` | The sandbox is restoring or securing, has no running machine, or is in a conflicting state |
 | `unauthorized`, `key_scope_forbidden`, `forbidden` | The key is invalid or expired, lacks an action, or the request is refused |
 | `invalid_request`, `too_large`, `provider_error`, `invalid_response`, `provider_unknown_error` | The provider rejected the request, failed, answered unreadably, or returned an unknown error code |

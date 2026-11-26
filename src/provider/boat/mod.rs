@@ -68,7 +68,11 @@ impl Provider for BoatProvider {
     }
 
     fn stop(&self, id: &str) -> Result<(), ProviderError> {
-        sandboxes::stop(&self.http, id)
+        sandboxes::stop(&self.http, id, false)
+    }
+
+    fn force_stop(&self, id: &str) -> Result<(), ProviderError> {
+        sandboxes::stop(&self.http, id, true)
     }
 
     fn set_ttl(&self, id: &str, ttl_seconds: u64) -> Result<(), ProviderError> {

@@ -33,8 +33,7 @@ const HYDRATION_WAIT: Duration = Duration::from_secs(30 * 60);
 /// How often the idle helper looks at a hydrating member, in polls.
 const HYDRATION_POLLS: u32 = 30;
 /// A restore that makes no progress (or that the provider reports as
-/// failing), or a machine the provider cannot reach, for this long marks the
-/// member broken: its next bring-up replaces it.
+/// failing) for this long marks the member for recovery.
 const STALL_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// Overrides [`STALL_LIMIT`] (seconds), for tests and tuning.
 pub const STALL_LIMIT_ENV: &str = "BOATPARTY_RESTORE_STALL_SECONDS";
@@ -68,7 +67,7 @@ impl StallWatch {
             && self
                 .since
                 .is_some_and(|(_, seen)| seen.is_some() && seen == percent);
-        let stalled = sandbox.restore_stalled || sandbox.degraded_since.is_some() || flat;
+        let stalled = sandbox.restore_stalled || flat;
         if !stalled {
             // Progress (or nothing to judge): start over from here.
             self.since = restoring.then_some((now, percent));
@@ -78,17 +77,10 @@ impl StallWatch {
         if now.saturating_duration_since(began) < limit {
             return None;
         }
-        Some(if sandbox.degraded_since.is_some() {
-            format!(
-                "the provider could not reach its machine for {} minutes",
-                limit.as_secs() / 60
-            )
-        } else {
-            format!(
-                "restoring its files after a resume made no progress for {} minutes",
-                limit.as_secs() / 60
-            )
-        })
+        Some(format!(
+            "restoring its files after a resume made no progress for {} minutes",
+            limit.as_secs() / 60
+        ))
     }
 }
 
@@ -160,7 +152,11 @@ pub fn register(
         let Some(slot) = pool.find_mut_by_key(&member.create_key) else {
             return Ok(false);
         };
-        if slot.affinity.as_deref() != Some(workspace) {
+        if slot.affinity.as_deref() != Some(workspace)
+            || slot.bring_up_claimed_by_other()
+            || slot.broken.is_some()
+            || slot.recovery.restoring
+        {
             return Ok(false);
         }
         slot.leases
@@ -370,7 +366,7 @@ pub fn idle_helper(paths: &Paths, project: &str, member_id: &str) -> Result<(), 
             // The next bring-up replaces it; meanwhile it may stop.
             mark_broken(&store, project, member_id, reason)?;
         }
-        let healthy = sandbox.hydration.is_complete() && sandbox.degraded_since.is_none();
+        let healthy = sandbox.hydration.is_complete();
         if healthy || broken.is_some() || Instant::now() >= deadline {
             set_ttl(times.idle_seconds)?;
             // A command that took a lease meanwhile may have pushed its
@@ -432,7 +428,7 @@ mod tests {
                 .look(&restoring(Some(8), true), at(18), limit)
                 .is_some()
         );
-        // Unknown progress is not judged; a degraded machine is.
+        // Unknown progress and tunnel-only degradation do not establish a stall.
         let mut watch = StallWatch::default();
         assert_eq!(watch.look(&restoring(None, false), at(0), limit), None);
         assert_eq!(watch.look(&restoring(None, false), at(30), limit), None);
@@ -440,8 +436,7 @@ mod tests {
         degraded.hydration = crate::provider::Hydration::Complete;
         degraded.degraded_since = Some("2026-11-15T04:43:00Z".into());
         assert_eq!(watch.look(&degraded, at(31), limit), None);
-        let reason = watch.look(&degraded, at(41), limit).unwrap();
-        assert!(reason.contains("could not reach"), "{reason}");
+        assert_eq!(watch.look(&degraded, at(41), limit), None);
         let mut healthy = degraded.clone();
         healthy.degraded_since = None;
         assert_eq!(watch.look(&healthy, at(42), limit), None);

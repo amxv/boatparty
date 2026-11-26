@@ -32,9 +32,23 @@ run_setup() {
   local n=${#bp_setup_names[@]} i marker want why boot
   ((n)) || return 0
   boot="$(boot_id)"
+  # A setup that first saw a lazy mount runs again once the checkout moves.
+  export BOATPARTY_RETIRED_ROOT="${BOATPARTY_RUNNER_RETIRED_ROOT:-/var/lib/ascii-lazy/retired/}"
+  export BOATPARTY_RESTARTED_FROM="${bp_restart_seconds:-}"
+  export BOATPARTY_RETIRED_CHECKOUT=0
+  case "$(cd "$repo" && pwd -P)/" in "$BOATPARTY_RETIRED_ROOT"*) BOATPARTY_RETIRED_CHECKOUT=1 ;; esac
+  if is_hydrating || [[ -d "${BOATPARTY_RETIRED_ROOT%/}/home/${repo#"$HOME"/}" ]]; then
+    BOATPARTY_RETIRED_CHECKOUT=1
+  fi
+  local roots
+  BOATPARTY_SYNC_INDEX="$(sync_index)"
+  export BOATPARTY_SYNC_INDEX
+  roots="$(output_roots)"
+  export BOATPARTY_OUTPUT_ROOTS="$roots"
   marker="$state/setup/$project"
   want="$boot $(printf '%s\0' "${bp_setup_names[@]}" "${bp_setup_checks[@]}" "${bp_setup_runs[@]}" |
     git hash-object --stdin)"
+  want="$want $BOATPARTY_RETIRED_CHECKOUT $BOATPARTY_RESTARTED_FROM"
   [[ -f "$marker" && "$(cat "$marker")" == "$want" ]] && return 0
   why="the sandbox started"
   if [[ -f "$marker" && "$(cut -d' ' -f1 "$marker")" == "$boot" ]]; then

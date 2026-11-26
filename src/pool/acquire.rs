@@ -233,7 +233,9 @@ pub fn acquire(state: &mut State, request: &Request<'_>, facts: &Facts<'_>) -> O
         .expect("the policy picks an existing record");
     member.affinity = Some(request.workspace.to_string());
     member.leases.retain(|lease| system::pid_alive(lease.pid));
-    if let Some(lease) = request.lease {
+    if let Some(lease) = request.lease
+        && !member.bring_up_claimed_by_other()
+    {
         member.leases.push(Lease {
             pid: request.pid,
             kind: lease.kind,

@@ -279,6 +279,11 @@ mod tests {
             data_expired_at: None,
             restore_stalled: false,
             degraded_since: None,
+            health: None,
+            health_reason: None,
+            last_reboot: None,
+            snapshot_seconds: None,
+            restore_entries: None,
             error: None,
         }
     }

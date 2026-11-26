@@ -19,6 +19,13 @@ pub fn run(ctx: &Context, open: bool) -> Result<u8, AppError> {
                 AppError::new("member_pending", "the member has no sandbox id yet")
             })?;
         let provider = super::open_provider(ctx)?;
+        crate::pool::health::ensure_tunnel(
+            ctx,
+            held.project,
+            held.member,
+            held.target,
+            provider.as_ref(),
+        )?;
         let host = SshRunner::ssh_only(held.target.clone());
         let args = ["desktop", held.project].map(String::from);
         for attempt in 0..2 {

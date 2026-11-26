@@ -544,3 +544,54 @@ fn cheers_without_a_command_is_a_usage_error() {
     let output = boatparty(root.path()).arg("run").output().unwrap();
     assert_eq!(output.status.code(), Some(2));
 }
+
+#[test]
+fn cold_run_and_its_waiter_both_start_after_restore() {
+    use common::e2e::{E2e, ID};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let setup = E2e::new("cold-restore");
+    let restored = Arc::new(AtomicBool::new(false));
+    let released = Arc::clone(&restored);
+    let boat = setup.boat_with_state(200, move |_, s| {
+        if !released.load(Ordering::Acquire) {
+            s["hydrated"] = json!(false);
+            s["hydration"] = json!({"entriesDone": 2, "entriesTotal": 9, "percent":22});
+        }
+    });
+    let start = || {
+        setup
+            .spawn_cmd(&boat)
+            .env("FAKE_SSH_CHECK", "0")
+            .args(["run", "--", "true"])
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+    let first = start();
+    let until = Instant::now() + Duration::from_secs(10);
+    while !boat
+        .requests()
+        .iter()
+        .any(|r| r.method == "GET" && r.path == format!("/sandboxes/{ID}"))
+    {
+        assert!(Instant::now() < until);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let waiter = start();
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!setup.event_lines().iter().any(|s| s == "ssh-run"));
+    restored.store(true, Ordering::Release);
+    let a = first.wait_with_output().unwrap();
+    let b = waiter.wait_with_output().unwrap();
+    let e = String::from_utf8_lossy(&a.stderr);
+    let f = String::from_utf8_lossy(&b.stderr);
+    assert!(a.status.success() && b.status.success(), "{e}\n{f}");
+    assert!(e.contains("2 of 9 entries"), "{e}");
+    assert!(
+        f.contains("waiting for pid") && f.contains("restoring files"),
+        "{f}"
+    );
+}

@@ -554,3 +554,18 @@ EXTRA_HDR="X-Ascii-Confirm-Delete: $ID" ./api.sh DELETE /sandboxes/$ID | tee out
 A 2026-11-26 scope probe against `POST /sandboxes/bx_00000000/desktop` with the older scoped key returned 403 and named the missing action `desktop`. New keys include it. The endpoint returns a private `desktopUrl` and can report `desktop_not_ready` during startup. The boat image can run lightdm, sunshine, moonlight-web, ascii-streaming-audio and gnome-remote-desktop as system services. Stopping the active streaming stack frees CPU for builds.
 
 Linux reports steal in the eighth CPU counter on the aggregate `cpu` line of `/proc/stat`. boatparty samples immediately around the command. Guest counters are already included in user and nice time.
+
+## Recovery observations from gg-desktop
+
+A sandbox may answer on its pinned direct SSH endpoint while boat reports
+`health: degraded` for its WireGuard tunnel. Hosting and the desktop link need that tunnel.
+gg-desktop observed that rebooting over SSH restored the handshake, while
+reclaiming a stopped machine could preserve the degraded state.
+
+Boat's stop endpoint accepts `{"force":true}` under the existing
+`sandbox.stop` action. Recovery uses `snapshotCompletedAt` to identify the
+last completed snapshot and requires `hydrated: true` before forcing a stop.
+The disk after resume can lack newer writes or hold partially written outputs.
+The lazy restore can expose `/var/lib/ascii-lazy/retired/` in absolute paths
+recorded by tools running before the disk swap. This path is an observed
+implementation detail. The runner supplies it to the Rust preset for cleanup.

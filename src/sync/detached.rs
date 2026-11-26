@@ -173,6 +173,7 @@ pub(super) fn run(
                     root,
                     header: vec![],
                     pack: PackInput::None,
+                    uploaded_bytes: 0,
                     hold_stdin: true,
                     input: None,
                 },

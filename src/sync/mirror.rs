@@ -741,6 +741,7 @@ fn attempt(
         nonce,
         header,
         pack: route.input,
+        uploaded_bytes: route.uploaded,
         root: &request.info.root,
         hold_stdin: command.is_some(),
         input: None,

@@ -28,6 +28,9 @@ struct Fake {
     name: String,
     state: &'static str,
     expired: bool,
+    snapshot: bool,
+    degraded: bool,
+    refuse_stop: bool,
     deleted: bool,
     /// Its file restore reports the phase `stuck`.
     stuck: bool,
@@ -38,6 +41,8 @@ type Sandboxes = Arc<Mutex<BTreeMap<String, Fake>>>;
 fn sandbox_json(id: &str, fake: &Fake) -> Value {
     json!({
         "id": id, "name": fake.name, "state": fake.state, "hydrated": !fake.stuck,
+        "health": if fake.degraded {"degraded"} else {"ok"},
+        "snapshotCompletedAt": if fake.snapshot {Some("2026-11-01T00:00:00Z")} else {None},
         "hydration": if fake.stuck {
             json!({"phase": "stuck", "entriesDone": 10, "entriesTotal": 40, "percent": 25})
         } else {
@@ -93,6 +98,9 @@ fn pool_boat(sandboxes: Sandboxes) -> FakeBoat {
                     name: body["name"].as_str().unwrap().to_string(),
                     state: "idle",
                     expired: false,
+                    snapshot: false,
+                    degraded: false,
+                    refuse_stop: false,
                     deleted: false,
                     stuck: false,
                 };
@@ -123,6 +131,20 @@ fn pool_boat(sandboxes: Sandboxes) -> FakeBoat {
                     ("DELETE", []) => {
                         fake.deleted = true;
                         Reply::json(202, &operation(id, "processing"))
+                    }
+                    ("POST", ["stop"]) => {
+                        assert_eq!(
+                            serde_json::from_str::<Value>(&request.body).unwrap(),
+                            json!({"force": true})
+                        );
+                        if fake.refuse_stop {
+                            return Reply::json(
+                                400,
+                                r#"{"ok":false,"code":"invalid_request","status":400}"#,
+                            );
+                        }
+                        fake.state = "archived";
+                        Reply::json(202, r#"{"ok":true}"#)
                     }
                     ("POST", ["resume"]) => {
                         fake.state = "idle";
@@ -160,6 +182,9 @@ fn fakes(entries: &[(&str, &str, &'static str, bool)]) -> Sandboxes {
                         name: name.to_string(),
                         state,
                         expired,
+                        snapshot: false,
+                        degraded: false,
+                        refuse_stop: false,
                         deleted: false,
                         stuck: false,
                     },
@@ -849,4 +874,90 @@ fn a_member_whose_restore_is_stuck_is_marked_broken_and_replaced_at_its_next_sta
         "{member}"
     );
     assert!(member["broken"].is_null(), "{member}");
+}
+
+#[test]
+fn snapshot_recovery_runs_before_replacement_and_preserves_member_identity() {
+    for (case, refused, recent, expected) in [
+        ("restart", false, false, vec!["stop", "resume"]),
+        ("refused", true, false, vec!["stop", "delete", "create"]),
+        ("cooldown", false, true, vec!["delete", "create"]),
+    ] {
+        let setup = Setup::new(case);
+        let repo = setup.workspace("work");
+        let machines = fakes(&[("bx_old", "bp-app-1", "idle", false)]);
+        {
+            let mut all = machines.lock().unwrap();
+            let machine = all.get_mut("bx_old").unwrap();
+            machine.snapshot = true;
+            machine.refuse_stop = refused;
+        }
+        let boat = pool_boat(machines);
+        let mut m = record("bx_old", "bp-app-1", Some(&repo));
+        m["broken"] = json!({"at":now_ms(),"reason":"SSH unreachable"});
+        m["sync"]["refs_digest"] = json!("old");
+        if recent {
+            m["recovery"] = json!({"restarted_at":now_ms()});
+        }
+        setup.write_members(json!([m]));
+        let out = setup.cmd(&boat, &repo).arg("start").output().unwrap();
+        assert!(out.status.success(), "{case}: {}", text(&out.stderr));
+        let steps: Vec<_> = boat
+            .requests()
+            .iter()
+            .filter_map(|r| match (r.method.as_str(), r.path.as_str()) {
+                ("DELETE", _) => Some("delete"),
+                ("POST", "/sandboxes") => Some("create"),
+                ("POST", p) if p.ends_with("/stop") => Some("stop"),
+                ("POST", p) if p.ends_with("/resume") => Some("resume"),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(steps, expected, "{case}");
+        let m = &setup.state()["projects"]["app"]["members"][0];
+        assert!(m["sync"]["refs_digest"].is_null());
+        if case == "restart" {
+            assert_eq!(m["id"], "bx_old");
+            assert!(m["recovery"]["snapshot_seconds"].is_u64());
+        }
+    }
+}
+
+#[test]
+fn degraded_ssh_member_survives_an_old_tunnel_only_broken_mark() {
+    let setup = Setup::new("degraded");
+    let repo = setup.workspace("one");
+    let machines = fakes(&[("bx_old", "bp-app-1", "idle", false)]);
+    machines.lock().unwrap().get_mut("bx_old").unwrap().degraded = true;
+    let boat = pool_boat(machines);
+    let mut m = record("bx_old", "bp-app-1", Some(&repo));
+    m["broken"] =
+        json!({"at":0,"reason":"the provider could not reach its machine for 10 minutes"});
+    setup.write_members(json!([m]));
+    let output = setup.cmd(&boat, &repo).arg("start").output().unwrap();
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(text(&output.stderr).contains("health degraded"));
+    assert!(deletes(&boat).is_empty());
+    assert!(setup.state()["projects"]["app"]["members"][0]["broken"].is_null());
+}
+
+#[test]
+fn wedged_waiter_reports_the_holder_and_its_step() {
+    let setup = Setup::new("wedged");
+    let repo = setup.workspace("one");
+    let boat = pool_boat(fakes(&[("bx_old", "bp-app-1", "idle", false)]));
+    let mut m = record("bx_old", "bp-app-1", Some(&repo));
+    let pid = std::process::id();
+    m["bringing_up"] =
+        json!({"pid":pid,"started_at":1,"since":1,"step":"installing runner","limit_seconds":120});
+    setup.write_members(json!([m]));
+    let out = setup.cmd(&boat, &repo).arg("start").output().unwrap();
+    assert_eq!(out.status.code(), Some(125));
+    let error = text(&out.stderr);
+    assert!(
+        error.contains("looks wedged during installing runner")
+            && error.contains(&format!("pid {pid}")),
+        "{error}"
+    );
+    assert!(deletes(&boat).is_empty());
 }
